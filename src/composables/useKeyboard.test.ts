@@ -9,17 +9,17 @@ function press(key: string, init: KeyboardEventInit = {}, target: EventTarget = 
   return event;
 }
 
-function handlers(): KeyboardHandlers & { [K in keyof KeyboardHandlers]: ReturnType<typeof vi.fn> } {
+function handlers() {
   return {
-    up: vi.fn(),
-    down: vi.fn(),
-    enter: vi.fn(),
-    forceKill: vi.fn(() => true),
-    escape: vi.fn(),
-    focusSearch: vi.fn(),
-    refresh: vi.fn(),
-    digit: vi.fn(),
-  };
+    up: vi.fn<() => void>(),
+    down: vi.fn<() => void>(),
+    enter: vi.fn<() => void>(),
+    forceKill: vi.fn<() => boolean>(() => true),
+    escape: vi.fn<() => void>(),
+    focusSearch: vi.fn<() => void>(),
+    refresh: vi.fn<() => void>(),
+    digit: vi.fn<(digit: string) => void>(),
+  } satisfies KeyboardHandlers;
 }
 
 describe("useKeyboard", () => {
