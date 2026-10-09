@@ -31,8 +31,9 @@ describe("App", () => {
     const rows = wrapper.findAll("[role='row']");
     expect(rows).toHaveLength(9);
     expect(wrapper.text()).toContain("shop-api");
-    expect(wrapper.text()).toContain("9 ports");
-    expect(wrapper.text()).toContain("6 projects");
+    // The count lives in the status line only; the title strip's right side is empty.
+    expect(wrapper.get("footer").text()).toContain("9 ports · 6 projects");
+    expect(wrapper.get("header").text()).not.toContain("port");
     expect(wrapper.text()).toContain("v0.1.0-mock");
   });
 
@@ -78,7 +79,7 @@ describe("App", () => {
     const { wrapper } = await mountApp();
     const input = wrapper.get("input[aria-label='Search ports']");
     await input.setValue("51");
-    expect(wrapper.text()).toContain("2 of 9");
+    expect(wrapper.get("footer").text()).toContain("2 of 9 ports");
     press("Escape", {}, input.element);
     await flushPromises();
     expect((input.element as HTMLInputElement).value).toBe("");

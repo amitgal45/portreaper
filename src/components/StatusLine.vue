@@ -1,8 +1,12 @@
 <script setup lang="ts">
 // "9 ports · 7 projects · last refresh 1 s ago · v0.1.0", and the poll error when there is one.
+// While a search narrows the list: "2 of 9 ports · …".
 import { computed, onMounted, onUnmounted, ref } from "vue";
 
 const props = defineProps<{
+  /** Rows that match the search. */
+  shown: number;
+  /** Rows the core reported. */
   total: number;
   projects: number;
   /** ms epoch of the last successful poll. */
@@ -32,7 +36,11 @@ const ago = computed(() => {
 });
 
 const text = computed(() => {
-  const parts = [plural(props.total, "port"), plural(props.projects, "project"), `last refresh ${ago.value}`];
+  const ports =
+    props.shown < props.total
+      ? `${props.shown} of ${plural(props.total, "port")}`
+      : plural(props.total, "port");
+  const parts = [ports, plural(props.projects, "project"), `last refresh ${ago.value}`];
   if (props.version) parts.push(/^\d/.test(props.version) ? `v${props.version}` : props.version);
   return parts.join(" · ");
 });
