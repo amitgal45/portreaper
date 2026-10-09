@@ -24,7 +24,7 @@ const count = computed(
 <template>
   <section :data-group="group.key">
     <div
-      class="group/header sticky top-0 z-10 flex h-8 items-center gap-2 border-b border-neutral-200 bg-neutral-50 px-3 text-[12px] dark:border-neutral-800 dark:bg-neutral-800/80"
+      class="group/header sticky top-0 z-10 flex h-8 items-center gap-2 border-b border-neutral-200 bg-neutral-50 px-3 text-[12px] dark:border-neutral-800 dark:bg-neutral-800"
     >
       <button
         type="button"

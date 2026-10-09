@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "See every listening port on your Mac, which project it belongs to, and kill it in one click."
 authors = ["Amit Gal"]
 edition = "2021"
+license = "MIT"
 rust-version = "1.85"
 
 [lib]

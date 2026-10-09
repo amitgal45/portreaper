@@ -309,10 +309,16 @@ pub fn setup(app: &AppHandle) -> tauri::Result<()> {
         .tooltip(&snapshot.tooltip)
         .on_menu_event(on_menu_event)
         .on_tray_icon_event(on_tray_icon_event);
-    match app.default_window_icon() {
-        // The app icon stands in until WP-6 supplies the real template icon.
-        Some(icon) => tray = tray.icon(icon.clone()),
-        None => warn("no default window icon; the tray shows its title only"),
+    // The menu-bar glyph: black on transparent, rendered from design/tray.svg at 2x, and marked
+    // as a template above so macOS tints it for light and dark menu bars.
+    match tauri::image::Image::from_bytes(include_bytes!("../icons/tray-44.png")) {
+        Ok(icon) => tray = tray.icon(icon),
+        Err(e) => {
+            warn(&format!("tray glyph failed to load, using the app icon: {e}"));
+            if let Some(icon) = app.default_window_icon() {
+                tray = tray.icon(icon.clone());
+            }
+        }
     }
     tray.build(app)?;
 

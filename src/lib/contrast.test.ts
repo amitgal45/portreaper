@@ -92,9 +92,9 @@ describe("secondary text contrast", () => {
     expect(white).toEqual([255, 255, 255]);
   });
 
-  it("dark: neutral-400 on the row surface (neutral-900) and on the group band (neutral-800/80)", () => {
+  it("dark: neutral-400 on the row surface (neutral-900) and on the group band (neutral-800)", () => {
     expect(contrast(n400, n900)).toBeGreaterThanOrEqual(AA);
-    expect(contrast(n400, over(n800, 0.8, n900))).toBeGreaterThanOrEqual(AA);
+    expect(contrast(n400, n800)).toBeGreaterThanOrEqual(AA);
     // The pair WP-3 shipped, which WP-7 measured below AA: the reason for the change.
     expect(contrast(n500, n900)).toBeLessThan(AA);
   });
