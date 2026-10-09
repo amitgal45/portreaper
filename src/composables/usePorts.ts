@@ -60,10 +60,15 @@ function matches(e: PortEntry, q: string): boolean {
   return haystacks.some((h) => h.toLowerCase().includes(q));
 }
 
+/** The group an entry lands in. */
+export function groupKeyOf(e: PortEntry): string {
+  return e.project ? `p:${e.project.name}` : `n:${e.processName}`;
+}
+
 export function groupEntries(entries: PortEntry[]): PortGroup[] {
   const buckets = new Map<string, PortEntry[]>();
   for (const e of entries) {
-    const key = e.project ? `p:${e.project.name}` : `n:${e.processName}`;
+    const key = groupKeyOf(e);
     const bucket = buckets.get(key);
     if (bucket) bucket.push(e);
     else buckets.set(key, [e]);
@@ -248,9 +253,14 @@ export function usePorts(api: PortApi, options: UsePortsOptions = {}) {
   }
 
   // A search always has a visible target for Enter: the first match. An empty search has none.
-  watch(normalizedQuery, (q) => {
-    select(q ? (visibleEntries.value[0] ?? null) : null);
-  });
+  // Sync, so a caller that clears the search and then selects a row (the tray) keeps its selection.
+  watch(
+    normalizedQuery,
+    (q) => {
+      select(q ? (visibleEntries.value[0] ?? null) : null);
+    },
+    { flush: "sync" },
+  );
 
   // When the selected row leaves (killed, filtered out, collapsed), move to its neighbour so a
   // second Enter clears the next port; with nothing to stand on, drop the selection.

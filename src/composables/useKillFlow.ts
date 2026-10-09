@@ -63,6 +63,11 @@ export function useKillFlow(ports: PortsStore, toasts: Toasts) {
     return execute(target);
   }
 
+  /** Always opens the dialog, protected or not. For paths where the user has not seen the row yet. */
+  function ask(target: KillTarget) {
+    confirm.value = target;
+  }
+
   function confirmed(): Promise<void> {
     const target = confirm.value;
     confirm.value = null;
@@ -73,7 +78,7 @@ export function useKillFlow(ports: PortsStore, toasts: Toasts) {
     confirm.value = null;
   }
 
-  return { confirm, confirming, request, confirmed, cancel };
+  return { confirm, confirming, request, ask, confirmed, cancel };
 }
 
 export type KillFlow = ReturnType<typeof useKillFlow>;
