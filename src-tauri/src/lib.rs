@@ -5,8 +5,9 @@
 //! - `ports`     listing sockets and the processes behind them      (WP-1)
 //! - `kill`      graceful then forceful termination                  (WP-1)
 //! - `project`   cwd -> project name, kind, branch, tool             (WP-2)
-//! - `tray`      menu-bar icon, menu, close-to-hide                  (WP-4)
-//! - `shortcuts` the global shortcut                                 (WP-4)
+//! - `tray`      menu-bar icon, menu, close-to-hide                  (WP-4, WP-8a)
+//! - `shortcuts` the global shortcuts                                (WP-4, WP-8a)
+//! - `quick`     the Quick window that hosts "Free a port…"          (WP-8a)
 //! - `commands`  the thin `#[tauri::command]` layer
 //!
 //! Every plugin is registered here and allowed in `capabilities/default.json`. Add new ones in
@@ -17,6 +18,7 @@ mod kill;
 mod model;
 mod ports;
 mod project;
+mod quick;
 mod shortcuts;
 mod tray;
 

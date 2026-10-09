@@ -24,6 +24,7 @@ use tauri_plugin_autostart::ManagerExt as _;
 use tauri_plugin_notification::NotificationExt as _;
 
 use crate::model::{KillOutcome, KillRequest, PortEntry, Protocol};
+use crate::quick;
 
 /// How many "Free :PORT" items the menu shows at most.
 pub const MAX_MENU_PORTS: usize = 12;
@@ -322,16 +323,18 @@ fn on_tray_icon_event(tray: &TrayIcon, event: TrayIconEvent) {
     }
 }
 
-/// Closing the main window hides it: the tray, the Dock and ⌘⇧P bring it back; Quit ends the app.
+/// Closing either window hides it: the tray, the Dock and ⌘⇧P bring the main one back, ⌘⇧K the
+/// Quick one; Quit ends the app. The Quick window also hides the moment it loses focus.
 pub fn on_window_event(window: &Window, event: &WindowEvent) {
-    if let WindowEvent::CloseRequested { api, .. } = event {
-        if window.label() != MAIN_WINDOW {
-            return;
+    match (window.label(), event) {
+        (MAIN_WINDOW | quick::QUICK_WINDOW, WindowEvent::CloseRequested { api, .. }) => {
+            api.prevent_close();
+            if let Err(e) = window.hide() {
+                warn(format_args!("could not hide the {} window: {e}", window.label()));
+            }
         }
-        api.prevent_close();
-        if let Err(e) = window.hide() {
-            warn(format_args!("could not hide the window: {e}"));
-        }
+        (quick::QUICK_WINDOW, WindowEvent::Focused(false)) => quick::hide_quick(window.app_handle()),
+        _ => {}
     }
 }
 

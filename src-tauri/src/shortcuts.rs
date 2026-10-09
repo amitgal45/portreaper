@@ -1,27 +1,36 @@
-//! The global shortcut that brings the window up from anywhere.
+//! The global shortcuts that work from anywhere.
 //!
-//! Owned by WP-4. ⌘⇧P (Ctrl+Shift+P off macOS) toggles the main window: visible and focused
-//! hides it, anything else shows and focuses it. Another app may own the combo already; that is
-//! a warning, not an error: the rest of the app works without the shortcut.
+//! Owned by WP-4, extended by WP-8a. ⌘⇧P (Ctrl+Shift+P off macOS) toggles the main window:
+//! visible and focused hides it, anything else shows and focuses it. ⌘⇧K toggles the Quick
+//! window ("Free a port…"). Another app may own a combo already; that is a warning, not an
+//! error: the rest of the app works without the shortcut.
 
 use tauri::{AppHandle, Manager};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt as _, ShortcutState};
 
+use crate::quick;
 use crate::tray::{show_window, warn};
 
-/// The accelerator, in the global-shortcut plugin's syntax.
+/// The accelerators, in the global-shortcut plugin's syntax. The tray menu shows them as labels.
 pub const TOGGLE_WINDOW: &str = "CmdOrCtrl+Shift+P";
+pub const QUICK_WINDOW: &str = "CmdOrCtrl+Shift+K";
 
 pub fn setup(app: &AppHandle) -> tauri::Result<()> {
-    let registered = app.global_shortcut().on_shortcut(TOGGLE_WINDOW, |app, _shortcut, event| {
+    register(app, TOGGLE_WINDOW, "⌘⇧P", toggle_window);
+    register(app, QUICK_WINDOW, "⌘⇧K", quick::toggle_quick);
+    Ok(())
+}
+
+/// Registers `accelerator` to run `action` on key down. A taken combo is a warning.
+fn register(app: &AppHandle, accelerator: &str, name: &str, action: fn(&AppHandle)) {
+    let registered = app.global_shortcut().on_shortcut(accelerator, move |app, _shortcut, event| {
         if event.state == ShortcutState::Pressed {
-            toggle_window(app);
+            action(app);
         }
     });
     if let Err(e) = registered {
-        warn(format_args!("could not register ⌘⇧P ({TOGGLE_WINDOW}): {e}"));
+        warn(format_args!("could not register {name} ({accelerator}): {e}"));
     }
-    Ok(())
 }
 
 /// Visible and focused hides; anything else shows and focuses.

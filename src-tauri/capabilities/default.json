@@ -1,8 +1,8 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "What the main window may ask the core to do. Every plugin registered in lib.rs is allowed here with the narrowest permission that works.",
-  "windows": ["main"],
+  "description": "What the main and the quick windows may ask the core to do. Every plugin registered in lib.rs is allowed here with the narrowest permission that works.",
+  "windows": ["main", "quick"],
   "permissions": [
     "core:default",
     "core:window:allow-show",
