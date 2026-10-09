@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { luminance, open, paintedColor, rows } from "./helpers";
+import { contrast, group, luminance, open, over, paintedColor, row, rows } from "./helpers";
 
 test.describe.configure({ mode: "parallel" });
 
@@ -64,5 +64,30 @@ test.describe("in dark mode", () => {
     const text = await paintedColor(rows(page).first(), "color");
     expect(text.a, `row text is ${text.css}`).toBe(1);
     expect(luminance(text), `row text is ${text.css}`).toBeGreaterThan(0.6);
+  });
+
+  test("the secondary text clears AA (4.5:1) on the row and on the group band", async ({ page }) => {
+    await open(page);
+    const surface = await paintedColor(page.locator("main"), "backgroundColor");
+    const first = row(page, 3000);
+
+    // The pid, memory and uptime sit on the row surface.
+    for (const cell of ["48213", "412 MB", "2 h"]) {
+      const colour = await paintedColor(first.getByText(cell, { exact: true }), "color");
+      expect(contrast(colour, surface), `${cell} is ${colour.css} on ${surface.css}`).toBeGreaterThanOrEqual(
+        4.5,
+      );
+    }
+
+    // The branch and the tool chip sit on the translucent group band.
+    const shopApi = group(page, "p:shop-api");
+    const band = over(
+      await paintedColor(shopApi.locator(":scope > div").first(), "backgroundColor"),
+      surface,
+    );
+    for (const cell of ["feature/cart", "next"]) {
+      const colour = await paintedColor(shopApi.getByText(cell, { exact: true }), "color");
+      expect(contrast(colour, band), `${cell} is ${colour.css} on ${band.css}`).toBeGreaterThanOrEqual(4.5);
+    }
   });
 });

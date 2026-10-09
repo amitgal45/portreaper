@@ -74,3 +74,21 @@ export function luminance({ r, g, b }: Rgba): number {
   };
   return 0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b);
 }
+
+/** `top` painted over an opaque `bottom`, the way a translucent band composites in sRGB. */
+export function over(top: Rgba, bottom: Rgba): Rgba {
+  const mix = (t: number, b: number) => Math.round(top.a * t + (1 - top.a) * b);
+  return {
+    r: mix(top.r, bottom.r),
+    g: mix(top.g, bottom.g),
+    b: mix(top.b, bottom.b),
+    a: 1,
+    css: `${top.css} over ${bottom.css}`,
+  };
+}
+
+/** WCAG contrast ratio, 1 to 21. AA for small text is 4.5. */
+export function contrast(a: Rgba, b: Rgba): number {
+  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x) as [number, number];
+  return (hi + 0.05) / (lo + 0.05);
+}
