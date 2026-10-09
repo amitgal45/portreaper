@@ -103,7 +103,7 @@ watch(
       <HintTooltip v-if="entry.protected" :text="`${reason ?? 'protected'} — asks before killing`">
         <span class="inline-flex shrink-0 text-neutral-400"><Lock :size="11" :stroke-width="2" /></span>
       </HintTooltip>
-      <span v-if="command" class="hidden min-w-0 flex-1 truncate text-[12px] text-neutral-400 sm:inline">{{ command }}</span>
+      <span v-if="command.text" class="hidden min-w-0 flex-1 truncate text-[12px] text-neutral-400 sm:inline" :title="command.title">{{ command.text }}</span>
     </span>
 
     <span class="w-16 shrink-0 text-right text-[12px] text-neutral-500 tabular-nums">{{ memory }}</span>

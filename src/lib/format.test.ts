@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatBytes, formatPorts, formatUptime, shortCommand } from "./format";
+import { executableDir, formatBytes, formatPorts, formatUptime, shortCommand, splitCommand } from "./format";
 
 describe("formatBytes", () => {
   it("renders megabytes as whole numbers", () => {
@@ -43,22 +43,111 @@ describe("formatUptime", () => {
   });
 });
 
+const CHROME =
+  "/Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Helpers/chrome_crashpad_handler";
+
+describe("splitCommand", () => {
+  it("splits on whitespace and keeps quoted and escaped spaces inside a word", () => {
+    expect(splitCommand("node dist/main.js --port=8080")).toEqual(["node", "dist/main.js", "--port=8080"]);
+    expect(splitCommand('"/Applications/Visual Studio Code.app/Contents/MacOS/Electron" --inspect')).toEqual([
+      "/Applications/Visual Studio Code.app/Contents/MacOS/Electron",
+      "--inspect",
+    ]);
+    expect(splitCommand("'/Volumes/My Disk/run' --name 'a b'")).toEqual([
+      "/Volumes/My Disk/run",
+      "--name",
+      "a b",
+    ]);
+    expect(splitCommand("/Applications/Google\\ Chrome.app/Contents/MacOS/Google\\ Chrome --x")).toEqual([
+      "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+      "--x",
+    ]);
+  });
+
+  it("keeps an unquoted macOS bundle path whole (the core joins argv with plain spaces)", () => {
+    expect(splitCommand(`${CHROME} --monitor-self-annotation=ptype=crashpad-handler`)).toEqual([
+      CHROME,
+      "--monitor-self-annotation=ptype=crashpad-handler",
+    ]);
+    // A path argument with a space in a bundle segment, too.
+    expect(splitCommand("open -a /Applications/Google Chrome.app/Contents/MacOS/Google")).toEqual([
+      "open",
+      "-a",
+      "/Applications/Google Chrome.app/Contents/MacOS/Google",
+    ]);
+  });
+
+  it("handles empty input and runs of whitespace", () => {
+    expect(splitCommand("")).toEqual([]);
+    expect(splitCommand("   ")).toEqual([]);
+    expect(splitCommand("  node   dist/main.js  ")).toEqual(["node", "dist/main.js"]);
+  });
+});
+
 describe("shortCommand", () => {
-  it("collapses paths to their last segment", () => {
-    expect(shortCommand("node /Users/amit/work/shop-api/node_modules/.bin/next dev")).toBe("node next dev");
-    expect(shortCommand("/Applications/Docker.app/Contents/MacOS/com.docker.backend")).toBe(
+  it("shows the executable's basename and its arguments, paths as basenames", () => {
+    expect(shortCommand("node /Users/amit/work/shop-api/node_modules/.bin/next dev").text).toBe(
+      "node next dev",
+    );
+    expect(shortCommand("/Applications/Docker.app/Contents/MacOS/com.docker.backend").text).toBe(
       "com.docker.backend",
     );
-    expect(shortCommand("/usr/sbin/mDNSResponder")).toBe("mDNSResponder");
+    expect(shortCommand("/usr/sbin/mDNSResponder").text).toBe("mDNSResponder");
+    expect(shortCommand("node dist/main.js").text).toBe("node main.js");
+  });
+
+  it("keeps a path with spaces whole", () => {
+    expect(shortCommand(`${CHROME} --flag`).text).toBe("chrome_crashpad_handler --flag");
+    expect(
+      shortCommand('"/Applications/Visual Studio Code.app/Contents/MacOS/Electron" --inspect').text,
+    ).toBe("Electron --inspect");
+  });
+
+  it("carries the full command line as the tooltip", () => {
+    const { text, title } = shortCommand(`  ${CHROME} --flag  `);
+    expect(text).toBe("chrome_crashpad_handler --flag");
+    expect(title).toBe(`${CHROME} --flag`);
+    expect(shortCommand("node dist/main.js").title).toBe("node dist/main.js");
+  });
+
+  it("shortens the value of a --key=path flag and leaves URLs alone", () => {
+    expect(shortCommand("node --config=/etc/app/config.json server.js").text).toBe(
+      "node --config=config.json server.js",
+    );
+    expect(shortCommand("curl http://localhost:3000/health").text).toBe("curl http://localhost:3000/health");
   });
 
   it("keeps flags and collapses whitespace", () => {
-    expect(shortCommand("  node   dist/main.js --port=8080 ")).toBe("node main.js --port=8080");
+    expect(shortCommand("  node   dist/main.js --port=8080 ").text).toBe("node main.js --port=8080");
   });
 
-  it("truncates with an ellipsis", () => {
-    expect(shortCommand("a".repeat(100), 20)).toBe(`${"a".repeat(19)}…`);
-    expect(shortCommand("")).toBe("");
+  it("truncates at 60 by default, with an ellipsis", () => {
+    expect(shortCommand("a".repeat(100), 20).text).toBe(`${"a".repeat(19)}…`);
+    expect(shortCommand(`node ${"x".repeat(80)}`).text).toHaveLength(60);
+    expect(shortCommand("")).toEqual({ text: "", title: "" });
+  });
+});
+
+describe("executableDir", () => {
+  it("prefers the exe the core reported", () => {
+    expect(executableDir("/usr/sbin/mDNSResponder", "mDNSResponder")).toBe("/usr/sbin");
+    expect(executableDir("/opt/homebrew/bin/node", "node server.js")).toBe("/opt/homebrew/bin");
+  });
+
+  it("falls back to the command's executable when exe is unknown", () => {
+    expect(executableDir(null, "/Applications/Docker.app/Contents/MacOS/com.docker.backend")).toBe(
+      "/Applications/Docker.app/Contents/MacOS",
+    );
+    expect(executableDir(null, `${CHROME} --flag`)).toBe(
+      "/Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Helpers",
+    );
+    expect(executableDir(null, "/sbin/launchd")).toBe("/sbin");
+  });
+
+  it("is empty when neither says where the executable lives", () => {
+    expect(executableDir(null, "node server.js")).toBe("");
+    expect(executableDir(null, "")).toBe("");
+    expect(executableDir("", "")).toBe("");
   });
 });
 
