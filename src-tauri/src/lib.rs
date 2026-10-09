@@ -42,6 +42,7 @@ pub fn run() {
             commands::free_port,
             commands::app_version
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(tray::on_run_event);
 }
