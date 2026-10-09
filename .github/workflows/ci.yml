@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    name: Check and build (macOS)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - run: pnpm install --frozen-lockfile
+
+      # Lint, typecheck and unit tests for the UI.
+      - run: pnpm check
+
+      # The Rust core, including tests that open real sockets and kill real child processes.
+      - run: cargo test --manifest-path src-tauri/Cargo.toml
+
+      # An unsigned .app, so a reviewer can download and run what the PR builds.
+      - run: pnpm tauri build --bundles app
+        env:
+          CI: true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PortReaper-macos-unsigned
+          path: src-tauri/target/release/bundle/macos/*.app
+          if-no-files-found: error
