@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="112 112 800 800" width="800" height="800">
+  <!--
+    PortReaper menu-bar icon: the glyph from icon.svg, black on transparent, no plate.
+    macOS treats it as a template image (`icon_as_template(true)`) and tints it itself, so only
+    the alpha channel matters. Same geometry as the app icon; the stroke and the cut are a touch
+    lighter (84 instead of 96) because menu-bar glyphs sit lighter than Dock icons, and the view
+    box is tightened so the glyph fills a 22 pt slot the way system icons do (about 18 x 15 pt).
+    Rendered by `pnpm icons` to tray-22.png / tray-44.png.
+  -->
+  <defs>
+    <mask id="cut" maskUnits="userSpaceOnUse" x="0" y="0" width="1024" height="1024">
+      <rect width="1024" height="1024" fill="#fff"/>
+      <line x1="388" y1="892" x2="636" y2="132" stroke="#000" stroke-width="84"/>
+    </mask>
+  </defs>
+
+  <path d="M232 282 H792 V622 H682 V742 H342 V622 H232 Z"
+        fill="none" stroke="#000" stroke-width="84" stroke-linejoin="round"
+        mask="url(#cut)"/>
+</svg>
