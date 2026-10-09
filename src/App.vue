@@ -15,6 +15,7 @@ import { useKeyboard } from "./composables/useKeyboard";
 import { useKillFlow } from "./composables/useKillFlow";
 import { usePorts } from "./composables/usePorts";
 import { useToasts } from "./composables/useToasts";
+import { selectFromTray, useTrayListener } from "./composables/useTray";
 
 const api = provideApi();
 const ports = usePorts(api);
@@ -88,11 +89,16 @@ const keyboard = useKeyboard(
   { enabled: () => !flow.confirming.value },
 );
 
+// The tray (WP-4) hands over a protected port: show it and ask. A no-op outside Tauri.
+const tray = useTrayListener((payload) => void selectFromTray(ports, flow, payload));
+
 onMounted(() => {
   ports.start();
   keyboard.start();
+  void tray.start();
 });
 onUnmounted(() => {
+  tray.stop();
   keyboard.stop();
   ports.stop();
 });
