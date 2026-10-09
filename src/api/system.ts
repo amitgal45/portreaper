@@ -1,5 +1,5 @@
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
-import { openPath, openUrl } from "@tauri-apps/plugin-opener";
+import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
 import { isTauri } from "./index";
 
 /**
@@ -27,9 +27,12 @@ export async function copyText(text: string): Promise<boolean> {
   return false;
 }
 
-/** Opens the folder in Finder. */
+/**
+ * Shows the folder in Finder. `revealItemInDir`, not `openPath`: the capability file grants
+ * `opener:default`, which covers reveal and URLs but not opening arbitrary paths.
+ */
 export async function revealFolder(path: string): Promise<boolean> {
   if (!isTauri() || !path) return false;
-  await openPath(path);
+  await revealItemInDir(path);
   return true;
 }
