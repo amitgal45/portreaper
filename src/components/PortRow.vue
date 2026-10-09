@@ -21,7 +21,7 @@ import {
 } from "reka-ui";
 import { computed, ref, watch } from "vue";
 import { useActions } from "../composables/useActions";
-import { formatBytes, formatUptime, shortCommand } from "../lib/format";
+import { executableDir, formatBytes, formatUptime, shortCommand } from "../lib/format";
 import type { PortEntry } from "../types";
 import HintTooltip from "./HintTooltip.vue";
 
@@ -41,6 +41,13 @@ const actions = useActions();
 const el = ref<HTMLElement | null>(null);
 
 const command = computed(() => shortCommand(props.entry.command));
+/** A command that is only the executable repeats the name (daemons, Docker): say where it lives instead. */
+const repeatsName = computed(
+  () => !command.value.text || command.value.text.toLowerCase() === props.entry.processName.toLowerCase(),
+);
+const location = computed(() =>
+  repeatsName.value ? executableDir(props.entry.exe, props.entry.command) : "",
+);
 const uptime = computed(() => formatUptime(props.entry.startedAt));
 const memory = computed(() => formatBytes(props.entry.memoryBytes));
 const canOpen = computed(() => props.entry.protocol === "tcp");
@@ -103,7 +110,8 @@ watch(
       <HintTooltip v-if="entry.protected" :text="`${reason ?? 'protected'} — asks before killing`">
         <span class="inline-flex shrink-0 text-neutral-400"><Lock :size="11" :stroke-width="2" /></span>
       </HintTooltip>
-      <span v-if="command.text" class="hidden min-w-0 flex-1 truncate text-[12px] text-neutral-400 sm:inline" :title="command.title">{{ command.text }}</span>
+      <span v-if="!repeatsName" data-cell="command" class="hidden min-w-0 flex-1 truncate text-[12px] text-neutral-400 sm:inline" :title="command.title">{{ command.text }}</span>
+      <span v-else-if="location" data-cell="location" class="hidden min-w-0 flex-1 truncate text-[12px] text-neutral-400 sm:inline" :title="entry.exe || command.title">{{ location }}</span>
     </span>
 
     <span class="w-16 shrink-0 text-right text-[12px] text-neutral-500 tabular-nums">{{ memory }}</span>

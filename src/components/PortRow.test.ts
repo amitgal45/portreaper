@@ -116,6 +116,42 @@ describe("PortRow", () => {
     udp.unmount();
   });
 
+  it("does not repeat the name as the command; shows where the executable lives instead", () => {
+    const actions = spies();
+    // The command is only the executable's path: the basename would repeat the name.
+    const docker = mountRow(byPort(5432), actions);
+    expect(docker.text().match(/com\.docker\.backend/g)).toHaveLength(1);
+    expect(docker.find("[data-cell='command']").exists()).toBe(false);
+    const where = docker.get("[data-cell='location']");
+    expect(where.text()).toBe("/Applications/Docker.app/Contents/MacOS");
+    expect(where.attributes("title")).toBe("/Applications/Docker.app/Contents/MacOS/com.docker.backend");
+    docker.unmount();
+
+    // The exe the core reports wins over the command line.
+    const mdns = mountRow(
+      { ...byPort(53), exe: "/usr/sbin/mDNSResponder", command: "mDNSResponder" },
+      actions,
+    );
+    expect(mdns.get("[data-cell='location']").text()).toBe("/usr/sbin");
+    expect(mdns.get("[data-cell='location']").attributes("title")).toBe("/usr/sbin/mDNSResponder");
+    mdns.unmount();
+
+    // Nothing known beyond the name: nothing shown, nothing repeated.
+    const bare = mountRow({ ...byPort(53), exe: null, command: "" }, actions);
+    expect(bare.text().match(/mDNSResponder/g)).toHaveLength(1);
+    expect(bare.find("[data-cell='location']").exists()).toBe(false);
+    expect(bare.find("[data-cell='command']").exists()).toBe(false);
+    bare.unmount();
+
+    // A real command line still shows, with the full line as its tooltip.
+    const next = mountRow(byPort(3000), actions);
+    const command = next.get("[data-cell='command']");
+    expect(command.text()).toBe("node next dev");
+    expect(command.attributes("title")).toBe("node /Users/amit/work/shop-api/node_modules/.bin/next dev");
+    expect(next.find("[data-cell='location']").exists()).toBe(false);
+    next.unmount();
+  });
+
   it("hides the branch and tool when the group header shows them", () => {
     const wrapper = mountRow(byPort(3000), spies(), { showBranch: false, showTool: false });
     expect(wrapper.find("[data-badge='branch']").exists()).toBe(false);
