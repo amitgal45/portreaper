@@ -214,7 +214,8 @@ describe("useQuick: a protected entry", () => {
     expect(freePort).not.toHaveBeenCalled();
     expect(quick.armed.value).toEqual({
       key: "11710:5432:tcp",
-      text: "This is Docker (com.docker.backend). Press Enter again to kill it.",
+      text: "This is Docker (com.docker.backend).",
+      hint: "Press Enter again to kill it.",
     });
 
     await vi.advanceTimersByTimeAsync(4000);
@@ -266,9 +267,7 @@ describe("useQuick: a protected entry", () => {
     quick.query.value = "7000";
     await nextTick();
     quick.handleKey(key("Enter"));
-    expect(quick.armed.value?.text).toBe(
-      "This is a system process (ControlCenter). Press Enter again to kill it.",
-    );
+    expect(quick.armed.value?.text).toBe("This is a system process (ControlCenter).");
     quick.handleKey(key("Alt"));
     quick.handleKey(key("Enter", { altKey: true }));
     await vi.advanceTimersByTimeAsync(0);

@@ -24,10 +24,14 @@ export interface UseQuickOptions {
   onFocus?: () => void;
 }
 
-/** A protected row after its first Enter: the row shows `text` until the second Enter or any other key. */
+/**
+ * A protected row after its first Enter. The row shows `text` ("This is Docker (com.docker.backend).")
+ * and `hint` ("Press Enter again to kill it.") until the second Enter or any other key.
+ */
 export interface Armed {
   key: string;
   text: string;
+  hint: string;
 }
 
 /** What replaces a row after Enter: "Freed :3000 · node (48213)", a refusal, or the transport failure. */
@@ -195,7 +199,8 @@ export function useQuick(api: PortApi, options: UseQuickOptions = {}) {
     const reason = protectionReason(entry, currentUser.value);
     armed.value = {
       key: quickKey(entry),
-      text: `This is ${reason} (${entry.processName}). Press Enter again to kill it.`,
+      text: `This is ${reason} (${entry.processName}).`,
+      hint: "Press Enter again to kill it.",
     };
     armTimer = setTimeout(disarm, armMs);
   }
