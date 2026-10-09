@@ -20,3 +20,25 @@ for (const { scheme, path } of shots) {
     await page.screenshot({ path });
   });
 }
+
+// The Quick strip (WP-8b) at its window size, 480×320: the recents on an empty query, the first
+// row selected so the "↩ free" hint is in the picture.
+test.describe("quick", () => {
+  test.use({ viewport: { width: 480, height: 320 } });
+
+  const quickShots = [
+    { scheme: "light", path: "docs/screenshot-quick.png" },
+    { scheme: "dark", path: "docs/screenshot-quick-dark.png" },
+  ] as const;
+
+  for (const { scheme, path } of quickShots) {
+    test(`${scheme} → ${path}`, async ({ page }) => {
+      await page.emulateMedia({ colorScheme: scheme });
+      await page.goto("/quick.html");
+      const options = page.getByRole("option");
+      await expect(options).toHaveCount(5);
+      await expect(options.first()).toHaveAttribute("aria-selected", "true");
+      await page.screenshot({ path });
+    });
+  }
+});
