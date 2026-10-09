@@ -17,6 +17,8 @@ test("loads the mock and groups it by project, dev servers first", async ({ page
   // The count lives in the status line only; the title strip carries the search box and nothing else.
   await expect(statusLine(page)).toContainText(`${MOCK_PORT_COUNT} ports · 6 projects`);
   await expect(page.locator("header")).not.toContainText("port");
+  // No scaffold leftovers: the page is titled like the app (only a browser tab shows it).
+  await expect(page).toHaveTitle("PortReaper");
 
   // Projects with dev servers first (by port), then processes without a project, then the
   // protected groups: see `groupEntries()` in src/composables/usePorts.ts.
