@@ -32,6 +32,19 @@ jobs:
       # Lint, typecheck and unit tests for the UI.
       - run: pnpm check
 
+      # Browser tests against the Vite dev server and the mock core. WebKit first: the Tauri window
+      # on macOS is a WKWebView. Playwright uses port 1430; 1420 is the app's.
+      - run: pnpm exec playwright install --with-deps webkit chromium
+      - run: pnpm e2e
+        id: e2e
+      - uses: actions/upload-artifact@v4
+        if: failure() && steps.e2e.outcome == 'failure'
+        with:
+          name: playwright-report
+          path: playwright-report/
+          if-no-files-found: ignore
+          retention-days: 7
+
       # The Rust core, including tests that open real sockets and kill real child processes.
       - run: cargo test --manifest-path src-tauri/Cargo.toml
 

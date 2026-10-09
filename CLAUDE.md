@@ -11,6 +11,7 @@ Part of: PortReaper (`~/work/portreaper`). Startup-wide rules come from the pare
 - Run: `pnpm tauri dev` (the app) · `pnpm dev` (UI only, in a browser, against the mock core).
   Test: `pnpm check` (Biome + vue-tsc + Vitest) and `cargo test --manifest-path src-tauri/Cargo.toml`.
   Both must pass before a PR opens. `pnpm tauri build --bundles app` makes an unsigned .app.
+  Browser tests: `pnpm e2e` (Playwright, WebKit + Chromium, against the mock on port 1430; 1420 is the app's).
 - Layout:
   - `src-tauri/src/model.rs` ⇄ `src/types.ts` — the contract. Change both in one commit.
   - `src-tauri/src/{ports,kill,project,tray,shortcuts}.rs` — one module per work package;
