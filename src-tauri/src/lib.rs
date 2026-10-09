@@ -8,6 +8,7 @@
 //! - `tray`      menu-bar icon, menu, close-to-hide                  (WP-4, WP-8a)
 //! - `shortcuts` the global shortcuts                                (WP-4, WP-8a)
 //! - `quick`     the Quick window that hosts "Free a port…"          (WP-8a)
+//! - `settings`  settings on disk; start at login on first run       (WP-8a)
 //! - `commands`  the thin `#[tauri::command]` layer
 //!
 //! Every plugin is registered here and allowed in `capabilities/default.json`. Add new ones in
@@ -19,6 +20,7 @@ mod model;
 mod ports;
 mod project;
 mod quick;
+mod settings;
 mod shortcuts;
 mod tray;
 
@@ -35,6 +37,7 @@ pub fn run() {
         .setup(|app| {
             tray::setup(app.handle())?;
             shortcuts::setup(app.handle())?;
+            settings::enable_autostart_on_first_run(app.handle());
             Ok(())
         })
         .on_window_event(tray::on_window_event)

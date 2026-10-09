@@ -167,6 +167,12 @@ pub(crate) fn warn(message: impl std::fmt::Display) {
     eprintln!("warn: {message}");
 }
 
+/// The lines that are not warnings but belong in the log: a bulk kill's per-pid outcomes, the
+/// first-run autostart.
+pub(crate) fn info(message: impl std::fmt::Display) {
+    eprintln!("info: {message}");
+}
+
 /// What the refresh thread listens for besides its timer.
 enum Signal {
     /// Re-read the ports now; swap the menu only if the model changed.
