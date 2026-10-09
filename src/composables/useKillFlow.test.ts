@@ -26,6 +26,19 @@ describe("useKillFlow", () => {
     expect(toasts.toasts.value[0]?.message).toBe("Killed node (48213). Port 3000 is free.");
   });
 
+  it("says so when the kill was forced", async () => {
+    const { flow, killProcess, toasts, byPort } = await setup();
+    await flow.request({ kind: "entry", entry: byPort(3000), force: true });
+    expect(killProcess).toHaveBeenCalledWith({ pid: 48213, force: true });
+    expect(toasts.toasts.value[0]?.message).toBe("Force-killed node (48213). Port 3000 is free.");
+
+    const entry = { processName: "node", pid: 7, port: 3000 } as PortEntry;
+    const killed = (graceful: boolean) =>
+      killMessage({ entry, ports: [3000], outcome: { status: "killed", pid: 7, graceful, waitedMs: 0 } });
+    expect(killed(false).message).toBe("Force-killed node (7). Port 3000 is free.");
+    expect(killed(true).message).toBe("Killed node (7). Port 3000 is free.");
+  });
+
   it("asks before killing a protected row, even with force", async () => {
     const { flow, killProcess, byPort } = await setup();
     await flow.request({ kind: "entry", entry: byPort(5432), force: true });
@@ -42,7 +55,7 @@ describe("useKillFlow", () => {
     await flow.confirmed();
     expect(killProcess).toHaveBeenCalledWith({ pid: 11710, force: true });
     expect(toasts.toasts.value[0]?.message).toBe(
-      "Killed com.docker.backend (11710). Ports 5432 and 6379 are free.",
+      "Force-killed com.docker.backend (11710). Ports 5432 and 6379 are free.",
     );
   });
 
