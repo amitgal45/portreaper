@@ -9,9 +9,10 @@ and in the menu bar. Instead of `node 48213` you see `shop-api · feature/cart �
 Status: **v0.1 in progress, macOS only.** Nothing is released yet; the list below is what v0.1 is
 being built to do, work package by work package.
 
-<!-- Screenshot placeholder. docs/screenshot.png is added at WP-6 (integration), once the real
-     core runs behind the UI. Keep this note until the file exists. -->
-> Screenshot: `docs/screenshot.png`, coming at WP-6 once the real core runs behind the UI.
+![PortReaper: nine listening ports grouped by project, the first one selected](docs/screenshot.png)
+
+*Mock data, from the browser build (`pnpm dev`), 760×540. Regenerate with `pnpm screenshot`;
+`docs/screenshot-dark.png` is the same window in dark mode.*
 
 ## What it does (v0.1)
 
@@ -55,6 +56,7 @@ Once the repository has a GitHub remote, CI (`.github/workflows/ci.yml`) builds 
 pnpm tauri dev                                    # the app, with hot reload
 pnpm dev                                          # the UI alone, in a browser, against a mock core
 pnpm check                                        # Biome, vue-tsc, Vitest
+pnpm e2e                                          # Playwright (WebKit, Chromium) against the mock core
 cargo test --manifest-path src-tauri/Cargo.toml   # the Rust core (opens real sockets, kills only children it spawned)
 pnpm icons                                        # regenerate every icon from design/*.svg
 ```

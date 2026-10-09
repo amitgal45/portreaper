@@ -15,7 +15,10 @@
     "check": "biome check . && vue-tsc --noEmit && vitest run",
     "check:rust": "cargo test --manifest-path src-tauri/Cargo.toml",
     "check:all": "pnpm check && pnpm check:rust",
-    "icons": "node scripts/render-icons.mjs"
+    "icons": "node scripts/render-icons.mjs",
+    "e2e": "playwright test --project webkit --project chromium",
+    "e2e:ui": "playwright test --ui",
+    "screenshot": "playwright test --project screenshot"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",
@@ -33,6 +36,7 @@
   "devDependencies": {
     "@biomejs/biome": "^2.5.15",
     "@resvg/resvg-js": "^2.6.2",
+    "@playwright/test": "^1.64.0",
     "@tailwindcss/vite": "^4.3.3",
     "@tauri-apps/cli": "^2",
     "@types/node": "^26.6.4",
