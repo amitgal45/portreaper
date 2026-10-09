@@ -72,13 +72,10 @@ test("⌥-click forces the kill", async ({ page }) => {
   const toast = toasts(page).getByRole("button");
   await expect(toast).toHaveText("Force-killed node (51022). Port 5173 is free.");
 
-  // A click dismisses the toast early. It sits bottom right, over the ✕ of the last rows, and
-  // would otherwise block the next click for its four seconds.
-  await toast.click();
-  await expect(toast).toHaveCount(0);
-
-  // The modifier is proven where the UI does spell it out: the confirm for a protected row names
-  // the signal. ⌥-click on ControlCenter must say SIGKILL, not SIGTERM.
+  // With the toast still up, the ✕ of the last row stays clickable: toasts are a band under the
+  // list, not an overlay. The confirm for a protected row names the signal: ⌥-click on
+  // ControlCenter must say SIGKILL, not SIGTERM.
+  await expect(toast).toBeVisible();
   await killButton(row(page, 7000)).click({ modifiers: ["Alt"] });
   const dialog = confirmDialog(page);
   await expect(dialog).toContainText("Kill ControlCenter (635)?");

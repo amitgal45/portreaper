@@ -1,5 +1,18 @@
 import { expect, test } from "@playwright/test";
-import { contrast, group, luminance, open, over, paintedColor, row, rows } from "./helpers";
+import {
+  confirmDialog,
+  contrast,
+  group,
+  killButton,
+  luminance,
+  open,
+  over,
+  paintedColor,
+  row,
+  rows,
+  statusLine,
+  toasts,
+} from "./helpers";
 
 test.describe.configure({ mode: "parallel" });
 
@@ -46,6 +59,43 @@ test.describe("at the minimum window size", () => {
     });
     expect(intruders).toEqual([]);
   });
+});
+
+test("three toasts stacked leave the last row's ✕ clickable", async ({ page }) => {
+  await open(page);
+
+  // Three quick kills of unprotected rows: three toasts, four seconds each.
+  for (const port of [5173, 5174, 8080]) {
+    await killButton(row(page, port)).click();
+    await expect(row(page, port)).toHaveCount(0);
+  }
+  const stack = toasts(page);
+  await expect(stack.getByRole("button")).toHaveCount(3);
+
+  // The last row and the toasts never share a pixel: the toasts are a band below the list.
+  const last = row(page, 7000);
+  await last.scrollIntoViewIfNeeded();
+  const [rowBox, stackBox] = await Promise.all([last.boundingBox(), stack.boundingBox()]);
+  expect(rowBox, "last row has a box").not.toBeNull();
+  expect(stackBox, "toast stack has a box").not.toBeNull();
+  expect(
+    (rowBox as { y: number; height: number }).y + (rowBox as { y: number; height: number }).height,
+  ).toBeLessThanOrEqual((stackBox as { y: number }).y + 1);
+
+  // And its ✕ takes the click while all three are still up.
+  await expect(stack.getByRole("button")).toHaveCount(3);
+  await killButton(last).click();
+  const dialog = confirmDialog(page);
+  await expect(dialog).toContainText("Kill ControlCenter (635)?");
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+  await expect(dialog).toHaveCount(0);
+
+  // The status line is still pinned under the band.
+  const footer = await statusLine(page).boundingBox();
+  expect(footer, "status line has a box").not.toBeNull();
+  expect((footer as { y: number }).y).toBeGreaterThanOrEqual(
+    (stackBox as { y: number; height: number }).y + (stackBox as { y: number; height: number }).height - 1,
+  );
 });
 
 test.describe("in dark mode", () => {

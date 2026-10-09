@@ -118,9 +118,10 @@ onUnmounted(() => {
         :query="query"
         :reason-for="ports.reasonFor"
       />
+      <!-- In the flow, between the list and the status line: the list shrinks while toasts are up. -->
+      <ToastList :toasts="toasts.toasts.value" @dismiss="toasts.dismiss" />
       <StatusLine :shown="shown" :total="total" :projects="projectCount" :last-refresh="lastRefresh" :version="version" :error="error" />
       <KillConfirm :target="flow.confirm.value" :reason-for="ports.reasonFor" :ports-of="ports.portsOf" @confirm="flow.confirmed()" @cancel="flow.cancel()" />
-      <ToastList :toasts="toasts.toasts.value" @dismiss="toasts.dismiss" />
     </main>
   </TooltipProvider>
 </template>
