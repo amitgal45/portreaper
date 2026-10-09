@@ -65,20 +65,17 @@ test("a protected port asks first; Cancel keeps it; Kill anyway takes every port
 test("⌥-click forces the kill", async ({ page }) => {
   await open(page);
 
-  // An unprotected row dies at once. The toast reads the same for a forced and a graceful kill
-  // (`killMessage` in src/composables/useKillFlow.ts), so the toast proves the kill, not the force.
+  // An unprotected row dies at once, and the toast says the kill was forced
+  // (`killMessage` in src/composables/useKillFlow.ts).
   await killButton(row(page, 5173)).click({ modifiers: ["Alt"] });
   await expect(row(page, 5173)).toHaveCount(0);
   const toast = toasts(page).getByRole("button");
-  await expect(toast).toHaveText("Killed node (51022). Port 5173 is free.");
+  await expect(toast).toHaveText("Force-killed node (51022). Port 5173 is free.");
 
-  // A click dismisses the toast early. It sits bottom right, over the ✕ of the last rows, and
-  // would otherwise block the next click for its four seconds.
-  await toast.click();
-  await expect(toast).toHaveCount(0);
-
-  // The modifier is proven where the UI does spell it out: the confirm for a protected row names
-  // the signal. ⌥-click on ControlCenter must say SIGKILL, not SIGTERM.
+  // With the toast still up, the ✕ of the last row stays clickable: toasts are a band under the
+  // list, not an overlay. The confirm for a protected row names the signal: ⌥-click on
+  // ControlCenter must say SIGKILL, not SIGTERM.
+  await expect(toast).toBeVisible();
   await killButton(row(page, 7000)).click({ modifiers: ["Alt"] });
   const dialog = confirmDialog(page);
   await expect(dialog).toContainText("Kill ControlCenter (635)?");

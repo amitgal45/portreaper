@@ -2,7 +2,7 @@
 // The one window: title strip, the list, the status line. State lives in the composables; the
 // components only render it and ask for actions through provide/inject.
 import { TooltipProvider } from "reka-ui";
-import { onMounted, onUnmounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref } from "vue";
 import { provideApi } from "./api";
 import { copyText, openInBrowser, revealFolder } from "./api/system";
 import KillConfirm from "./components/KillConfirm.vue";
@@ -28,7 +28,6 @@ const {
   selectedKey,
   pending,
   loaded,
-  visibleEntries,
   total,
   projectCount,
   lastRefresh,
@@ -37,6 +36,8 @@ const {
 } = ports;
 
 const titleBar = ref<{ focus(mode?: "all" | "end"): Promise<void> } | null>(null);
+/** Rows that match the search; the status line says "N of M ports" while that is fewer than M. */
+const shown = computed(() => groups.value.reduce((n, g) => n + g.entries.length, 0));
 
 /** Runs a row action that leaves the webview and tells the user what happened. */
 async function leave(action: Promise<boolean>, done: string | null) {
@@ -107,7 +108,7 @@ onUnmounted(() => {
 <template>
   <TooltipProvider :delay-duration="500" :skip-delay-duration="300">
     <main class="flex h-full flex-col overflow-hidden bg-white text-[13px] text-neutral-900 dark:bg-neutral-900 dark:text-neutral-100">
-      <TitleBar ref="titleBar" v-model:query="query" :shown="visibleEntries.length" :total="total" />
+      <TitleBar ref="titleBar" v-model:query="query" />
       <PortTable
         :groups="groups"
         :collapsed="collapsed"
@@ -117,9 +118,10 @@ onUnmounted(() => {
         :query="query"
         :reason-for="ports.reasonFor"
       />
-      <StatusLine :total="total" :projects="projectCount" :last-refresh="lastRefresh" :version="version" :error="error" />
-      <KillConfirm :target="flow.confirm.value" :reason-for="ports.reasonFor" :ports-of="ports.portsOf" @confirm="flow.confirmed()" @cancel="flow.cancel()" />
+      <!-- In the flow, between the list and the status line: the list shrinks while toasts are up. -->
       <ToastList :toasts="toasts.toasts.value" @dismiss="toasts.dismiss" />
+      <StatusLine :shown="shown" :total="total" :projects="projectCount" :last-refresh="lastRefresh" :version="version" :error="error" />
+      <KillConfirm :target="flow.confirm.value" :reason-for="ports.reasonFor" :ports-of="ports.portsOf" @confirm="flow.confirmed()" @cancel="flow.cancel()" />
     </main>
   </TooltipProvider>
 </template>

@@ -1,5 +1,18 @@
 import { expect, test } from "@playwright/test";
-import { luminance, open, paintedColor, rows } from "./helpers";
+import {
+  confirmDialog,
+  contrast,
+  group,
+  killButton,
+  luminance,
+  open,
+  over,
+  paintedColor,
+  row,
+  rows,
+  statusLine,
+  toasts,
+} from "./helpers";
 
 test.describe.configure({ mode: "parallel" });
 
@@ -48,6 +61,43 @@ test.describe("at the minimum window size", () => {
   });
 });
 
+test("three toasts stacked leave the last row's ✕ clickable", async ({ page }) => {
+  await open(page);
+
+  // Three quick kills of unprotected rows: three toasts, four seconds each.
+  for (const port of [5173, 5174, 8080]) {
+    await killButton(row(page, port)).click();
+    await expect(row(page, port)).toHaveCount(0);
+  }
+  const stack = toasts(page);
+  await expect(stack.getByRole("button")).toHaveCount(3);
+
+  // The last row and the toasts never share a pixel: the toasts are a band below the list.
+  const last = row(page, 7000);
+  await last.scrollIntoViewIfNeeded();
+  const [rowBox, stackBox] = await Promise.all([last.boundingBox(), stack.boundingBox()]);
+  expect(rowBox, "last row has a box").not.toBeNull();
+  expect(stackBox, "toast stack has a box").not.toBeNull();
+  expect(
+    (rowBox as { y: number; height: number }).y + (rowBox as { y: number; height: number }).height,
+  ).toBeLessThanOrEqual((stackBox as { y: number }).y + 1);
+
+  // And its ✕ takes the click while all three are still up.
+  await expect(stack.getByRole("button")).toHaveCount(3);
+  await killButton(last).click();
+  const dialog = confirmDialog(page);
+  await expect(dialog).toContainText("Kill ControlCenter (635)?");
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+  await expect(dialog).toHaveCount(0);
+
+  // The status line is still pinned under the band.
+  const footer = await statusLine(page).boundingBox();
+  expect(footer, "status line has a box").not.toBeNull();
+  expect((footer as { y: number }).y).toBeGreaterThanOrEqual(
+    (stackBox as { y: number; height: number }).y + (stackBox as { y: number; height: number }).height - 1,
+  );
+});
+
 test.describe("in dark mode", () => {
   test.use({ colorScheme: "dark" });
 
@@ -64,5 +114,30 @@ test.describe("in dark mode", () => {
     const text = await paintedColor(rows(page).first(), "color");
     expect(text.a, `row text is ${text.css}`).toBe(1);
     expect(luminance(text), `row text is ${text.css}`).toBeGreaterThan(0.6);
+  });
+
+  test("the secondary text clears AA (4.5:1) on the row and on the group band", async ({ page }) => {
+    await open(page);
+    const surface = await paintedColor(page.locator("main"), "backgroundColor");
+    const first = row(page, 3000);
+
+    // The pid, memory and uptime sit on the row surface.
+    for (const cell of ["48213", "412 MB", "2 h"]) {
+      const colour = await paintedColor(first.getByText(cell, { exact: true }), "color");
+      expect(contrast(colour, surface), `${cell} is ${colour.css} on ${surface.css}`).toBeGreaterThanOrEqual(
+        4.5,
+      );
+    }
+
+    // The branch and the tool chip sit on the translucent group band.
+    const shopApi = group(page, "p:shop-api");
+    const band = over(
+      await paintedColor(shopApi.locator(":scope > div").first(), "backgroundColor"),
+      surface,
+    );
+    for (const cell of ["feature/cart", "next"]) {
+      const colour = await paintedColor(shopApi.getByText(cell, { exact: true }), "color");
+      expect(contrast(colour, band), `${cell} is ${colour.css} on ${band.css}`).toBeGreaterThanOrEqual(4.5);
+    }
   });
 });

@@ -8,14 +8,14 @@ export type KillTarget =
   | { kind: "entry"; entry: PortEntry; force: boolean }
   | { kind: "group"; group: PortGroup; force: boolean };
 
-/** The sentence a toast carries for one outcome. */
+/** The sentence a toast carries for one outcome. A kill that went straight to SIGKILL says so. */
 export function killMessage(report: KillReport): { message: string; kind: ToastKind } {
   const { entry, outcome } = report;
   const who = `${entry.processName} (${entry.pid})`;
   switch (outcome.status) {
     case "killed":
       return {
-        message: `Killed ${who}. ${formatPorts(report.ports)} ${report.ports.length === 1 ? "is" : "are"} free.`,
+        message: `${outcome.graceful ? "Killed" : "Force-killed"} ${who}. ${formatPorts(report.ports)} ${report.ports.length === 1 ? "is" : "are"} free.`,
         kind: "info",
       };
     case "notFound":

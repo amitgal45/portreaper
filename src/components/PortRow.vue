@@ -21,7 +21,7 @@ import {
 } from "reka-ui";
 import { computed, ref, watch } from "vue";
 import { useActions } from "../composables/useActions";
-import { formatBytes, formatUptime, shortCommand } from "../lib/format";
+import { executableDir, formatBytes, formatUptime, shortCommand } from "../lib/format";
 import type { PortEntry } from "../types";
 import HintTooltip from "./HintTooltip.vue";
 
@@ -41,6 +41,13 @@ const actions = useActions();
 const el = ref<HTMLElement | null>(null);
 
 const command = computed(() => shortCommand(props.entry.command));
+/** A command that is only the executable repeats the name (daemons, Docker): say where it lives instead. */
+const repeatsName = computed(
+  () => !command.value.text || command.value.text.toLowerCase() === props.entry.processName.toLowerCase(),
+);
+const location = computed(() =>
+  repeatsName.value ? executableDir(props.entry.exe, props.entry.command) : "",
+);
 const uptime = computed(() => formatUptime(props.entry.startedAt));
 const memory = computed(() => formatBytes(props.entry.memoryBytes));
 const canOpen = computed(() => props.entry.protocol === "tcp");
@@ -49,7 +56,7 @@ const root = computed(() => props.entry.project?.root ?? "");
 const menuItem =
   "flex h-7 cursor-default select-none items-center gap-2 rounded px-2 outline-none data-[highlighted]:bg-neutral-100 data-[disabled]:opacity-40 dark:data-[highlighted]:bg-neutral-700";
 const iconButton =
-  "flex h-6 w-6 items-center justify-center rounded text-neutral-500 outline-none hover:bg-neutral-200 hover:text-neutral-900 focus-visible:ring-2 focus-visible:ring-blue-500/50 dark:hover:bg-neutral-700 dark:hover:text-neutral-100";
+  "flex h-6 w-6 items-center justify-center rounded text-neutral-500 dark:text-neutral-400 outline-none hover:bg-neutral-200 hover:text-neutral-900 focus-visible:ring-2 focus-visible:ring-blue-500/50 dark:hover:bg-neutral-700 dark:hover:text-neutral-100";
 
 watch(
   () => props.selected,
@@ -83,18 +90,18 @@ watch(
         <span class="inline-flex h-4 items-center rounded bg-red-500/10 px-1 font-medium text-red-600 dark:text-red-400">exposed</span>
       </HintTooltip>
       <span v-else-if="entry.bind === 'loopback'" class="text-neutral-400">local</span>
-      <span v-else class="font-mono text-neutral-500">{{ entry.address }}</span>
+      <span v-else class="font-mono text-neutral-500 dark:text-neutral-400">{{ entry.address }}</span>
     </span>
 
     <span class="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
       <span class="shrink-0 truncate">
         <span class="font-medium">{{ entry.processName }}</span>
-        <span class="ml-1 text-neutral-500 tabular-nums">{{ entry.pid }}</span>
+        <span class="ml-1 text-neutral-500 dark:text-neutral-400 tabular-nums">{{ entry.pid }}</span>
       </span>
-      <span v-if="showBranch && entry.project?.branch" data-badge="branch" class="inline-flex h-4 shrink-0 items-center gap-0.5 rounded bg-neutral-500/10 px-1 font-mono text-[11px] text-neutral-500">
+      <span v-if="showBranch && entry.project?.branch" data-badge="branch" class="inline-flex h-4 shrink-0 items-center gap-0.5 rounded bg-neutral-500/10 px-1 font-mono text-[11px] text-neutral-500 dark:text-neutral-400">
         <GitBranch :size="10" :stroke-width="2" />{{ entry.project.branch }}
       </span>
-      <span v-if="showTool && entry.project?.tool" data-badge="tool" class="inline-flex h-4 shrink-0 items-center rounded bg-neutral-500/10 px-1 text-[11px] text-neutral-500">
+      <span v-if="showTool && entry.project?.tool" data-badge="tool" class="inline-flex h-4 shrink-0 items-center rounded bg-neutral-500/10 px-1 text-[11px] text-neutral-500 dark:text-neutral-400">
         {{ entry.project.tool }}
       </span>
       <HintTooltip v-if="entry.orphan" text="its parent process is gone; usually a dev server whose terminal was closed">
@@ -103,11 +110,12 @@ watch(
       <HintTooltip v-if="entry.protected" :text="`${reason ?? 'protected'} — asks before killing`">
         <span class="inline-flex shrink-0 text-neutral-400"><Lock :size="11" :stroke-width="2" /></span>
       </HintTooltip>
-      <span v-if="command" class="hidden min-w-0 flex-1 truncate text-[12px] text-neutral-400 sm:inline">{{ command }}</span>
+      <span v-if="!repeatsName" data-cell="command" class="hidden min-w-0 flex-1 truncate text-[12px] text-neutral-400 sm:inline" :title="command.title">{{ command.text }}</span>
+      <span v-else-if="location" data-cell="location" class="hidden min-w-0 flex-1 truncate text-[12px] text-neutral-400 sm:inline" :title="entry.exe || command.title">{{ location }}</span>
     </span>
 
-    <span class="w-16 shrink-0 text-right text-[12px] text-neutral-500 tabular-nums">{{ memory }}</span>
-    <span class="w-10 shrink-0 text-right text-[12px] text-neutral-500 tabular-nums">{{ uptime }}</span>
+    <span class="w-16 shrink-0 text-right text-[12px] text-neutral-500 dark:text-neutral-400 tabular-nums">{{ memory }}</span>
+    <span class="w-10 shrink-0 text-right text-[12px] text-neutral-500 dark:text-neutral-400 tabular-nums">{{ uptime }}</span>
 
     <span class="flex w-13 shrink-0 items-center justify-end gap-0.5">
       <LoaderCircle v-if="pending" :size="14" class="animate-spin text-neutral-400" aria-label="killing" />

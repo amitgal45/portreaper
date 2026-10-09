@@ -1,23 +1,12 @@
 <script setup lang="ts">
 // The 44 px strip under the hidden native title bar. It drags the window; the search box does not.
-// The left 78 px stay empty for the traffic lights.
+// The left 78 px stay empty for the traffic lights. The right side is empty on purpose: the counts
+// live in the status line.
 import { Search, X } from "lucide-vue-next";
-import { computed, nextTick, ref } from "vue";
-
-const props = defineProps<{
-  /** Rows on screen after the search. */
-  shown: number;
-  /** Rows the core reported. */
-  total: number;
-}>();
+import { nextTick, ref } from "vue";
 
 const query = defineModel<string>("query", { default: "" });
 const input = ref<HTMLInputElement | null>(null);
-
-const count = computed(() => {
-  if (query.value.trim() && props.shown !== props.total) return `${props.shown} of ${props.total}`;
-  return `${props.total} ${props.total === 1 ? "port" : "ports"}`;
-});
 
 /** `all` selects the text (⌘F); `end` puts the caret after it (a digit typed from the list). */
 async function focus(mode: "all" | "end" = "all") {
@@ -68,6 +57,5 @@ defineExpose({ focus });
         <X :size="12" :stroke-width="2" />
       </button>
     </label>
-    <span class="ml-auto shrink-0 text-[12px] text-neutral-500 tabular-nums" aria-live="polite">{{ count }}</span>
   </header>
 </template>

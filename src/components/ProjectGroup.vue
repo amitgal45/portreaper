@@ -34,8 +34,8 @@ const count = computed(
       >
         <ChevronRight :size="12" :stroke-width="2" class="shrink-0 text-neutral-400 transition-transform" :class="!collapsed && 'rotate-90'" />
         <span class="truncate font-medium text-neutral-800 dark:text-neutral-200">{{ group.name }}</span>
-        <span v-if="group.branch" class="truncate font-mono text-neutral-500">{{ group.branch }}</span>
-        <span v-if="group.tool" class="inline-flex h-4 shrink-0 items-center rounded bg-neutral-500/10 px-1 text-[11px] text-neutral-500">{{ group.tool }}</span>
+        <span v-if="group.branch" class="truncate font-mono text-neutral-500 dark:text-neutral-400">{{ group.branch }}</span>
+        <span v-if="group.tool" class="inline-flex h-4 shrink-0 items-center rounded bg-neutral-500/10 px-1 text-[11px] text-neutral-500 dark:text-neutral-400">{{ group.tool }}</span>
         <Lock v-if="group.protected" :size="11" :stroke-width="2" class="shrink-0 text-neutral-400" />
       </button>
       <span class="shrink-0 text-neutral-400 tabular-nums">{{ count }}</span>
