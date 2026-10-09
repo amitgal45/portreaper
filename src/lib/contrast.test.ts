@@ -58,11 +58,6 @@ function oklabToRgb(L: number, a: number, b: number): Rgb {
   }) as Rgb;
 }
 
-/** `top` at `alpha` painted over an opaque `bottom`, as the browser composites (in sRGB). */
-function over(top: Rgb, alpha: number, bottom: Rgb): Rgb {
-  return top.map((c, i) => Math.round(alpha * c + (1 - alpha) * (bottom[i] as number))) as Rgb;
-}
-
 function luminance([r, g, b]: Rgb): number {
   const lin = (byte: number) => {
     const c = byte / 255;
