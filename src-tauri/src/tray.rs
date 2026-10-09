@@ -1,10 +1,13 @@
 //! The menu-bar icon, its menu, and what happens when the window is closed.
 //!
-//! Owned by WP-4. The app lives in the Dock like a normal app; the tray is the fast path:
-//! a count of open ports, "Free :3000 · shop-api" items, show/quit, and "Start at login".
+//! Owned by WP-4, extended by WP-8a. The app lives in the Dock like a normal app; the tray is
+//! the fast path: a count of open ports, "Free a port…" (the Quick window), a Shortcuts submenu
+//! with one "Free :3000 · shop-api" item per port and two bulk kills, show/quit, and "Start at
+//! login".
 //!
-//! The pure part is [`menu_model`]: the port list in, the menu lines out. Everything the tray
-//! shows is derived from it, so it is the part that gets unit tests.
+//! The pure part is [`shortcuts_model`], built on [`menu_model`]: the port list in, every menu
+//! line out. Everything the tray shows is derived from it, so it is the part that gets unit
+//! tests.
 //!
 //! A Tauri 2 tray menu is static once built, so a background thread re-reads the ports every
 //! [`REFRESH_INTERVAL`] (and at once whenever the window is shown) and swaps the menu on the
@@ -13,18 +16,19 @@
 //! directly, then posts a notification. Nothing here may panic: every runtime failure is a
 //! [`warn`] on stderr and the app carries on.
 
+use std::collections::HashSet;
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::time::Duration;
 
 use serde::Serialize;
-use tauri::menu::{CheckMenuItem, Menu, MenuEvent, MenuItem, PredefinedMenuItem};
+use tauri::menu::{CheckMenuItem, Menu, MenuEvent, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager, RunEvent, Window, WindowEvent};
 use tauri_plugin_autostart::ManagerExt as _;
 use tauri_plugin_notification::NotificationExt as _;
 
 use crate::model::{KillOutcome, KillRequest, PortEntry, Protocol};
-use crate::quick;
+use crate::{quick, shortcuts};
 
 /// How many "Free :PORT" items the menu shows at most.
 pub const MAX_MENU_PORTS: usize = 12;
@@ -38,6 +42,11 @@ pub const SELECT_PORT_EVENT: &str = "tray:select-port";
 const MAIN_WINDOW: &str = "main";
 const TRAY_ID: &str = "main";
 
+const ID_HEADER: &str = "header";
+const ID_QUICK: &str = "quick";
+const ID_SHORTCUTS: &str = "shortcuts";
+const ID_KILL_ORPHANS: &str = "kill-orphans";
+const ID_KILL_DEV_SERVERS: &str = "kill-dev-servers";
 const ID_OPEN: &str = "open";
 const ID_NO_PORTS: &str = "no-ports";
 const ID_AUTOSTART: &str = "autostart";
@@ -71,6 +80,89 @@ pub fn menu_model(entries: &[PortEntry], max: usize) -> Vec<MenuEntry> {
     let mut model = distinct_ports(entries);
     model.truncate(max);
     model
+}
+
+/// Everything the menu shows about the ports, derived from the list by [`shortcuts_model`].
+/// Two equal models make the same menu, so the refresh thread compares them and leaves an
+/// unchanged menu alone.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ShortcutsModel {
+    /// The disabled first line: `"PortReaper · 9 ports"`, `"PortReaper · no ports"` at zero.
+    pub header: String,
+    /// The `Free :PORT · name` lines of the Shortcuts submenu, as [`menu_model`] makes them.
+    pub ports: Vec<MenuEntry>,
+    /// What "Kill lost-terminal servers" kills: every orphan pid that is not protected, once.
+    pub orphans: Vec<u32>,
+    /// What "Kill all dev servers" kills: every pid with a project that is not protected, once.
+    pub dev_servers: Vec<u32>,
+}
+
+impl ShortcutsModel {
+    /// `"Kill lost-terminal servers (2)"`; no count at zero, where the item is disabled.
+    pub fn orphans_label(&self) -> String {
+        counted_label("Kill lost-terminal servers", self.orphans.len())
+    }
+
+    /// `"Kill all dev servers (4)"`; no count at zero, where the item is disabled.
+    pub fn dev_servers_label(&self) -> String {
+        counted_label("Kill all dev servers", self.dev_servers.len())
+    }
+}
+
+/// The whole menu model for `entries`. Pids are distinct and sorted; a pid that is protected
+/// on any of its sockets is in neither bulk list, so the tray never widens what a kill reaches.
+pub fn shortcuts_model(entries: &[PortEntry]) -> ShortcutsModel {
+    let protected = distinct_pids(entries, |e| e.protected);
+    let unprotected = |e: &PortEntry| protected.binary_search(&e.pid).is_err();
+    ShortcutsModel {
+        header: header(entries),
+        ports: menu_model(entries, MAX_MENU_PORTS),
+        orphans: distinct_pids(entries, |e| e.orphan && unprotected(e)),
+        dev_servers: distinct_pids(entries, |e| e.project.is_some() && unprotected(e)),
+    }
+}
+
+/// `"PortReaper · N ports"` with the freeable count the title shows; `no ports` at zero.
+pub fn header(entries: &[PortEntry]) -> String {
+    match freeable_count(entries) {
+        0 => "PortReaper · no ports".to_string(),
+        1 => "PortReaper · 1 port".to_string(),
+        n => format!("PortReaper · {n} ports"),
+    }
+}
+
+/// The distinct, sorted pids of the entries `keep` accepts.
+fn distinct_pids(entries: &[PortEntry], keep: impl Fn(&PortEntry) -> bool) -> Vec<u32> {
+    let mut pids: Vec<u32> = entries.iter().filter(|e| keep(e)).map(|e| e.pid).collect();
+    pids.sort_unstable();
+    pids.dedup();
+    pids
+}
+
+/// `"Kill all dev servers (4)"`, or just the verb at zero.
+fn counted_label(label: &str, count: usize) -> String {
+    match count {
+        0 => label.to_string(),
+        n => format!("{label} ({n})"),
+    }
+}
+
+/// The one notification after a bulk kill: `Freed 4 ports · 3 processes`, with `· 1 refused`
+/// when some pids would not die, or `Could not free any port · 2 refused` when none did.
+fn bulk_summary(ports: usize, processes: usize, refused: usize) -> String {
+    let mut summary = if processes == 0 {
+        "Could not free any port".to_string()
+    } else {
+        format!("Freed {} · {}", plural(ports, "port", "ports"), plural(processes, "process", "processes"))
+    };
+    if refused > 0 {
+        summary.push_str(&format!(" · {refused} refused"));
+    }
+    summary
+}
+
+fn plural(n: usize, one: &str, many: &str) -> String {
+    format!("{n} {}", if n == 1 { one } else { many })
 }
 
 /// Like [`menu_model`] without the cap: the title and tooltip count every port.
@@ -192,7 +284,7 @@ struct TrayState {
 /// them and leaves an unchanged menu alone.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Snapshot {
-    menu: Vec<MenuEntry>,
+    shortcuts: ShortcutsModel,
     title: String,
     tooltip: String,
     autostart: bool,
@@ -204,7 +296,7 @@ pub fn setup(app: &AppHandle) -> tauri::Result<()> {
 
     // Built empty; the refresh thread fills it within milliseconds.
     let snapshot = Snapshot {
-        menu: Vec::new(),
+        shortcuts: shortcuts_model(&[]),
         title: tray_title(&[]),
         tooltip: tray_tooltip(&[]),
         autostart: autostart_enabled(app),
@@ -257,7 +349,7 @@ fn take_snapshot(app: &AppHandle) -> Snapshot {
         Vec::new()
     });
     Snapshot {
-        menu: menu_model(&entries, MAX_MENU_PORTS),
+        shortcuts: shortcuts_model(&entries),
         title: tray_title(&entries),
         tooltip: tray_tooltip(&entries),
         autostart: autostart_enabled(app),
@@ -287,19 +379,35 @@ fn apply_snapshot(app: &AppHandle, snapshot: &Snapshot) {
     }
 }
 
-/// `Open PortReaper` · separator · the port items (or a disabled `No ports`) · separator ·
-/// `Start at login` · `Quit PortReaper`.
+/// The header (disabled) · `Free a port…` ⌘⇧K · separator · `Shortcuts ▸` (the port items, or
+/// a disabled `No ports`; separator; the two bulk kills, disabled at zero) · separator ·
+/// `Open PortReaper` ⌘⇧P · `Start at login` · `Quit PortReaper`.
+///
+/// The accelerators are labels: a status-item menu never fires them. `shortcuts.rs` registers
+/// the real ones.
 fn build_menu(app: &AppHandle, snapshot: &Snapshot) -> tauri::Result<Menu<tauri::Wry>> {
+    let model = &snapshot.shortcuts;
     let menu = Menu::new(app)?;
-    menu.append(&MenuItem::with_id(app, ID_OPEN, "Open PortReaper", true, None::<&str>)?)?;
+    menu.append(&MenuItem::with_id(app, ID_HEADER, &model.header, false, None::<&str>)?)?;
+    menu.append(&MenuItem::with_id(app, ID_QUICK, "Free a port…", true, Some(shortcuts::QUICK_WINDOW))?)?;
     menu.append(&PredefinedMenuItem::separator(app)?)?;
-    if snapshot.menu.is_empty() {
-        menu.append(&MenuItem::with_id(app, ID_NO_PORTS, "No ports", false, None::<&str>)?)?;
+
+    let submenu = Submenu::with_id(app, ID_SHORTCUTS, "Shortcuts", true)?;
+    if model.ports.is_empty() {
+        submenu.append(&MenuItem::with_id(app, ID_NO_PORTS, "No ports", false, None::<&str>)?)?;
     }
-    for entry in &snapshot.menu {
-        menu.append(&MenuItem::with_id(app, port_id(entry), &entry.label, true, None::<&str>)?)?;
+    for entry in &model.ports {
+        submenu.append(&MenuItem::with_id(app, port_id(entry), &entry.label, true, None::<&str>)?)?;
     }
+    submenu.append(&PredefinedMenuItem::separator(app)?)?;
+    let orphans = !model.orphans.is_empty();
+    submenu.append(&MenuItem::with_id(app, ID_KILL_ORPHANS, model.orphans_label(), orphans, None::<&str>)?)?;
+    let dev_servers = !model.dev_servers.is_empty();
+    submenu.append(&MenuItem::with_id(app, ID_KILL_DEV_SERVERS, model.dev_servers_label(), dev_servers, None::<&str>)?)?;
+    menu.append(&submenu)?;
     menu.append(&PredefinedMenuItem::separator(app)?)?;
+
+    menu.append(&MenuItem::with_id(app, ID_OPEN, "Open PortReaper", true, Some(shortcuts::TOGGLE_WINDOW))?)?;
     menu.append(&CheckMenuItem::with_id(app, ID_AUTOSTART, "Start at login", true, snapshot.autostart, None::<&str>)?)?;
     menu.append(&MenuItem::with_id(app, ID_QUIT, "Quit PortReaper", true, None::<&str>)?)?;
     Ok(menu)
@@ -310,9 +418,12 @@ fn on_menu_event(app: &AppHandle, event: MenuEvent) {
     let id = event.id().as_ref();
     match id {
         ID_OPEN => show_window(app),
+        ID_QUICK => quick::show_quick(app),
         ID_AUTOSTART => toggle_autostart(app),
         ID_QUIT => app.exit(0),
-        ID_NO_PORTS => {}
+        ID_KILL_ORPHANS => spawn_bulk_kill(app, Bulk::Orphans),
+        ID_KILL_DEV_SERVERS => spawn_bulk_kill(app, Bulk::DevServers),
+        ID_HEADER | ID_NO_PORTS | ID_SHORTCUTS => {}
         other => {
             if let Some((port, protocol)) = parse_port_id(other) {
                 // A graceful kill waits up to `kill::GRACE_MS`; that must not block the event loop.
@@ -454,6 +565,89 @@ fn free_from_tray(app: &AppHandle, port: u16, protocol: Protocol) {
     signal(app, Signal::Refresh);
 }
 
+/// The two bulk kills of the Shortcuts submenu.
+#[derive(Debug, Clone, Copy)]
+enum Bulk {
+    /// Every orphan (lost-terminal) server that is not protected.
+    Orphans,
+    /// Every process with a project that is not protected.
+    DevServers,
+}
+
+impl Bulk {
+    fn pids(self, model: &ShortcutsModel) -> &[u32] {
+        match self {
+            Bulk::Orphans => &model.orphans,
+            Bulk::DevServers => &model.dev_servers,
+        }
+    }
+
+    fn nothing_to_kill(self) -> &'static str {
+        match self {
+            Bulk::Orphans => "No lost-terminal servers to kill",
+            Bulk::DevServers => "No dev servers to kill",
+        }
+    }
+}
+
+/// A graceful kill waits up to `kill::GRACE_MS` per pid; that must not block the event loop.
+fn spawn_bulk_kill(app: &AppHandle, bulk: Bulk) {
+    let app = app.clone();
+    std::thread::spawn(move || bulk_kill(&app, bulk));
+}
+
+/// Kills every pid a fresh list puts under `bulk`, gracefully and once each, logs each outcome,
+/// then posts one summary notification.
+fn bulk_kill(app: &AppHandle, bulk: Bulk) {
+    // The menu can be up to `REFRESH_INTERVAL` stale: decide from a fresh list, never the menu.
+    let entries = match crate::ports::list() {
+        Ok(entries) => entries,
+        Err(e) => {
+            warn(format_args!("could not list ports for a bulk kill: {e}"));
+            notify(app, &format!("Could not list ports · {e}"));
+            return;
+        }
+    };
+    let model = shortcuts_model(&entries);
+    let pids = bulk.pids(&model);
+    if pids.is_empty() {
+        notify(app, bulk.nothing_to_kill());
+        signal(app, Signal::Refresh);
+        return;
+    }
+    let mut freed: Vec<u32> = Vec::new();
+    let mut refused = 0;
+    for &pid in pids {
+        let name = entries.iter().find(|e| e.pid == pid).map_or("?", |e| e.process_name.as_str());
+        match crate::kill::kill(&KillRequest { pid, force: false }) {
+            KillOutcome::Killed { graceful: true, .. } => {
+                info(format_args!("killed {name} ({pid})"));
+                freed.push(pid);
+            }
+            KillOutcome::Killed { graceful: false, .. } => {
+                info(format_args!("killed {name} ({pid}) with SIGKILL after it ignored SIGTERM"));
+                freed.push(pid);
+            }
+            KillOutcome::NotFound { .. } => {
+                info(format_args!("{name} ({pid}) was already gone"));
+                freed.push(pid);
+            }
+            KillOutcome::Refused { reason, .. } => {
+                warn(format_args!("refused to kill {name} ({pid}): {reason}"));
+                refused += 1;
+            }
+            KillOutcome::Failed { error, .. } => {
+                warn(format_args!("could not kill {name} ({pid}): {error}"));
+                refused += 1;
+            }
+        }
+    }
+    let ports: HashSet<(u16, Protocol)> =
+        entries.iter().filter(|e| freed.contains(&e.pid)).map(|e| (e.port, e.protocol)).collect();
+    notify(app, &bulk_summary(ports.len(), freed.len(), refused));
+    signal(app, Signal::Refresh);
+}
+
 fn select_port_in_window(app: &AppHandle, port: u16, protocol: Protocol) {
     show_window(app);
     if let Err(e) = app.emit(SELECT_PORT_EVENT, SelectPort { port, protocol }) {
@@ -508,6 +702,11 @@ mod tests {
 
     fn protected(mut e: PortEntry) -> PortEntry {
         e.protected = true;
+        e
+    }
+
+    fn orphan(mut e: PortEntry) -> PortEntry {
+        e.orphan = true;
         e
     }
 
@@ -635,5 +834,97 @@ mod tests {
     fn select_port_payload_matches_the_ui_contract() {
         let json = serde_json::to_value(SelectPort { port: 5432, protocol: Protocol::Tcp }).unwrap();
         assert_eq!(json, serde_json::json!({ "port": 5432, "protocol": "tcp" }));
+    }
+
+    #[test]
+    fn header_counts_what_the_title_counts() {
+        assert_eq!(header(&[]), "PortReaper · no ports");
+        let one = vec![
+            entry(3000, Protocol::Tcp, "127.0.0.1", 1, "node"),
+            entry(3000, Protocol::Tcp, "::1", 1, "node"),
+            protected(entry(5432, Protocol::Tcp, "127.0.0.1", 2, "postgres")),
+        ];
+        assert_eq!(header(&one), "PortReaper · 1 port", "one port twice is one, and protected ports do not count");
+        let many: Vec<PortEntry> =
+            (0..9u16).map(|i| entry(4000 + i, Protocol::Tcp, "127.0.0.1", u32::from(i) + 1, "node")).collect();
+        assert_eq!(header(&many), "PortReaper · 9 ports");
+    }
+
+    #[test]
+    fn shortcuts_model_lists_the_ports_like_the_menu_model_does() {
+        let entries: Vec<PortEntry> =
+            (0..20u16).map(|i| entry(4000 + i, Protocol::Tcp, "127.0.0.1", u32::from(i) + 1, "node")).collect();
+        let model = shortcuts_model(&entries);
+        assert_eq!(model.ports, menu_model(&entries, MAX_MENU_PORTS));
+        assert_eq!(model.ports.len(), MAX_MENU_PORTS);
+        assert_eq!(model.header, "PortReaper · 20 ports", "the header is not capped like the list is");
+    }
+
+    #[test]
+    fn orphans_are_the_distinct_unprotected_orphan_pids() {
+        let entries = vec![
+            orphan(entry(3000, Protocol::Tcp, "127.0.0.1", 10, "node")),
+            orphan(entry(3000, Protocol::Tcp, "::1", 10, "node")),
+            orphan(entry(3001, Protocol::Tcp, "127.0.0.1", 10, "node")),
+            orphan(protected(entry(5432, Protocol::Tcp, "127.0.0.1", 20, "postgres"))),
+            entry(5173, Protocol::Tcp, "127.0.0.1", 30, "node"),
+            orphan(entry(8080, Protocol::Tcp, "127.0.0.1", 5, "java")),
+        ];
+        let model = shortcuts_model(&entries);
+        assert_eq!(model.orphans, [5, 10], "one pid on three sockets counts once; protected and attached ones not at all");
+        assert_eq!(model.orphans_label(), "Kill lost-terminal servers (2)");
+    }
+
+    #[test]
+    fn dev_servers_are_the_distinct_unprotected_pids_with_a_project() {
+        let entries = vec![
+            with_project(entry(3000, Protocol::Tcp, "127.0.0.1", 10, "node"), "shop-api"),
+            with_project(entry(3000, Protocol::Tcp, "::1", 10, "node"), "shop-api"),
+            with_project(entry(5173, Protocol::Tcp, "127.0.0.1", 11, "node"), "portreaper"),
+            entry(8080, Protocol::Tcp, "127.0.0.1", 12, "java"),
+            protected(with_project(entry(5432, Protocol::Tcp, "127.0.0.1", 13, "postgres"), "shop-db")),
+        ];
+        let model = shortcuts_model(&entries);
+        assert_eq!(model.dev_servers, [10, 11], "no project or protected: not a dev server");
+        assert_eq!(model.dev_servers_label(), "Kill all dev servers (2)");
+    }
+
+    #[test]
+    fn a_pid_protected_on_any_socket_is_in_no_bulk_list() {
+        let entries = vec![
+            orphan(with_project(entry(6379, Protocol::Tcp, "127.0.0.1", 7, "redis-server"), "cache")),
+            orphan(protected(with_project(entry(6379, Protocol::Tcp, "::1", 7, "redis-server"), "cache"))),
+        ];
+        let model = shortcuts_model(&entries);
+        assert!(model.orphans.is_empty());
+        assert!(model.dev_servers.is_empty());
+        assert!(model.ports[0].protected, "it is still listed, marked, so the item shows the window");
+    }
+
+    #[test]
+    fn bulk_items_lose_their_count_at_zero_where_they_are_disabled() {
+        let model = shortcuts_model(&[]);
+        assert_eq!(model.orphans_label(), "Kill lost-terminal servers");
+        assert_eq!(model.dev_servers_label(), "Kill all dev servers");
+        assert!(model.orphans.is_empty() && model.dev_servers.is_empty(), "both items are disabled at zero");
+        assert_eq!(model.header, "PortReaper · no ports");
+        assert!(model.ports.is_empty());
+    }
+
+    #[test]
+    fn only_a_change_in_the_list_changes_the_model() {
+        let entries = vec![orphan(with_project(entry(3000, Protocol::Tcp, "127.0.0.1", 1, "node"), "shop-api"))];
+        assert_eq!(shortcuts_model(&entries), shortcuts_model(&entries.clone()));
+        let mut attached = entries.clone();
+        attached[0].orphan = false;
+        assert_ne!(shortcuts_model(&entries), shortcuts_model(&attached), "an orphan flag alone moves a count");
+    }
+
+    #[test]
+    fn bulk_summary_counts_and_pluralises() {
+        assert_eq!(bulk_summary(4, 3, 0), "Freed 4 ports · 3 processes");
+        assert_eq!(bulk_summary(1, 1, 0), "Freed 1 port · 1 process");
+        assert_eq!(bulk_summary(2, 2, 1), "Freed 2 ports · 2 processes · 1 refused");
+        assert_eq!(bulk_summary(0, 0, 2), "Could not free any port · 2 refused");
     }
 }
