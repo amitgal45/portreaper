@@ -1,8 +1,7 @@
 import { flushPromises, mount, type VueWrapper } from "@vue/test-utils";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { API_KEY } from "../api";
-import { createMockApi, MOCK_ENTRIES } from "../api/mock";
-import { OLLAMA } from "./fixtures";
+import { createMockApi } from "../api/mock";
 import QuickApp from "./QuickApp.vue";
 
 vi.mock("../api/window", () => ({ hideCurrentWindow: vi.fn(async () => false) }));
@@ -34,16 +33,25 @@ afterEach(() => {
 });
 
 describe("QuickApp", () => {
-  it("shows the pre-selection with the zombie first and selected, the hint, the header and the footer", async () => {
+  it("shows the pre-selection with the zombies first, the newer selected, the hint, the header and the footer", async () => {
     const { wrapper } = await mountQuick();
     const options = wrapper.findAll("[role='option']");
-    expect(options.map((o) => o.attributes("data-port"))).toEqual(["5174", "5173", "3000", "8080", "9335"]);
+    // Two lost-terminal servers newest first, then the dev servers newest first; six rows at most,
+    // so the 12-day-old Ollama is left out until a query asks for it.
+    expect(options.map((o) => o.attributes("data-port"))).toEqual([
+      "5174",
+      "4000",
+      "5173",
+      "3000",
+      "8080",
+      "9335",
+    ]);
     expect(options[0]?.attributes("aria-selected")).toBe("true");
     expect(options[0]?.text()).toContain("↩ free");
     expect(options[0]?.classes()).toContain("ring-coral");
     expect(options[1]?.classes()).not.toContain("ring-coral");
-    expect(options[3]?.text()).toContain("exposed");
-    expect(wrapper.find("header").text()).toBe("PortReaper · 9 ports · ⌘⇧K");
+    expect(options[4]?.text()).toContain("exposed");
+    expect(wrapper.find("header").text()).toBe("PortReaper · 11 ports · ⌘⇧K");
     expect(wrapper.find("footer").text()).toBe("↑↓ choose · ↩ free · ⌥↩ force · esc close");
     expect(document.activeElement).toBe(wrapper.find("input").element);
   });
@@ -53,8 +61,10 @@ describe("QuickApp", () => {
     const option = (port: number) => wrapper.find(`[role='option'][data-port='${port}']`);
     const chip = (port: number) => option(port).find("[data-chip]");
     expect(option(5174).find("[aria-label='lost terminal']").text()).toBe("⚡");
+    expect(option(4000).find("[aria-label='lost terminal']").text()).toBe("⚡");
     expect(option(5173).find("[aria-label='lost terminal']").exists()).toBe(false);
     expect(chip(5174).text()).toBe("web");
+    expect(chip(4000).text()).toBe("api");
     expect(chip(3000).text()).toBe("web");
     expect(chip(8080).text()).toBe("api");
     expect(chip(9335).exists()).toBe(false);
@@ -66,13 +76,15 @@ describe("QuickApp", () => {
   });
 
   it("an ai row's chip carries its memory", async () => {
-    const { wrapper } = await mountQuick(createMockApi([...MOCK_ENTRIES, OLLAMA]));
+    const { wrapper } = await mountQuick();
+    await wrapper.find("input").setValue("ollama");
     const ollama = wrapper.find("[role='option'][data-port='11434']");
     expect(ollama.attributes("data-category")).toBe("ai");
     expect(ollama.text()).toContain("ollama");
     expect(ollama.find("[data-chip]").text()).toBe("AI · 4.9 GB");
     expect(ollama.find("[data-chip]").classes()).toContain("text-violet");
-    expect(wrapper.find("header").text()).toBe("PortReaper · 10 ports · ⌘⇧K");
+    expect(ollama.find("[aria-label='protected']").exists()).toBe(false);
+    expect(wrapper.find("header").text()).toBe("PortReaper · 11 ports · ⌘⇧K");
   });
 
   it("a refusal shows in the row and stays; the row is whole again afterwards", async () => {
@@ -118,11 +130,14 @@ describe("QuickApp", () => {
       expect(wrapper.find("[role='option']").text()).toContain("Freed :3000");
       await vi.advanceTimersByTimeAsync(1);
       expect((input.element as HTMLInputElement).value).toBe("");
+      // With :3000 gone the six remaining unprotected rows fit the strip, Ollama last.
       expect(wrapper.findAll("[role='option']").map((o) => o.attributes("data-port"))).toEqual([
         "5174",
+        "4000",
         "5173",
         "8080",
         "9335",
+        "11434",
       ]);
     } finally {
       vi.useRealTimers();

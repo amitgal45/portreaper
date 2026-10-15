@@ -30,8 +30,8 @@ describe("StatsBar", () => {
     expect(tile("ports")).toContain("ports · 7 projects");
     // web + api + ai once per pid: 1842 MB + 4.85 GB.
     expect(tile("memory")).toContain("6.6 GB");
-    expect(tile("zombies")).toContain("1");
-    expect(tile("zombies")).toContain("220 MB reclaimable");
+    expect(tile("zombies")).toContain("2");
+    expect(tile("zombies")).toContain("640 MB reclaimable");
     expect(tile("public")).toContain("3");
     expect(tile("public")).toContain("on your network");
   });

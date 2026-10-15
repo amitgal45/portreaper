@@ -139,8 +139,14 @@ describe("PortRow", () => {
     expect(ai.find("[data-badge='zombie']").exists()).toBe(false);
     ai.unmount();
 
+    // The mock's second zombie: a lost terminal, nothing protecting it.
+    const jekyll = mountRow(byPort(4000), actions);
+    expect(jekyll.get("[data-badge='zombie']").text()).toBe("zombie");
+    expect(jekyll.find("[data-badge='protected']").exists()).toBe(false);
+    jekyll.unmount();
+
     // An orphan that is protected shows both: its terminal is gone, and Reap will leave it alone.
-    const guarded = mountRow(byPort(4000), actions);
+    const guarded = mountRow({ ...byPort(4000), protected: true }, actions);
     expect(guarded.find("[data-badge='zombie']").exists()).toBe(true);
     expect(guarded.find("[data-badge='protected']").exists()).toBe(true);
     guarded.unmount();

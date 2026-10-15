@@ -132,9 +132,9 @@ describe("useKeyboard with usePorts", () => {
     });
     keyboard.start();
     press("ArrowUp");
-    expect(store.selected.value?.port).toBe(11434);
+    expect(store.selected.value?.port).toBe(7000);
     press("ArrowDown");
-    expect(store.selected.value?.port).toBe(11434);
+    expect(store.selected.value?.port).toBe(7000);
     for (let i = 0; i < 20; i++) press("ArrowUp");
     expect(store.selected.value?.port).toBe(3000);
     press("Enter");

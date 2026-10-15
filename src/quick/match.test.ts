@@ -77,9 +77,10 @@ describe("recents", () => {
     expect(recents(entries).map((e) => e.port)).toEqual([4, 5, 1, 3]);
   });
 
-  it("on the mock: the dev servers newest first, nothing protected", () => {
-    expect(recents(MOCK_ENTRIES).map((e) => e.port)).toEqual([5173, 3000, 8080, 5174, 9335]);
+  it("on the mock: the unprotected entries newest first, six of the seven", () => {
+    expect(recents(MOCK_ENTRIES).map((e) => e.port)).toEqual([5173, 3000, 8080, 5174, 9335, 4000]);
     expect(recents(MOCK_ENTRIES, 2).map((e) => e.port)).toEqual([5173, 3000]);
+    expect(recents(MOCK_ENTRIES, 7).map((e) => e.port)).toEqual([5173, 3000, 8080, 5174, 9335, 4000, 11434]);
   });
 });
 
@@ -155,10 +156,12 @@ describe("preselect: what an empty query offers, in order", () => {
     expect(preselect(plain, new Set())).toEqual(recents(plain));
   });
 
-  it("on the mock: the lost-terminal :5174 first, then the dev servers newest first", () => {
-    expect(preselect(MOCK_ENTRIES, new Set()).map((e) => e.port)).toEqual([5174, 5173, 3000, 8080, 9335]);
+  it("on the mock: the lost-terminal :5174 then :4000 first, then the dev servers newest first", () => {
+    expect(preselect(MOCK_ENTRIES, new Set()).map((e) => e.port)).toEqual([
+      5174, 4000, 5173, 3000, 8080, 9335,
+    ]);
     expect(preselect(MOCK_ENTRIES, new Set([8080])).map((e) => e.port)).toEqual([
-      5174, 8080, 5173, 3000, 9335,
+      5174, 4000, 8080, 5173, 3000, 9335,
     ]);
   });
 
