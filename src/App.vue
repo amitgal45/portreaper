@@ -33,11 +33,14 @@ import { useTaskline } from "./composables/useTaskline";
 import { useToasts } from "./composables/useToasts";
 import { selectFromTray, useTrayListener } from "./composables/useTray";
 import { demoUpdate, useUpdate } from "./composables/useUpdate";
+import { provideWatched, useWatch } from "./composables/useWatch";
 import type { PortEntry } from "./types";
 
 const api = provideApi();
-const ports = usePorts(api);
 const toasts = useToasts();
+// The watched ports (WP-18): the set lives here; the filter, its count and the free rows come from `ports`.
+const watchStore = useWatch(api, toasts);
+const ports = usePorts(api, { watches: watchStore.watches });
 const taskline = useTaskline(api, toasts);
 const flow = useKillFlow(ports, toasts, taskline);
 const inspector = useInspector(ports, flow);
@@ -51,6 +54,7 @@ const {
   zombieMemoryBytes,
   scanMs,
   groups,
+  freeRows,
   collapsed,
   selectedKey,
   pending,
@@ -123,7 +127,9 @@ provideActions({
   copyKill: (entry) => void leave(copyText(`kill -9 ${entry.pid}`), `Copied kill -9 ${entry.pid}`),
   copyCommand: (entry) => void leave(copyText(entry.command), "Copied the command line"),
   revealFolder: (entry) => void leave(revealFolder(entry.project?.root ?? ""), null),
+  watch: (target) => void watchStore.toggle(target),
 });
+provideWatched(watchStore.isWatched);
 
 const keyboard = useKeyboard(
   {
@@ -183,6 +189,7 @@ function onOverlayOpenChange(open: boolean) {
 
 onMounted(() => {
   ports.start();
+  watchStore.start();
   taskline.start();
   keyboard.start();
   void tray.start();
@@ -193,6 +200,7 @@ onUnmounted(() => {
   tray.stop();
   keyboard.stop();
   taskline.stop();
+  watchStore.stop();
   ports.stop();
 });
 </script>
@@ -246,6 +254,7 @@ onUnmounted(() => {
             :category="category"
             :reason-for="ports.reasonFor"
             :collisions="taskline.recentCollisions.value"
+            :free-rows="freeRows"
           />
         </template>
         <TasklineView

@@ -2,11 +2,12 @@
 // One process, in full: the header, network, resources, project, ancestry, the full command
 // with its copy button, and the two verbs. The same panel sits as the third column of the Board
 // in a wide window and inside a slide-over in a narrow one (App.vue decides).
-import { Copy, ExternalLink, FolderOpen, GitBranch, LoaderCircle, RotateCw, X } from "lucide-vue-next";
+import { Copy, ExternalLink, Eye, FolderOpen, GitBranch, LoaderCircle, RotateCw, X } from "lucide-vue-next";
 import { computed, ref, watch } from "vue";
 import { useApi } from "../api";
 import { useActions } from "../composables/useActions";
 import type { RestartState } from "../composables/useKillFlow";
+import { useWatched } from "../composables/useWatch";
 import { formatBytes, formatUptime } from "../lib/format";
 import type { PortEntry, ProcessNode } from "../types";
 import FrameworkIcon from "./FrameworkIcon.vue";
@@ -23,6 +24,10 @@ const emit = defineEmits<{ close: [] }>();
 
 const api = useApi();
 const actions = useActions();
+const isWatched = useWatched();
+
+/** The port is watched (WP-18): the eye in the header is on, and the Network card says so. */
+const watched = computed(() => isWatched(props.entry));
 
 /** The ancestry, launchd first. `null` while loading, `[]` when the core does not know. */
 const tree = ref<ProcessNode[] | null>(null);
@@ -103,6 +108,18 @@ const ghost =
       </div>
       <button
         type="button"
+        data-action="watch"
+        class="flex h-7 w-7 shrink-0 items-center justify-center rounded-md outline-none hover:bg-hover focus-visible:ring-2 focus-visible:ring-brand/40"
+        :class="watched ? 'text-blue-ink' : 'text-ink-3 hover:text-ink'"
+        :aria-pressed="watched"
+        aria-label="Watch"
+        :title="watched ? `Stop watching :${entry.port}` : `Watch :${entry.port} · notify when it is free`"
+        @click="actions.watch(entry)"
+      >
+        <Eye :size="14" :stroke-width="2" />
+      </button>
+      <button
+        type="button"
         class="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-ink-3 outline-none hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-brand/40"
         aria-label="Close"
         title="Close (Esc)"
@@ -121,6 +138,7 @@ const ghost =
             {{ entry.address }}
           </div>
           <p class="text-[12px] leading-snug text-ink-2">{{ bindNote }}</p>
+          <p v-if="watched" data-watching class="text-[12px] leading-snug text-blue-ink">Watching · will notify when free</p>
         </div>
         <div data-section="resources" :class="section">
           <div :class="heading">Resources</div>

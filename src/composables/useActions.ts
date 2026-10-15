@@ -1,6 +1,6 @@
 import { type InjectionKey, inject, provide } from "vue";
 import type { PortEntry } from "../types";
-import type { PortGroup } from "./usePorts";
+import type { PortGroup, WatchTarget } from "./usePorts";
 
 /**
  * What a row, a group header or the drawer can ask for. `App.vue` provides the real thing; a
@@ -21,6 +21,8 @@ export interface UiActions {
   copyKill(entry: PortEntry): void;
   copyCommand(entry: PortEntry): void;
   revealFolder(entry: PortEntry): void;
+  /** Watch the port, or stop watching it (the row menu, the inspector's eye, a free row's Stop watching). */
+  watch(target: WatchTarget): void;
 }
 
 export const ACTIONS_KEY: InjectionKey<UiActions> = Symbol("UiActions");

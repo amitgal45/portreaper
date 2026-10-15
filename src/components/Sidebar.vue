@@ -4,7 +4,7 @@
 // bottom the update banner when a newer release is known (WP-16), the Taskline and Settings. One
 // item is on: a category while the Studio shows, the Taskline while the feed shows. Clicking a
 // category from the Taskline goes back to the Studio.
-import { Clock, Database, Globe, LayoutGrid, Settings, Sparkles, Terminal, Zap } from "lucide-vue-next";
+import { Clock, Database, Eye, Globe, LayoutGrid, Settings, Sparkles, Terminal, Zap } from "lucide-vue-next";
 import type { CategoryCounts, CategoryFilter } from "../composables/usePorts";
 import { bannerText, percentOf, type UpdateState } from "../composables/useUpdate";
 
@@ -45,6 +45,7 @@ const PORTS: Item[] = [
 const ATTENTION: Item[] = [
   { key: "zombie", label: "Zombies", icon: Zap, tone: "warn" },
   { key: "public", label: "Public on LAN", icon: Globe, tone: "danger" },
+  { key: "watching", label: "Watching", icon: Eye },
 ];
 
 const item =
