@@ -65,6 +65,16 @@ second time. Esc backs out one step: disarms, clears the query, hides the strip.
 
 ## Install
 
+**First launch of a downloaded build.** PortReaper is not yet signed with an Apple Developer ID,
+so macOS shows "Apple could not verify PortReaper" the first time. Open it anyway: right-click the
+app → Open, or System Settings → Privacy & Security → "Open Anyway". If macOS calls the app
+"damaged" instead (builds before 0.2.1), clear the download flag and open it:
+
+```bash
+xattr -cr /Applications/PortReaper.app
+```
+
+
 Download the `.dmg` of the latest [release](https://github.com/amitgal45/portreaper/releases),
 or build it from source (Xcode Command Line Tools, Rust stable 1.85+, Node 24, pnpm 11). Clone
 the repository, then:

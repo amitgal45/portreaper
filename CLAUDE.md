@@ -53,3 +53,8 @@ Part of: PortReaper (`~/work/portreaper`). Startup-wide rules come from the pare
   `~/.tauri/portreaper.key.pub`, pasted into `tauri.conf.json`. Never commit, print, copy or move
   the private key; an app built with a different key cannot verify these releases, and a lost
   key means every installed app stops updating until it is reinstalled by hand.
+- Signing: release builds are ad-hoc signed (`APPLE_SIGNING_IDENTITY: "-"` in both workflows) so a
+  downloaded bundle is intact; Gatekeeper still warns. Notarization needs an Apple Developer ID:
+  set the `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`, `APPLE_ID`,
+  `APPLE_PASSWORD` (app-specific) and `APPLE_TEAM_ID` secrets and drop the `"-"`; tauri-action
+  notarizes on its own.
