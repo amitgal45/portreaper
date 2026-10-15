@@ -1,6 +1,6 @@
 <script setup lang="ts">
-// The list: groups of rows, or the empty state. Scrolls; the title strip and status line do not.
-import type { PortGroup } from "../composables/usePorts";
+// The list: groups of rows, or the empty state. Scrolls; the strips above and below do not.
+import type { CategoryFilter, PortGroup } from "../composables/usePorts";
 import type { PortEntry } from "../types";
 import ProjectGroup from "./ProjectGroup.vue";
 
@@ -12,7 +12,9 @@ defineProps<{
   /** False until the first poll answered: show nothing rather than a flash of "no ports". */
   loaded: boolean;
   query: string;
+  category: CategoryFilter;
   reasonFor: (entry: PortEntry) => string;
+  collisions: ReadonlySet<number>;
 }>();
 </script>
 
@@ -21,12 +23,16 @@ defineProps<{
     <template v-if="loaded">
       <div v-if="groups.length === 0" class="flex h-full flex-col items-center justify-center gap-1 px-6 text-center">
         <template v-if="query.trim()">
-          <p class="text-neutral-600 dark:text-neutral-300">No ports match “{{ query.trim() }}”.</p>
-          <p class="text-[12px] text-neutral-400">Esc clears the search.</p>
+          <p class="text-ink-muted">No ports match “{{ query.trim() }}”.</p>
+          <p class="text-[11px] text-ink-muted">Esc clears the search.</p>
+        </template>
+        <template v-else-if="category !== 'all'">
+          <p class="text-ink-muted">Nothing in this filter.</p>
+          <p class="text-[11px] text-ink-muted">Pick All to see every port.</p>
         </template>
         <template v-else>
-          <p class="text-neutral-600 dark:text-neutral-300">No listening ports.</p>
-          <p class="text-[12px] text-neutral-400">Start a dev server and it will appear here.</p>
+          <p class="text-ink-muted">No listening ports.</p>
+          <p class="text-[11px] text-ink-muted">Start a dev server and it will appear here.</p>
         </template>
       </div>
       <ProjectGroup
@@ -37,6 +43,7 @@ defineProps<{
         :selected-key="selectedKey"
         :pending="pending"
         :reason-for="reasonFor"
+        :collisions="collisions"
       />
     </template>
   </div>

@@ -15,7 +15,7 @@ defineProps<{ text: string }>();
         side="bottom"
         :side-offset="4"
         :collision-padding="8"
-        class="z-50 max-w-64 rounded border border-neutral-200 bg-white px-2 py-1 text-[11px] leading-snug text-neutral-700 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-200"
+        class="z-50 max-w-64 rounded border border-edge bg-steel px-2 py-1 text-[11px] leading-snug text-ink"
       >
         {{ text }}
       </TooltipContent>

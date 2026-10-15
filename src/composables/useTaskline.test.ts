@@ -145,7 +145,7 @@ describe("useTaskline: relaunch", () => {
       eventId: event.id,
       error: "ipc down",
     });
-    expect(toasts.toasts.value.at(-1)?.message).toBe("Could not reach the core.");
+    expect(toasts.toasts.value[toasts.toasts.value.length - 1]?.message).toBe("Could not reach the core.");
     expect(relaunchMessage(null, { status: "started", pid: 5 })).toEqual({
       message: "Relaunched the process (new pid 5).",
       kind: "info",

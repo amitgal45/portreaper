@@ -129,19 +129,19 @@ describe("usePorts: grouping and order", () => {
     const names = store.groups.value.map((g) => g.name);
     expect(names).toEqual([
       "shop-api",
-      "legacy-docs",
       "portreaper",
       "tinyrecipe-lp",
       "@specmate/api",
       "chrome-helper",
-      "ollama",
       "mDNSResponder",
+      "legacy-docs",
       "postgres:16",
       "redis:7",
       "ControlCenter",
+      "ollama",
     ]);
     const protectedFlags = store.groups.value.map((g) => g.protected);
-    expect(protectedFlags).toEqual([false, false, false, false, false, false, false, true, true, true, true]);
+    expect(protectedFlags).toEqual([false, false, false, false, false, true, true, true, true, true, true]);
   });
 
   it("sorts inside a group by port and lists distinct pids", () => {
@@ -184,7 +184,7 @@ describe("usePorts: grouping and order", () => {
     const store = usePorts(createMockApi(), { storage });
     await store.refresh();
     store.toggleGroup("p:shop-api");
-    expect(store.visibleEntries.value[0]?.port).toBe(4000);
+    expect(store.visibleEntries.value[0]?.port).toBe(5173);
     expect(memory.get("portreaper.collapsed")).toBe(JSON.stringify(["p:shop-api"]));
 
     const again = usePorts(createMockApi(), { storage });
@@ -316,10 +316,10 @@ describe("usePorts: kill", () => {
 describe("usePorts: categories (v0.2)", () => {
   it("counts the pills over the whole list and sums memory once per pid", async () => {
     const store = await loadedStore();
-    expect(store.counts.value).toEqual({ all: 11, dev: 5, ai: 1, db: 2, zombie: 2, public: 3 });
+    expect(store.counts.value).toEqual({ all: 11, dev: 5, ai: 1, db: 2, zombie: 1, public: 3 });
     // web + api + ai: 412 + 180 + 220 + 610 + 420 MB and Ollama's 4.85 GB.
     expect(Math.round(store.devMemoryBytes.value / (1024 * 1024))).toBe(1842 + Math.round(4.85 * 1024));
-    expect(store.zombieMemoryBytes.value).toBe((220 + 420) * 1024 * 1024);
+    expect(store.zombieMemoryBytes.value).toBe(220 * 1024 * 1024);
     expect(store.projectCount.value).toBe(7);
     // The docker pid holds two ports: it counts once for memory, twice for the db pill.
     const docker = store.entries.value.filter((e) => e.pid === 11710);
@@ -332,7 +332,7 @@ describe("usePorts: categories (v0.2)", () => {
     const ports = () => store.visibleEntries.value.map((e) => e.port);
     store.setCategory("zombie");
     await nextTick();
-    expect(ports()).toEqual([4000, 5174]);
+    expect(ports()).toEqual([5174]);
     store.setCategory("public");
     await nextTick();
     expect(ports()).toEqual([8080, 5432, 6379]);
@@ -344,7 +344,8 @@ describe("usePorts: categories (v0.2)", () => {
     expect(ports()).toEqual([5432, 6379]);
     store.setCategory("dev");
     await nextTick();
-    expect(ports()).toEqual([3000, 4000, 5173, 5174, 8080]);
+    // Group order as today: the user's projects first, the protected Jekyll last.
+    expect(ports()).toEqual([3000, 5173, 5174, 8080, 4000]);
     store.query.value = "vite";
     await nextTick();
     expect(ports()).toEqual([5173, 5174]);
@@ -373,13 +374,13 @@ describe("usePorts: categories (v0.2)", () => {
     const store = await loadedStore(api);
     const report = await store.reapZombies();
     expect(reapZombies).toHaveBeenCalledTimes(1);
-    expect(report.freed).toBe(2);
+    expect(report.freed).toBe(1);
     expect(report.refused).toBe(0);
-    expect(report.memoryBytes).toBe((220 + 420) * 1024 * 1024);
-    expect(store.entries.value.some((e) => e.orphan)).toBe(false);
+    expect(report.memoryBytes).toBe(220 * 1024 * 1024);
+    expect(store.entries.value.some((e) => e.orphan && !e.protected)).toBe(false);
     expect(store.counts.value.zombie).toBe(0);
     await store.refresh();
-    expect(store.entries.value).toHaveLength(9);
+    expect(store.entries.value).toHaveLength(10);
   });
 
   it("counts a refusal and keeps that row", async () => {

@@ -19,8 +19,11 @@ const byPort = (port: number): PortEntry => {
 function spies(): UiActions {
   return {
     select: vi.fn(),
+    inspect: vi.fn(),
     kill: vi.fn(),
     killGroup: vi.fn(),
+    restart: vi.fn(),
+    reap: vi.fn(),
     toggleGroup: vi.fn(),
     openInBrowser: vi.fn(),
     copyKill: vi.fn(),
@@ -43,8 +46,8 @@ function mountRow(
             selected: false,
             pending: false,
             showBranch: true,
-            showTool: true,
             reason: entry.protected ? "Docker" : null,
+            collision: false,
             ...extra,
           }),
       }),
@@ -64,15 +67,18 @@ describe("PortRow", () => {
     expect(actions.kill).toHaveBeenLastCalledWith(byPort(3000), false);
     await kill.trigger("click", { altKey: true });
     expect(actions.kill).toHaveBeenLastCalledWith(byPort(3000), true);
-    expect(actions.select).not.toHaveBeenCalled();
+    expect(actions.inspect).not.toHaveBeenCalled();
     wrapper.unmount();
   });
 
-  it("selects on a plain click of the row", async () => {
+  it("opens the drawer on a plain click of the row, and on the eye", async () => {
     const actions = spies();
     const wrapper = mountRow(byPort(3000), actions);
     await wrapper.get("[role='row']").trigger("click");
-    expect(actions.select).toHaveBeenCalledWith(byPort(3000));
+    expect(actions.inspect).toHaveBeenCalledWith(byPort(3000));
+    await wrapper.get("button[aria-label='Inspect']").trigger("click");
+    expect(actions.inspect).toHaveBeenCalledTimes(2);
+    expect(actions.kill).not.toHaveBeenCalled();
     wrapper.unmount();
   });
 
@@ -95,25 +101,58 @@ describe("PortRow", () => {
     wrapper.unmount();
   });
 
-  it("renders the badges from the data", () => {
+  it("renders the badges from the data: scope, zombie, framework, branch", () => {
     const actions = spies();
     const orphan = mountRow(byPort(5174), actions);
-    expect(orphan.text()).toContain("lost its terminal");
+    expect(orphan.get("[data-badge='zombie']").text()).toBe("zombie");
     expect(orphan.text()).toContain("local");
-    expect(orphan.text()).toContain("amit/TR-120-hero");
-    expect(orphan.text()).toContain("vite");
+    expect(orphan.get("[data-badge='branch']").text()).toBe("amit/TR-120-hero");
+    expect(orphan.get("[data-badge='framework']").text()).toBe("Vite");
+    expect(orphan.text()).toContain(":5174");
     orphan.unmount();
 
     const exposed = mountRow(byPort(8080), actions);
-    expect(exposed.text()).toContain("exposed");
-    expect(exposed.text()).not.toContain("lost its terminal");
+    expect(exposed.text()).toContain("public");
+    expect(exposed.find("[data-badge='zombie']").exists()).toBe(false);
     expect(exposed.text()).toContain("610 MB");
     expect(exposed.text()).toContain("5 h");
+    expect(exposed.get("[data-badge='framework']").text()).toBe("NestJS");
     exposed.unmount();
 
     const udp = mountRow(byPort(53), actions);
     expect(udp.text()).toContain("udp");
     udp.unmount();
+  });
+
+  it("renders the badges per category: protected azure, AI with its memory", () => {
+    const actions = spies();
+    const db = mountRow(byPort(5432), actions);
+    expect(db.get("[data-badge='protected']").text()).toBe("protected");
+    expect(db.get("[role='row']").attributes("data-category")).toBe("db");
+    expect(db.find("[data-badge='ai']").exists()).toBe(false);
+    db.unmount();
+
+    const ai = mountRow(byPort(11434), actions);
+    expect(ai.get("[data-badge='ai']").text()).toBe("AI · 4.9 GB");
+    // "Ollama" on an "ollama" row would repeat the name: no framework chip.
+    expect(ai.find("[data-badge='framework']").exists()).toBe(false);
+    expect(ai.find("[data-badge='zombie']").exists()).toBe(false);
+    ai.unmount();
+
+    // An orphan that is protected shows both: its terminal is gone, and Reap will leave it alone.
+    const guarded = mountRow(byPort(4000), actions);
+    expect(guarded.find("[data-badge='zombie']").exists()).toBe(true);
+    expect(guarded.find("[data-badge='protected']").exists()).toBe(true);
+    guarded.unmount();
+  });
+
+  it("turns the port amber after a collision", () => {
+    const quiet = mountRow(byPort(3000), spies());
+    expect(quiet.get("[role='row'] > span").classes()).toContain("text-ink");
+    quiet.unmount();
+    const hot = mountRow(byPort(3000), spies(), { collision: true });
+    expect(hot.get("[role='row'] > span").classes()).toContain("text-amber-neon");
+    hot.unmount();
   });
 
   it("does not repeat the name as the command; shows where the executable lives instead", () => {
@@ -137,8 +176,10 @@ describe("PortRow", () => {
     mdns.unmount();
 
     // Nothing known beyond the name: nothing shown, nothing repeated.
+    // The framework chip would repeat it too: the mock classifies :53 as "mDNSResponder".
     const bare = mountRow({ ...byPort(53), exe: null, command: "" }, actions);
     expect(bare.text().match(/mDNSResponder/g)).toHaveLength(1);
+    expect(bare.find("[data-badge='framework']").exists()).toBe(false);
     expect(bare.find("[data-cell='location']").exists()).toBe(false);
     expect(bare.find("[data-cell='command']").exists()).toBe(false);
     bare.unmount();
@@ -152,13 +193,12 @@ describe("PortRow", () => {
     next.unmount();
   });
 
-  it("hides the branch and tool when the group header shows them", () => {
-    const wrapper = mountRow(byPort(3000), spies(), { showBranch: false, showTool: false });
+  it("hides the branch when the group header shows it; the framework chip stays", () => {
+    const wrapper = mountRow(byPort(3000), spies(), { showBranch: false });
     expect(wrapper.find("[data-badge='branch']").exists()).toBe(false);
-    expect(wrapper.find("[data-badge='tool']").exists()).toBe(false);
+    expect(wrapper.get("[data-badge='framework']").text()).toBe("Next.js");
     const shown = mountRow(byPort(3000), spies());
     expect(shown.get("[data-badge='branch']").text()).toBe("feature/cart");
-    expect(shown.get("[data-badge='tool']").text()).toBe("next");
     shown.unmount();
     wrapper.unmount();
   });
@@ -166,6 +206,7 @@ describe("PortRow", () => {
   it("shows a spinner and no buttons while pending", () => {
     const wrapper = mountRow(byPort(3000), spies(), { pending: true });
     expect(wrapper.find("button[aria-label='Kill']").exists()).toBe(false);
+    expect(wrapper.find("button[aria-label='Inspect']").exists()).toBe(false);
     expect(wrapper.find("[aria-label='killing']").exists()).toBe(true);
     wrapper.unmount();
   });

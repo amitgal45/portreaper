@@ -38,18 +38,8 @@ describe("mock api v0.2", () => {
     expect(byPort(3000)?.category).toBe("web");
     expect(byPort(3000)?.framework).toBe("Next.js");
     expect(byPort(5432)?.category).toBe("db");
-    expect(byPort(11434)).toMatchObject({
-      category: "ai",
-      framework: "Ollama",
-      protected: false,
-      cwd: "/Users/amit",
-    });
-    expect(byPort(4000)).toMatchObject({
-      category: "api",
-      framework: "Jekyll",
-      orphan: true,
-      protected: false,
-    });
+    expect(byPort(11434)).toMatchObject({ category: "ai", framework: "Ollama", cwd: "/Users/amit" });
+    expect(byPort(4000)).toMatchObject({ category: "api", framework: "Jekyll", orphan: true });
     expect(byPort(4000)?.project?.name).toBe("legacy-docs");
   });
 
@@ -84,8 +74,9 @@ describe("mock api v0.2", () => {
   it("reaps the unprotected orphans and nothing else", async () => {
     const api = createMockApi();
     const outcomes = await api.reapZombies();
-    expect(outcomes.map((o) => o.pid).sort()).toEqual([18402, 39871]);
-    expect((await api.listPorts()).some((e) => e.orphan)).toBe(false);
-    expect((await api.tasklineEvents()).map((e) => e.kind)).toEqual(["zombieReaped", "zombieReaped"]);
+    expect(outcomes.map((o) => o.pid)).toEqual([39871]);
+    expect((await api.listPorts()).some((e) => e.orphan && !e.protected)).toBe(false);
+    expect((await api.listPorts()).some((e) => e.pid === 18402)).toBe(true);
+    expect((await api.tasklineEvents()).map((e) => e.kind)).toEqual(["zombieReaped"]);
   });
 });
