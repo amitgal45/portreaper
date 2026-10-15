@@ -18,6 +18,7 @@ use crate::tray::{info, warn};
 pub fn list_ports(app: AppHandle) -> Result<Vec<PortEntry>, String> {
     let entries = crate::ports::list().map_err(|e| e.to_string())?;
     crate::taskline::observe(&app, &entries);
+    crate::watch::observe(&app, &entries);
     Ok(entries)
 }
 
@@ -114,24 +115,22 @@ pub fn set_settings(_app: AppHandle, settings: Settings) -> Result<Settings, Str
     Ok(settings)
 }
 
-/// Every watched port with its current state (WP-18). The foundation stubs know no watches.
+/// Every watched port with its current state (WP-18), after one fresh listing.
 #[tauri::command]
-pub fn watched_ports(_app: AppHandle) -> Vec<WatchedPort> {
-    Vec::new()
+pub fn watched_ports(app: AppHandle) -> Vec<WatchedPort> {
+    crate::watch::list(&app)
 }
 
 /// Watches `port`; resolves with the full list afterwards.
 #[tauri::command]
-pub fn watch_port(_app: AppHandle, port: u16, protocol: Protocol) -> Vec<WatchedPort> {
-    let _ = (port, protocol);
-    Vec::new()
+pub fn watch_port(app: AppHandle, port: u16, protocol: Protocol) -> Vec<WatchedPort> {
+    crate::watch::watch(&app, port, protocol)
 }
 
 /// Stops watching `port`; resolves with the full list afterwards.
 #[tauri::command]
-pub fn unwatch_port(_app: AppHandle, port: u16, protocol: Protocol) -> Vec<WatchedPort> {
-    let _ = (port, protocol);
-    Vec::new()
+pub fn unwatch_port(app: AppHandle, port: u16, protocol: Protocol) -> Vec<WatchedPort> {
+    crate::watch::unwatch(&app, port, protocol)
 }
 
 /// The distinct, sorted pids of the entries `keep` accepts.

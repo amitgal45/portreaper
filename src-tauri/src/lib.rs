@@ -31,6 +31,7 @@ mod shortcuts;
 mod taskline;
 mod tray;
 mod update;
+mod watch;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -51,6 +52,7 @@ pub fn run() {
         // The update the last check found, for the banner's Update and Retry.
         .manage(update::UpdateState::default())
         .setup(|app| {
+            watch::setup(app.handle());
             tray::setup(app.handle())?;
             shortcuts::setup(app.handle())?;
             settings::enable_autostart_on_first_run(app.handle());
