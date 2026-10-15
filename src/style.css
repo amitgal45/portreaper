@@ -1,33 +1,125 @@
 @import "tailwindcss";
 
-/* Design tokens: the "Cyber Scythe" identity (v0.2). Dark only. The main window, the Quick
-   HUD and the drawer all build on these; never hard-code a hex in a component. */
-@theme {
-  --font-sans: "SF Pro Text", "Inter", ui-sans-serif, system-ui, sans-serif;
-  --font-mono: "SF Mono", "JetBrains Mono", ui-monospace, Menlo, monospace;
+/* Design tokens: the "Board" system (v0.2, direction D). Light and dark follow the system.
+   The raw values live on :root and flip with prefers-color-scheme; `@theme inline` turns them
+   into Tailwind utilities (bg-canvas, text-ink-2, border-line, bg-green-tint...). Components use
+   the utilities, never a hex. */
+:root {
+  color-scheme: light dark;
+  -webkit-font-smoothing: antialiased;
 
-  /* Surfaces: Void Black is the window ground, Tactical Obsidian the panels, Steel the raised bits. */
-  --color-void: #0a0b0e;
-  --color-obsidian: #121316;
-  --color-steel: #1b1d22;
-  --color-edge: #26292f;
+  --canvas: #f5f6f8;
+  --surface: #ffffff;
+  --line: #e6e9ef;
+  --line-strong: #d0d4dc;
+  --ink: #1f2329;
+  --ink-2: #5c6370;
+  --ink-3: #8a919e;
 
-  /* Ink */
-  --color-ink: #f2f3f5;
-  --color-ink-muted: #a3a7b0;
-  --color-ink-faint: #6b7079;
+  --brand: #ff4528;
+  --brand-tint: #fff1ee;
+  --brand-ink: #c4301a;
 
-  /* Signals */
-  --color-coral: #ff4528; /* the accent: kill, selection, brand */
-  --color-amber-neon: #ff9a3c; /* zombies, collisions, warnings */
-  --color-emerald-signal: #10b981; /* freed, healthy */
-  --color-azure: #4ea1ff; /* databases, protected */
-  --color-violet: #a78bfa; /* local AI */
+  --green: #00c875;
+  --green-tint: #e6f9f0;
+  --green-ink: #0e7a4a;
+  --orange: #fdab3d;
+  --orange-tint: #fff4e3;
+  --orange-ink: #b5731a;
+  --red: #e2445c;
+  --red-tint: #fdebee;
+  --red-ink: #b5283c;
+  --blue: #579bfc;
+  --blue-tint: #eaf2ff;
+  --blue-ink: #2a63c9;
+  --purple: #a25ddc;
+  --purple-tint: #f3ebfb;
+  --purple-ink: #7a3fb0;
+
+  --sel: #fff1ee;
+  --hover: #f7f8fa;
 }
 
-:root {
-  color-scheme: dark;
-  -webkit-font-smoothing: antialiased;
+@media (prefers-color-scheme: dark) {
+  :root {
+    --canvas: #1c1c1f;
+    --surface: #232327;
+    --line: #2f3035;
+    --line-strong: #3b3c42;
+    --ink: #f2f2f4;
+    --ink-2: #a9adb6;
+    --ink-3: #7b8089;
+
+    --brand: #ff5a3f;
+    --brand-tint: #3a251f;
+    --brand-ink: #ff8a74;
+
+    --green: #2fd68a;
+    --green-tint: #1e3a2d;
+    --green-ink: #7fe8b8;
+    --orange: #f5b14f;
+    --orange-tint: #3d3120;
+    --orange-ink: #ffd089;
+    --red: #f05c72;
+    --red-tint: #43242a;
+    --red-ink: #ff9aa8;
+    --blue: #6da9ff;
+    --blue-tint: #1f2e45;
+    --blue-ink: #a9ccff;
+    --purple: #b77beb;
+    --purple-tint: #342842;
+    --purple-ink: #d6b6ff;
+
+    --sel: #3a251f;
+    --hover: #2a2a2f;
+  }
+}
+
+@theme inline {
+  /* The Mac's own type: SF Pro on macOS, a humanist fallback elsewhere. */
+  --font-sans: -apple-system, "SF Pro Text", "Figtree", "Helvetica Neue", system-ui, sans-serif;
+  --font-mono: "SF Mono", ui-monospace, Menlo, monospace;
+
+  --color-canvas: var(--canvas);
+  --color-surface: var(--surface);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
+  --color-brand: var(--brand);
+  --color-brand-tint: var(--brand-tint);
+  --color-brand-ink: var(--brand-ink);
+  --color-green: var(--green);
+  --color-green-tint: var(--green-tint);
+  --color-green-ink: var(--green-ink);
+  --color-orange: var(--orange);
+  --color-orange-tint: var(--orange-tint);
+  --color-orange-ink: var(--orange-ink);
+  --color-red: var(--red);
+  --color-red-tint: var(--red-tint);
+  --color-red-ink: var(--red-ink);
+  --color-blue: var(--blue);
+  --color-blue-tint: var(--blue-tint);
+  --color-blue-ink: var(--blue-ink);
+  --color-purple: var(--purple);
+  --color-purple-tint: var(--purple-tint);
+  --color-purple-ink: var(--purple-ink);
+  --color-sel: var(--sel);
+  --color-hover: var(--hover);
+
+  /* v0.2 Cyber Scythe names, kept as aliases until WP-15 retires every use of them. */
+  --color-void: var(--canvas);
+  --color-obsidian: var(--surface);
+  --color-steel: var(--hover);
+  --color-edge: var(--line);
+  --color-ink-muted: var(--ink-2);
+  --color-ink-faint: var(--ink-3);
+  --color-coral: var(--brand);
+  --color-amber-neon: var(--orange);
+  --color-emerald-signal: var(--green);
+  --color-azure: var(--blue);
+  --color-violet: var(--purple);
 }
 
 html,
@@ -39,9 +131,10 @@ body,
 }
 
 body {
-  background: var(--color-void);
-  color: var(--color-ink);
+  background: var(--canvas);
+  color: var(--ink);
   font-family: var(--font-sans);
+  font-size: 13px;
   user-select: none;
   cursor: default;
 }
@@ -53,13 +146,15 @@ body {
 }
 
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 8px;
+  height: 8px;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: color-mix(in srgb, var(--color-ink-faint) 45%, transparent);
+  background: color-mix(in srgb, var(--ink-3) 40%, transparent);
   border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
 }

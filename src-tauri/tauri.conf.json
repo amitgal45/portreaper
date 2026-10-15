@@ -14,14 +14,14 @@
       {
         "label": "main",
         "title": "PortReaper",
-        "width": 760,
-        "height": 540,
-        "minWidth": 560,
-        "minHeight": 380,
+        "width": 900,
+        "height": 600,
+        "minWidth": 760,
+        "minHeight": 520,
         "titleBarStyle": "Overlay",
         "hiddenTitle": true,
         "center": true,
-        "backgroundColor": "#0A0B0E"
+        "backgroundColor": "#F5F6F8"
       }
     ],
     "security": {

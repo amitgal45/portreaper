@@ -38,6 +38,9 @@ importers:
       reka-ui:
         specifier: ^2.11.0
         version: 2.11.0(vue@3.5.43(typescript@6.0.3))
+      simple-icons:
+        specifier: ^16.35.0
+        version: 16.35.0
       vue:
         specifier: ^3.5.13
         version: 3.5.43(typescript@6.0.3)
@@ -1048,6 +1051,10 @@ packages:
     engines: {node: '>=10'}
     hasBin: true
 
+  simple-icons@16.35.0:
+    resolution: {integrity: sha512-TCfl/2+GTrx0nCo4pEWGvxhOb8c6NsqOU1OpwjtF4lwJAthB8IYVD0fuIMjLMg6JFuG1YBO0t1iETQqJLqkoJA==}
+    engines: {node: '>=0.12.18'}
+
   source-map-js@1.2.2:
     resolution: {integrity: sha512-KGj/8Y43x35aZVDtt+J4mK1hoLGHULMYfSkODJNQjNDC3oW1PqPoxMwo0pLUsWM/UEGzON/NxeHywEfNXNP3Vw==}
     engines: {node: '>=0.10.0'}
@@ -1993,6 +2000,8 @@ snapshots:
       '@rolldown/binding-win32-x64-msvc': 1.2.13
 
   semver@7.8.5: {}
+
+  simple-icons@16.35.0: {}
 
   source-map-js@1.2.2: {}
 
