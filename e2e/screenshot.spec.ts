@@ -24,10 +24,10 @@ test("the drawer → docs/screenshot-dark.png", async ({ page }) => {
   await page.screenshot({ path: "docs/screenshot-dark.png" });
 });
 
-// The Quick strip (WP-8b, WP-12) at its window size, 480×320: the pre-selection on an empty
-// query with the two lost-terminal zombies first, the newer selected, so the ⚡ and the "↩ free"
-// hint are in the picture, then the dev servers newest first. v0.2 is dark only: both schemes
-// render the same; both files stay so links to either keep working.
+// The Quick strip (WP-8b, WP-12, on the Board tokens since WP-15b) at its window size, 480×320:
+// the pre-selection on an empty query with the two lost-terminal zombies first, the newer
+// selected, so the ⚡, the Zombie pill, the brand marks and the "↩ free" hint are in the picture,
+// then the dev servers newest first. The tokens follow the system scheme, so one file per scheme.
 test.describe("quick", () => {
   test.use({ viewport: { width: 480, height: 320 } });
 

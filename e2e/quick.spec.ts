@@ -1,8 +1,8 @@
 import { expect, type Locator, type Page, test } from "@playwright/test";
 
 /**
- * The Quick strip (`quick.html`: WP-8b, made instant and restyled by WP-12) in a browser against
- * the mock core. The window that hosts it (480×320, always on top, hidden on blur) is WP-8a's
+ * The Quick strip (`quick.html`: WP-8b, made instant by WP-12, on the Board tokens since WP-15b)
+ * in a browser against the mock core. The window that hosts it (480×320, always on top, hidden on blur) is WP-8a's
  * and is not here: in a browser `hideCurrentWindow()` is a no-op, so after a kill or Esc the
  * strip simply stays on screen.
  *
@@ -18,7 +18,10 @@ test.describe.configure({ mode: "parallel" });
 const input = (page: Page): Locator => page.getByRole("combobox", { name: "Free a port" });
 const options = (page: Page): Locator => page.getByRole("option");
 const option = (page: Page, port: number): Locator => page.locator(`[role="option"][data-port="${port}"]`);
-const chip = (row: Locator): Locator => row.locator("[data-chip]");
+/** The status pill at the right of a row (Zombie, Public, Protected, AI · memory); a plain dev server has none. */
+const status = (row: Locator): Locator => row.locator("[data-status]");
+/** The brand mark for a known stack (`data-brand` names it). */
+const brand = (row: Locator): Locator => row.getByTestId("framework-icon");
 const header = (page: Page): Locator => page.locator("header");
 const footer = (page: Page): Locator => page.locator("footer");
 const shownPorts = (page: Page) =>
@@ -119,12 +122,22 @@ test("lists rows within 100 ms of load: the lost-terminal zombies first, the new
   await expect(zombie.getByLabel("lost terminal")).toHaveText("⚡");
   await expect(zombie).toContainText("tinyrecipe-lp");
   await expect(zombie).toContainText("↩ free");
-  await expect(chip(zombie)).toHaveText("web");
+  await expect(status(zombie)).toHaveText("Zombie");
+  await expect(status(zombie)).toHaveAttribute("data-status", "zombie");
+  await expect(brand(zombie)).toHaveAttribute("data-brand", "Vite");
   // The older zombie is second; then the dev servers newest first; nothing protected.
   expect(await shownPorts(page)).toEqual([5174, 4000, 5173, 3000, 8080, 9335]);
   await expect(option(page, 4000).getByLabel("lost terminal")).toHaveText("⚡");
   await expect(option(page, 4000)).toContainText("legacy-docs");
+  await expect(status(option(page, 4000))).toHaveText("Zombie");
+  await expect(brand(option(page, 4000))).toHaveAttribute("data-brand", "Jekyll");
   await expect(option(page, 3000).getByLabel("lost terminal")).toHaveCount(0);
+  // A plain running dev server has no pill; the one bound to 0.0.0.0 is Public; chrome-helper has neither a mark nor a pill.
+  await expect(status(option(page, 3000))).toHaveCount(0);
+  await expect(status(option(page, 8080))).toHaveText("Public");
+  await expect(brand(option(page, 8080))).toHaveAttribute("data-brand", "NestJS");
+  await expect(status(option(page, 9335))).toHaveCount(0);
+  await expect(brand(option(page, 9335))).toHaveCount(0);
   await expect(option(page, 5432)).toHaveCount(0);
   await expect(header(page)).toHaveText("PortReaper · 11 ports · ⌘⇧K");
   await expect(footer(page)).toHaveText("↑↓ choose · ↩ free · ⌥↩ force · esc close");
@@ -160,7 +173,8 @@ test("typing 3 lists the 3000-prefixed ports, :3000 first; Enter frees it, says 
   await expect(target).toContainText("shop-api");
   await expect(target).toContainText("feature/cart");
   await expect(target).toContainText("↩ free");
-  await expect(chip(target)).toHaveText("web");
+  await expect(status(target)).toHaveCount(0);
+  await expect(brand(target)).toHaveAttribute("data-brand", "Next.js");
 
   await watchFreed(page, 3000);
   await page.keyboard.press("Enter");
@@ -187,8 +201,9 @@ test("a protected port asks once more; the second Enter frees every port of that
   const docker = option(page, 5432);
   await expect(options(page)).toHaveCount(1);
   await expect(docker).toHaveAttribute("aria-selected", "true");
-  await expect(docker.getByLabel("protected")).toBeVisible();
-  await expect(chip(docker)).toHaveText("db");
+  await expect(status(docker)).toHaveText("Protected");
+  await expect(status(docker)).toHaveAttribute("data-status", "protected");
+  await expect(brand(docker)).toHaveAttribute("data-brand", "PostgreSQL");
 
   await page.keyboard.press("Enter");
   await expect(docker).toContainText("This is Docker (com.docker.backend). Press Enter again to kill it.");
@@ -231,7 +246,7 @@ test("Esc clears a query; on an empty query it is a no-op in the browser and the
   expect(thrown).toEqual([]);
 });
 
-test("an ai row's chip carries its memory", async ({ page }) => {
+test("an ai row's pill carries its memory", async ({ page }) => {
   await openQuick(page);
   // Seventh of seven unprotected entries: not in the pre-selection, one word away.
   await expect(option(page, 11434)).toHaveCount(0);
@@ -243,7 +258,19 @@ test("an ai row's chip carries its memory", async ({ page }) => {
   await expect(ollama).toHaveAttribute("aria-selected", "true");
   await expect(ollama).toContainText("ollama");
   await expect(ollama).toContainText("32014");
-  await expect(chip(ollama)).toHaveText("AI · 4.9 GB");
+  await expect(status(ollama)).toHaveText("AI · 4.9 GB");
+  await expect(status(ollama)).toHaveAttribute("data-status", "ai");
+  await expect(brand(ollama)).toHaveAttribute("data-brand", "Ollama");
   await expect(ollama.getByLabel("lost terminal")).toHaveCount(0);
-  await expect(ollama.getByLabel("protected")).toHaveCount(0);
+});
+
+test("a named stack without a brand mark gets a soft text pill", async ({ page }) => {
+  await openQuick(page);
+  // AirPlay (ControlCenter on :7000) is a name the icon set does not know.
+  await page.keyboard.type("7000");
+  const airplay = option(page, 7000);
+  await expect(airplay).toHaveAttribute("aria-selected", "true");
+  await expect(brand(airplay)).toHaveCount(0);
+  await expect(airplay.locator("[data-framework]")).toHaveText("AirPlay");
+  await expect(status(airplay)).toHaveText("Protected");
 });
