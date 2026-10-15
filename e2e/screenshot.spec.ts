@@ -1,28 +1,28 @@
 import { expect, test } from "@playwright/test";
-import { drawer, open, row, rows } from "./helpers";
+import { inspector, open, row } from "./helpers";
 
 /**
  * Not part of `pnpm e2e`: only the `screenshot` project runs this file (`pnpm screenshot`), on
- * WebKit at 2×, which is what the Tauri window is on a retina Mac. Mock data, 760×540. The app
- * is dark only since v0.2: `screenshot.png` is the Studio with a row selected,
- * `screenshot-dark.png` the same window with the drawer open.
+ * WebKit at 2×, which is what the Tauri window is on a retina Mac. Mock data, 900×600. The Board
+ * follows the system scheme: `screenshot.png` is the Studio in light with the inspector open on
+ * :3000, `screenshot-dark.png` the same window in dark.
  */
-test("the Studio → docs/screenshot.png", async ({ page }) => {
-  await page.emulateMedia({ colorScheme: "dark" });
-  await open(page);
-  // One row selected, so the selection ring and the kill affordance are in the picture.
-  await page.keyboard.press("ArrowDown");
-  await expect(rows(page).first()).toHaveAttribute("aria-selected", "true");
-  await page.screenshot({ path: "docs/screenshot.png" });
-});
+const boardShots = [
+  { scheme: "light", path: "docs/screenshot.png" },
+  { scheme: "dark", path: "docs/screenshot-dark.png" },
+] as const;
 
-test("the drawer → docs/screenshot-dark.png", async ({ page }) => {
-  await page.emulateMedia({ colorScheme: "dark" });
-  await open(page);
-  await row(page, 3000).click();
-  await expect(drawer(page)).toContainText("[LISTENING ON :3000]");
-  await page.screenshot({ path: "docs/screenshot-dark.png" });
-});
+for (const { scheme, path } of boardShots) {
+  test(`the Board, ${scheme} → ${path}`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: scheme });
+    await open(page);
+    // The first dev server selected and inspected: the selection bar, the filled Kill and the
+    // inspector column are in the picture.
+    await row(page, 3000).click();
+    await expect(inspector(page)).toContainText("[LISTENING ON :3000]");
+    await page.screenshot({ path });
+  });
+}
 
 // The Quick strip (WP-8b, WP-12) at its window size, 480×320: the pre-selection on an empty
 // query with the two lost-terminal zombies first, the newer selected, so the ⚡ and the "↩ free"

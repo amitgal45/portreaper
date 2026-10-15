@@ -10,8 +10,8 @@ import { defineConfig } from "@playwright/test";
 const PORT = 1430;
 const baseURL = `http://localhost:${PORT}`;
 
-/** The window's default size (tauri.conf.json). */
-const viewport = { width: 760, height: 540 };
+/** The window's default size (tauri.conf.json); 760×520 is its minimum, which layout.spec.ts uses. */
+const viewport = { width: 900, height: 600 };
 
 export default defineConfig({
   testDir: "e2e",
@@ -37,7 +37,7 @@ export default defineConfig({
       testIgnore: "**/screenshot.spec.ts",
     },
     // `pnpm screenshot` only: writes docs/screenshot*.png for the README. WebKit at 2×, which is
-    // what the app window is on a retina Mac.
+    // what the app window is on a retina Mac; the specs set the colour scheme per shot.
     {
       name: "screenshot",
       use: { browserName: "webkit", deviceScaleFactor: 2 },
