@@ -51,9 +51,13 @@ pub fn run() {
         // The update the last check found, for the banner's Update and Retry.
         .manage(update::UpdateState::default())
         .setup(|app| {
-            tray::setup(app.handle())?;
-            shortcuts::setup(app.handle())?;
             settings::enable_autostart_on_first_run(app.handle());
+            // The Dock policy and the shortcuts come from the settings, and the tray's labels
+            // read the registered shortcuts: settings first, shortcuts second, the tray after.
+            let settings = settings::load(app.handle());
+            settings::apply_dock_icon(app.handle(), settings.dock_icon);
+            shortcuts::register_all(app.handle(), &settings);
+            tray::setup(app.handle())?;
             quick::precreate(app.handle());
             update::setup(app.handle());
             Ok(())

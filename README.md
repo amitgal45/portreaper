@@ -76,9 +76,10 @@ xattr -cr /Applications/PortReaper.app
 ```
 
 
-Download the `.dmg` of the latest [release](https://github.com/amitgal45/portreaper/releases),
-or build it from source (Xcode Command Line Tools, Rust stable 1.85+, Node 24, pnpm 11). Clone
-the repository, then:
+Download the `.dmg` of the latest [release](https://github.com/amitgal45/portreaper/releases):
+one universal build (`PortReaper_<version>_universal.dmg`) runs on Intel and Apple Silicon Macs
+alike. Or build it from source (Xcode Command Line Tools, Rust stable 1.85+, Node 24, pnpm 11).
+Clone the repository, then:
 
 ```bash
 pnpm install

@@ -30,6 +30,11 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
+      # One universal binary for Intel and Apple Silicon: the Tauri CLI builds both targets and
+      # joins them with lipo (`--target universal-apple-darwin` below). The runner is arm64 and
+      # has only its own target; the Intel one has to be added.
+      - run: rustup target add x86_64-apple-darwin aarch64-apple-darwin
+
       - uses: swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
@@ -74,6 +79,12 @@ jobs:
       # is switched on here only (src-tauri/tauri.release.conf.json merged over tauri.conf.json):
       # with it on, the Tauri CLI refuses to build without the private key, and CI's unsigned
       # build has none. The private key never leaves the secrets; its public half is in the repo.
+      #
+      # The universal target names the artifacts `PortReaper_X.Y.Z_universal.dmg` and
+      # `PortReaper_universal.app.tar.gz`, and tauri-action (v0 = 0.6.2) writes the one bundle
+      # under both `darwin-aarch64` and `darwin-x86_64` (plus the `-app` variants) in
+      # latest.json, which is what an installed native build looks up; `darwin-universal` is only
+      # written with `updaterJsonKeepUniversal`, and nothing looks it up.
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -92,4 +103,4 @@ jobs:
           releaseDraft: false
           prerelease: false
           includeUpdaterJson: true
-          args: --config src-tauri/tauri.release.conf.json
+          args: --config src-tauri/tauri.release.conf.json --target universal-apple-darwin
