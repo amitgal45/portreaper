@@ -271,7 +271,8 @@ pub(crate) fn detect_tool(command: &str) -> Option<String> {
 /// `pattern` occurs in `haystack` as a word or path segment, not as part of a longer name:
 /// `node_modules/.bin/vite` is `vite` and not `node`, `src/app.tsx` is not `tsx`, `javac` is not
 /// `java`. A digit after the pattern is fine (`python3`), and so is a dash (`redis-server`).
-fn occurs_as_token(haystack: &str, pattern: &str) -> bool {
+/// `classify` uses the same rule to read a command line, so both agree on what a token is.
+pub(crate) fn occurs_as_token(haystack: &str, pattern: &str) -> bool {
     let bytes = haystack.as_bytes();
     let glued_before = |c: u8| c.is_ascii_alphanumeric() || c == b'_' || c == b'.';
     let glued_after = |c: u8| c.is_ascii_alphabetic() || c == b'_';
