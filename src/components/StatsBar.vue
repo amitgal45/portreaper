@@ -1,7 +1,7 @@
 <script setup lang="ts">
-// Four compact tiles over the list: what is listening, what the dev servers hold, the zombies
-// and the ports anyone on the network can reach. The last two are buttons: they set the pill.
-import { MemoryStick, Plug } from "lucide-vue-next";
+// Four 36 px cards under the toolbar: what is listening, what the dev servers hold, the zombies
+// and the ports anyone on the Wi-Fi can reach. The last two are buttons: they set the filter.
+// Four in a row from 820 px of main column; two per row below.
 import { computed } from "vue";
 import type { CategoryFilter } from "../composables/usePorts";
 import { formatBytes } from "../lib/format";
@@ -14,7 +14,7 @@ const props = defineProps<{
   zombies: number;
   zombieMemoryBytes: number;
   publicCount: number;
-  /** The active pill, so the clicked tile reads as pressed. */
+  /** The active filter, so the clicked card reads as pressed. */
   category: CategoryFilter;
 }>();
 
@@ -22,84 +22,67 @@ const emit = defineEmits<{ filter: [category: CategoryFilter] }>();
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 const devMemory = computed(() => formatBytes(props.devMemoryBytes));
-const zombieMemory = computed(() => formatBytes(props.zombieMemoryBytes));
+const zombieCaption = computed(() =>
+  props.zombies
+    ? `${props.zombies === 1 ? "zombie" : "zombies"} · ${formatBytes(props.zombieMemoryBytes)}`
+    : "zombies",
+);
 
-const tile = "flex min-w-0 items-center justify-between gap-2 rounded-lg border px-2.5 py-1.5 text-left";
-const label = "truncate font-mono text-[10px] uppercase tracking-wider";
-const value = "font-mono text-[14px] font-bold leading-5 tabular-nums";
-const sub = "truncate text-[10px] text-ink-muted";
-const icon = "flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[13px] leading-none";
+const card =
+  "flex h-9 min-w-0 items-center gap-2 overflow-hidden whitespace-nowrap rounded-lg border px-2.5 text-left";
+const quiet = "border-line bg-canvas";
+const dot = "h-2 w-2 shrink-0 rounded-full";
+const big = "shrink-0 text-[15px] font-semibold tracking-tight tabular-nums";
+const caption = "min-w-0 truncate text-[12px] text-ink-2";
+const clickable = "outline-none focus-visible:ring-2 focus-visible:ring-brand/40";
 
-/** A tile that filters: amber or coral while it has something to show, quiet at zero. */
-function signal(count: number, pressed: boolean, tone: "amber" | "coral"): string {
-  if (count === 0) return `${tile} border-edge bg-obsidian`;
-  const on = tone === "amber" ? "border-amber-neon/60 bg-amber-neon/10" : "border-coral/60 bg-coral/10";
-  const off =
-    tone === "amber"
-      ? "border-amber-neon/30 bg-amber-neon/5 hover:border-amber-neon/60"
-      : "border-coral/30 bg-coral/5 hover:border-coral/60";
-  return `${tile} cursor-default outline-none transition-colors focus-visible:ring-2 focus-visible:ring-coral/40 ${pressed ? on : off}`;
+/** A card that filters: tinted while it has something to show, quiet at zero, a ring when pressed. */
+function signal(count: number, pressed: boolean, tone: "orange" | "red"): string {
+  if (count === 0) return `${card} ${quiet} ${clickable}`;
+  const tint = tone === "orange" ? "bg-orange-tint" : "bg-red-tint";
+  const ring = tone === "orange" ? "ring-orange" : "ring-red";
+  return `${card} ${clickable} border-transparent ${tint} ${pressed ? `ring-1 ring-inset ${ring}` : ""}`;
 }
 </script>
 
 <template>
-  <div class="grid shrink-0 grid-cols-2 gap-2 border-b border-edge px-3 py-2 sm:grid-cols-4">
-    <div data-tile="ports" :class="[tile, 'border-edge bg-obsidian']">
-      <div class="min-w-0">
-        <div :class="[label, 'text-ink-muted']">Listening</div>
-        <div class="flex items-baseline gap-1.5">
-          <span :class="[value, 'text-ink']">{{ total }}</span>
-          <span :class="sub">{{ total === 1 ? "port" : "ports" }} · {{ plural(projects, "project") }}</span>
-        </div>
-      </div>
-      <span :class="[icon, 'bg-steel text-ink-muted']" aria-hidden="true"><Plug :size="13" :stroke-width="2" /></span>
+  <div class="grid shrink-0 grid-cols-2 gap-2 border-b border-line bg-surface px-4 py-2.5 @min-[820px]/main:grid-cols-4">
+    <div data-tile="ports" :class="[card, quiet]">
+      <span :class="[dot, 'bg-green']" aria-hidden="true" />
+      <span :class="[big, 'text-ink']">{{ total }}</span>
+      <span :class="caption">{{ total === 1 ? "port" : "ports" }} · {{ plural(projects, "project") }}</span>
     </div>
 
-    <div data-tile="memory" :class="[tile, 'border-edge bg-obsidian']">
-      <div class="min-w-0">
-        <div :class="[label, 'text-ink-muted']">Dev-server memory</div>
-        <div class="flex items-baseline gap-1.5">
-          <span :class="[value, 'text-ink']">{{ devMemory }}</span>
-          <span :class="sub">web · api · ai</span>
-        </div>
-      </div>
-      <span :class="[icon, 'bg-steel text-ink-muted']" aria-hidden="true"><MemoryStick :size="13" :stroke-width="2" /></span>
+    <div data-tile="memory" :class="[card, quiet]">
+      <span :class="[dot, 'bg-blue']" aria-hidden="true" />
+      <span :class="[big, 'text-ink']">{{ devMemory }}</span>
+      <span :class="caption">dev servers</span>
     </div>
 
     <button
       type="button"
       data-tile="zombies"
       :aria-pressed="category === 'zombie'"
-      :class="signal(zombies, category === 'zombie', 'amber')"
+      :class="signal(zombies, category === 'zombie', 'orange')"
       title="Dev servers whose terminal is gone. Click to list them."
       @click="emit('filter', 'zombie')"
     >
-      <div class="min-w-0">
-        <div :class="[label, zombies ? 'text-amber-neon' : 'text-ink-muted']">Zombies</div>
-        <div class="flex items-baseline gap-1.5">
-          <span :class="[value, zombies ? 'text-amber-neon' : 'text-ink']">{{ zombies }}</span>
-          <span :class="sub">{{ zombies ? `${zombieMemory} reclaimable` : "lost terminals" }}</span>
-        </div>
-      </div>
-      <span :class="[icon, zombies ? 'bg-amber-neon/20' : 'bg-steel']" aria-hidden="true">⚡</span>
+      <span :class="[dot, 'bg-orange']" aria-hidden="true" />
+      <span :class="[big, zombies ? 'text-orange-ink' : 'text-ink']">{{ zombies }}</span>
+      <span :class="caption">{{ zombieCaption }}</span>
     </button>
 
     <button
       type="button"
       data-tile="public"
       :aria-pressed="category === 'public'"
-      :class="signal(publicCount, category === 'public', 'coral')"
+      :class="signal(publicCount, category === 'public', 'red')"
       title="Bound to every interface: anyone on your network can reach them. Click to list them."
       @click="emit('filter', 'public')"
     >
-      <div class="min-w-0">
-        <div :class="[label, publicCount ? 'text-coral' : 'text-ink-muted']">Public LAN</div>
-        <div class="flex items-baseline gap-1.5">
-          <span :class="[value, publicCount ? 'text-coral' : 'text-ink']">{{ publicCount }}</span>
-          <span :class="sub">{{ publicCount ? "on your network" : "none exposed" }}</span>
-        </div>
-      </div>
-      <span :class="[icon, publicCount ? 'bg-coral/20' : 'bg-steel']" aria-hidden="true">🌐</span>
+      <span :class="[dot, 'bg-red']" aria-hidden="true" />
+      <span :class="[big, publicCount ? 'text-red-ink' : 'text-ink']">{{ publicCount }}</span>
+      <span :class="caption">public on your Wi-Fi</span>
     </button>
   </div>
 </template>
