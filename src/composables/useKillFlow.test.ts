@@ -1,8 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
-import { createMockApi } from "../api/mock";
-import type { PortEntry } from "../types";
-import { killMessage, useKillFlow } from "./useKillFlow";
+import { createMockApi, MOCK_ENTRIES } from "../api/mock";
+import type { KillOutcome, PortEntry } from "../types";
+import { killMessage, reapMessage, useKillFlow } from "./useKillFlow";
 import { type PortGroup, usePorts } from "./usePorts";
+import { useTaskline } from "./useTaskline";
 import { useToasts } from "./useToasts";
 
 async function setup() {
@@ -99,5 +100,94 @@ describe("useKillFlow", () => {
       message: "node (7) is already gone.",
       kind: "info",
     });
+  });
+});
+
+describe("useKillFlow: reap and restart (v0.2)", () => {
+  async function setupWithTaskline(api = createMockApi()) {
+    const killProcess = vi.spyOn(api, "killProcess");
+    const ports = usePorts(api, { storage: null });
+    await ports.refresh();
+    const toasts = useToasts();
+    const taskline = useTaskline(api, toasts, { subscribe: () => () => {} });
+    const flow = useKillFlow(ports, toasts, taskline);
+    const byPort = (port: number) => ports.entries.value.find((e) => e.port === port) as PortEntry;
+    return { api, killProcess, ports, toasts, taskline, flow, byPort };
+  }
+
+  it("reaps two zombies at once and sums what came back", async () => {
+    const { flow, ports, toasts, api } = await setupWithTaskline();
+    const reapZombies = vi.spyOn(api, "reapZombies");
+    await flow.reap();
+    expect(reapZombies).toHaveBeenCalledTimes(1);
+    expect(flow.confirm.value).toBeNull();
+    expect(ports.counts.value.zombie).toBe(0);
+    expect(toasts.toasts.value[0]?.message).toBe("Reaped 2 zombies, 640 MB back.");
+  });
+
+  it("asks once above three zombies", async () => {
+    const base = MOCK_ENTRIES.find((e) => e.port === 5174) as PortEntry;
+    const many = [4001, 4002, 4003, 4004].map((port, i) => ({ ...base, port, pid: 70000 + i }));
+    const { flow, api } = await setupWithTaskline(createMockApi([...MOCK_ENTRIES, ...many]));
+    const reapZombies = vi.spyOn(api, "reapZombies");
+    await flow.reap();
+    expect(reapZombies).not.toHaveBeenCalled();
+    expect(flow.confirm.value).toEqual({
+      kind: "zombies",
+      count: 6,
+      memoryBytes: (220 * 5 + 420) * 1024 * 1024,
+    });
+    await flow.confirmed();
+    expect(reapZombies).toHaveBeenCalledTimes(1);
+  });
+
+  it("words the reap summary", () => {
+    const outcomes: KillOutcome[] = [];
+    expect(reapMessage({ outcomes, freed: 0, refused: 0, memoryBytes: 0 })).toEqual({
+      message: "No zombies to reap.",
+      kind: "info",
+    });
+    expect(reapMessage({ outcomes, freed: 1, refused: 1, memoryBytes: 220 * 1024 * 1024 })).toEqual({
+      message: "Reaped 1 zombie, 220 MB back; 1 refused.",
+      kind: "error",
+    });
+    expect(reapMessage({ outcomes, freed: 0, refused: 2, memoryBytes: 0 })).toEqual({
+      message: "Reaped nothing; 2 refused.",
+      kind: "error",
+    });
+  });
+
+  it("restart kills gracefully, relaunches what the core recorded, and brings the row back with a new pid", async () => {
+    const { flow, killProcess, ports, taskline, byPort } = await setupWithTaskline();
+    const outcome = await flow.restart(byPort(3000));
+    expect(killProcess).toHaveBeenCalledWith({ pid: 48213, force: false });
+    expect(outcome.status).toBe("started");
+    const pid = outcome.status === "started" ? outcome.pid : -1;
+    expect(flow.restarting.value).toEqual({ phase: "started", pid: 48213, newPid: pid });
+    expect(ports.entries.value.find((e) => e.port === 3000)?.pid).toBe(pid);
+    expect(taskline.events.value.map((e) => e.kind)).toEqual(["relaunched", "portFreed"]);
+    flow.clearRestart();
+    expect(flow.restarting.value).toBeNull();
+  });
+
+  it("restart reports a relaunch failure and leaves the row gone", async () => {
+    const { flow, api, ports, byPort } = await setupWithTaskline();
+    vi.spyOn(api, "relaunch").mockResolvedValueOnce({ status: "failed", eventId: 1, error: "ENOENT" });
+    const outcome = await flow.restart(byPort(5173));
+    expect(outcome).toEqual({ status: "failed", error: "ENOENT" });
+    expect(flow.restarting.value).toEqual({ phase: "failed", pid: 51022, error: "ENOENT" });
+    expect(ports.entries.value.some((e) => e.port === 5173)).toBe(false);
+  });
+
+  it("restart stops at a kill that did not happen, and refuses protected rows", async () => {
+    const { flow, api, byPort } = await setupWithTaskline();
+    vi.spyOn(api, "killProcess").mockResolvedValueOnce({ status: "refused", pid: 51022, reason: "EPERM" });
+    const refused = await flow.restart(byPort(5173));
+    expect(refused).toEqual({ status: "failed", error: "Did not kill node (51022): EPERM." });
+    const docker = await flow.restart(byPort(5432));
+    expect(docker.status).toBe("failed");
+    expect(api.killProcess).toHaveBeenCalledTimes(1);
+    const noTaskline = useKillFlow(usePorts(api, { storage: null }), useToasts());
+    expect((await noTaskline.restart(byPort(5173))).status).toBe("failed");
   });
 });

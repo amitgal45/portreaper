@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { executableDir, formatBytes, formatPorts, formatUptime, shortCommand, splitCommand } from "./format";
+import {
+  executableDir,
+  formatBytes,
+  formatPorts,
+  formatTime,
+  formatUptime,
+  shortCommand,
+  splitCommand,
+} from "./format";
 
 describe("formatBytes", () => {
   it("renders megabytes as whole numbers", () => {
@@ -157,5 +165,14 @@ describe("formatPorts", () => {
     expect(formatPorts([5432, 6379])).toBe("Ports 5432 and 6379");
     expect(formatPorts([1, 2, 3])).toBe("Ports 1, 2 and 3");
     expect(formatPorts([])).toBe("");
+  });
+});
+
+describe("formatTime", () => {
+  it("is the local wall clock with seconds, zero-padded", () => {
+    // Built in local time so the expectation holds in every zone.
+    expect(formatTime(new Date(2026, 9, 15, 17, 52, 14).getTime())).toBe("17:52:14");
+    expect(formatTime(new Date(2026, 0, 1, 0, 5, 9).getTime())).toBe("00:05:09");
+    expect(formatTime(Number.NaN)).toBe("—");
   });
 });

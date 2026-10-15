@@ -188,6 +188,38 @@ export const MOCK_ENTRIES: PortEntry[] = [
     parentPid: 1,
     protected: true,
   }),
+  // v0.2 (WP-11): a local model server holding a few gigabytes, and a second lost-terminal zombie.
+  // Both older than every entry above so the Quick strip's recents (the five newest unprotected
+  // entries) keep their order.
+  entry({
+    port: 11434,
+    pid: 32014,
+    processName: "ollama",
+    command: "/usr/local/bin/ollama serve",
+    cwd: "/Users/amit",
+    exe: "/usr/local/bin/ollama",
+    memoryBytes: Math.round(4.85 * 1024 * 1024 * 1024),
+    startedAt: now - 12 * 24 * 3600,
+  }),
+  entry({
+    port: 4000,
+    pid: 18402,
+    processName: "ruby",
+    framework: "Jekyll",
+    command: "bundle exec jekyll serve --port 4000",
+    cwd: "/Users/amit/work/legacy-docs",
+    memoryBytes: 420 * 1024 * 1024,
+    startedAt: now - 10 * 24 * 3600,
+    parentPid: 1,
+    orphan: true,
+    project: {
+      name: "legacy-docs",
+      root: "/Users/amit/work/legacy-docs",
+      kind: "git",
+      branch: "v1.0",
+      tool: "jekyll",
+    },
+  }),
 ];
 
 export function createMockApi(seed: PortEntry[] = MOCK_ENTRIES): PortApi {
