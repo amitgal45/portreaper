@@ -1,27 +1,35 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
   <!--
-    PortReaper app icon. Source of truth: `pnpm icons` renders this to src-tauri/icons/.
+    PortReaper app icon, v0.2 "Cyber Scythe". Source of truth: `pnpm icons` renders this to
+    src-tauri/icons/.
 
-    Two colours. A charcoal plate on Apple's icon grid (824 px square, 100 px margin, 185 px
-    corner radius) and one glyph: the face of an Ethernet socket, drawn as a bold outline, cut
-    in two by a clean diagonal. The cut is the whole story: a port, and the act of freeing it.
-    No skull, no scythe, no gradient, no text.
+    Two colours: Signal Coral (#FF4528) on Tactical Obsidian (#121316), the tokens in
+    src/style.css (see design/README.md). The plate sits on Apple's icon grid (824 px square,
+    100 px margin, 185 px corner radius). On it, one glyph: the face of an Ethernet socket drawn
+    as a bold ring (96 px wall), cut in two by one sweep of a scythe. The cut is the whole story:
+    a port, and the act of freeing it. No blade drawn, no skull, no gradient, no text.
 
-    The mask removes a diagonal band from the glyph. Its region is set in user space on purpose:
-    the default (-10 %..120 % of the glyph's box) would clip the outer half of the stroke.
+    The ring is a filled path (outer boundary clockwise, hollow counter-clockwise, even-odd).
+    v0.1 stroked the centreline with round joins, which rounded every outer corner to 48 px and
+    made the socket read as a speech bubble; here the outer corners are 24 px and the hollow is
+    sharp. Centreline for reference: M232 282 H792 V622 H682 V742 H342 V622 H232 Z, wall 96.
+
+    The cut is a quadratic arc from (388,892) to (636,132): v0.1's diagonal (72 degrees from
+    horizontal) bowed 60 px toward the upper-left at its middle, so the heavier left piece is the
+    one that was swept. 88 px wide, square ends. The mask region is set in user space on purpose:
+    the default (-10 %..120 % of the glyph's box) would clip the ring.
   -->
   <defs>
     <mask id="cut" maskUnits="userSpaceOnUse" x="0" y="0" width="1024" height="1024">
       <rect width="1024" height="1024" fill="#fff"/>
-      <line x1="388" y1="892" x2="636" y2="132" stroke="#000" stroke-width="88"/>
+      <path d="M388 892 Q398 475 636 132" fill="none" stroke="#000" stroke-width="88"/>
     </mask>
   </defs>
 
   <!-- the plate -->
-  <rect x="100" y="100" width="824" height="824" rx="185" fill="#14161C"/>
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="#121316"/>
 
-  <!-- the socket: a wide body with the narrower latch tab below, 96 px stroke, rounded joins -->
-  <path d="M232 282 H792 V622 H682 V742 H342 V622 H232 Z"
-        fill="none" stroke="#FF5E3A" stroke-width="96" stroke-linejoin="round"
-        mask="url(#cut)"/>
+  <!-- the socket: a wide body with the narrower latch tab below, cut by the sweep -->
+  <path d="M184 258 A24 24 0 0 1 208 234 H816 A24 24 0 0 1 840 258 V646 A24 24 0 0 1 816 670 H730 V766 A24 24 0 0 1 706 790 H318 A24 24 0 0 1 294 766 V670 H208 A24 24 0 0 1 184 646 Z M280 330 V574 H390 V694 H634 V574 H744 V330 Z"
+        fill="#FF4528" fill-rule="evenodd" mask="url(#cut)"/>
 </svg>
