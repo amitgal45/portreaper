@@ -12,9 +12,10 @@
 //! A Tauri 2 tray menu is static once built, so a background thread re-reads the ports every
 //! [`REFRESH_INTERVAL`] (and at once whenever the window is shown) and swaps the menu on the
 //! main thread, but only when the model changed, so a menu the user holds open is left alone.
-//! Freeing a port from the menu goes through `crate::ports::list` and `crate::kill::kill`
-//! directly, then posts a notification. Nothing here may panic: every runtime failure is a
-//! [`warn`] on stderr and the app carries on.
+//! Freeing a port from the menu goes through `crate::ports::listing` and
+//! `crate::taskline::kill_recorded`, the same path the UI's commands take, so a tray kill lands
+//! in the Taskline too; then it posts a notification. Nothing here may panic: every runtime
+//! failure is a [`warn`] on stderr and the app carries on.
 
 use std::collections::HashSet;
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
@@ -27,8 +28,8 @@ use tauri::{AppHandle, Emitter, Manager, RunEvent, Window, WindowEvent};
 use tauri_plugin_autostart::ManagerExt as _;
 use tauri_plugin_notification::NotificationExt as _;
 
-use crate::model::{KillOutcome, KillRequest, PortEntry, Protocol};
-use crate::{quick, shortcuts};
+use crate::model::{EventKind, KillOutcome, PortEntry, Protocol};
+use crate::{quick, shortcuts, taskline};
 
 /// How many "Free :PORT" items the menu shows at most.
 pub const MAX_MENU_PORTS: usize = 12;
@@ -529,15 +530,16 @@ fn toggle_autostart(app: &AppHandle) {
 /// port selected instead.
 fn free_from_tray(app: &AppHandle, port: u16, protocol: Protocol) {
     // The menu can be up to `REFRESH_INTERVAL` stale: look again before touching anything.
-    let entries = match crate::ports::list() {
-        Ok(entries) => entries,
+    let listing = match crate::ports::listing() {
+        Ok(listing) => listing,
         Err(e) => {
             warn(format_args!("could not list ports to free :{port}: {e}"));
             notify(app, &format!("Could not free port {port} · {e}"));
             return;
         }
     };
-    let on_port: Vec<&PortEntry> = entries.iter().filter(|e| e.port == port && e.protocol == protocol).collect();
+    let on_port: Vec<&PortEntry> =
+        listing.entries.iter().filter(|e| e.port == port && e.protocol == protocol).collect();
     if on_port.is_empty() {
         notify(app, &format!("Could not free port {port} · nothing is listening on it any more"));
         signal(app, Signal::Refresh);
@@ -548,14 +550,18 @@ fn free_from_tray(app: &AppHandle, port: u16, protocol: Protocol) {
         return;
     }
 
-    let mut pids: Vec<u32> = on_port.iter().map(|e| e.pid).collect();
-    pids.sort_unstable();
-    pids.dedup();
     let mut freed = Vec::new();
     let mut failures = Vec::new();
-    for pid in pids {
-        let name = on_port.iter().find(|e| e.pid == pid).map_or("?", |e| e.process_name.as_str());
-        match crate::kill::kill(&KillRequest { pid, force: false }) {
+    // One kill per pid, recorded against its entry on this port; the list is sorted by port
+    // then pid, so the first entry of a pid is the one to keep.
+    let mut seen: Vec<u32> = Vec::new();
+    for entry in &on_port {
+        let (name, pid) = (entry.process_name.as_str(), entry.pid);
+        if seen.contains(&pid) {
+            continue;
+        }
+        seen.push(pid);
+        match taskline::kill_recorded(app, &listing, entry, false, None) {
             KillOutcome::Killed { .. } => freed.push(format!("{name} ({pid})")),
             KillOutcome::NotFound { .. } => freed.push(format!("{name} ({pid}, already gone)")),
             KillOutcome::Refused { reason, .. } => failures.push(format!("{name} ({pid}): {reason}")),
@@ -594,6 +600,15 @@ impl Bulk {
             Bulk::DevServers => "No dev servers to kill",
         }
     }
+
+    /// How the Taskline names a kill from this action: a reaped zombie for the lost-terminal
+    /// one, the plain `portFreed`/`forceKilled` for the other.
+    fn event_kind(self) -> Option<EventKind> {
+        match self {
+            Bulk::Orphans => Some(EventKind::ZombieReaped),
+            Bulk::DevServers => None,
+        }
+    }
 }
 
 /// A graceful kill waits up to `kill::GRACE_MS` per pid; that must not block the event loop.
@@ -606,15 +621,16 @@ fn spawn_bulk_kill(app: &AppHandle, bulk: Bulk) {
 /// then posts one summary notification.
 fn bulk_kill(app: &AppHandle, bulk: Bulk) {
     // The menu can be up to `REFRESH_INTERVAL` stale: decide from a fresh list, never the menu.
-    let entries = match crate::ports::list() {
-        Ok(entries) => entries,
+    let listing = match crate::ports::listing() {
+        Ok(listing) => listing,
         Err(e) => {
             warn(format_args!("could not list ports for a bulk kill: {e}"));
             notify(app, &format!("Could not list ports · {e}"));
             return;
         }
     };
-    let model = shortcuts_model(&entries);
+    let entries = &listing.entries;
+    let model = shortcuts_model(entries);
     let pids = bulk.pids(&model);
     if pids.is_empty() {
         notify(app, bulk.nothing_to_kill());
@@ -624,8 +640,12 @@ fn bulk_kill(app: &AppHandle, bulk: Bulk) {
     let mut freed: Vec<u32> = Vec::new();
     let mut refused = 0;
     for &pid in pids {
-        let name = entries.iter().find(|e| e.pid == pid).map_or("?", |e| e.process_name.as_str());
-        match crate::kill::kill(&KillRequest { pid, force: false }) {
+        // The model's pids come from these entries, so each has one; the first is its lowest port.
+        let Some(entry) = entries.iter().find(|e| e.pid == pid) else {
+            continue;
+        };
+        let name = entry.process_name.as_str();
+        match taskline::kill_recorded(app, &listing, entry, false, bulk.event_kind()) {
             KillOutcome::Killed { graceful: true, .. } => {
                 info(format_args!("killed {name} ({pid})"));
                 freed.push(pid);
