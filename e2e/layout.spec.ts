@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, type Locator, test } from "@playwright/test";
 import {
   confirmDialog,
   contrast,
@@ -70,6 +70,42 @@ test.describe("at the minimum window size", () => {
     expect(
       (box as { x: number; width: number }).x + (box as { x: number; width: number }).width,
     ).toBeLessThanOrEqual(760);
+  });
+});
+
+test.describe("at the default window size", () => {
+  test.use({ viewport: { width: 1040, height: 660 } });
+
+  test("the inspector is a 340 px column, nothing scrolls sideways, and the long project names fit", async ({
+    page,
+  }) => {
+    await open(page);
+    await row(page, 3000).click();
+    await expect(inspector(page)).toContainText("[LISTENING ON :3000]");
+    // The column is the grid track: the panel plus its 1 px left border.
+    const column = await inspector(page).locator("xpath=..").boundingBox();
+    expect(column, "inspector column has a box").not.toBeNull();
+    expect((column as { width: number }).width).toBe(340);
+    expect((column as { x: number; width: number }).x + (column as { width: number }).width).toBe(1040);
+
+    await expect
+      .poll(() =>
+        page.evaluate(() => {
+          const html = document.documentElement;
+          const list = document.querySelector('[role="grid"]');
+          return {
+            page: html.scrollWidth <= html.clientWidth,
+            list: list !== null && list.scrollWidth <= list.clientWidth,
+          };
+        }),
+      )
+      .toEqual({ page: true, list: true });
+
+    // 900×600 cut "tinyrecipe-lp" and its branch with the inspector open; 1040 shows them whole.
+    const name = group(page, "p:tinyrecipe-lp").getByText("tinyrecipe-lp", { exact: true });
+    expect(await name.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+    const branch = group(page, "p:tinyrecipe-lp").getByText("amit/TR-120-hero", { exact: true });
+    expect(await branch.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
   });
 });
 
@@ -179,6 +215,60 @@ test.describe("the tokens", () => {
           contrast(label, itemSurface),
           `All ports is ${label.css} on ${itemSurface.css}`,
         ).toBeGreaterThanOrEqual(4.5);
+      });
+
+      test("the pills, the filled Kill, the sidebar's badges and the tertiary labels clear AA (4.5:1)", async ({
+        page,
+      }) => {
+        await open(page);
+        /** The painted text over the painted background of one element. */
+        const own = async (locator: Locator, what: string) => {
+          const [text, fill] = await Promise.all([
+            paintedColor(locator, "color"),
+            paintedColor(locator, "backgroundColor"),
+          ]);
+          expect(fill.a, `${what} paints an opaque background (${fill.css})`).toBe(1);
+          expect(contrast(text, fill), `${what} is ${text.css} on ${fill.css}`).toBeGreaterThanOrEqual(4.5);
+        };
+
+        // The five status pills: a tint with its ink, 12 px semibold (WP-19).
+        for (const [port, badge] of [
+          [3000, "running"],
+          [4000, "zombie"],
+          [8080, "public"],
+          [5432, "protected"],
+          [11434, "ai"],
+        ] as const) {
+          await own(row(page, port).locator(`[data-badge="${badge}"]`), `${badge} pill on :${port}`);
+        }
+
+        // The sidebar: the quiet counts on `line`, the alarms on their tints, the section headings on the canvas.
+        for (const key of ["dev", "zombie", "public"] as const) {
+          await own(navItem(page, key).locator("span").last(), `${key} count`);
+        }
+        const sidebar = await paintedColor(
+          page.getByRole("navigation", { name: "Views" }),
+          "backgroundColor",
+        );
+        const heading = await paintedColor(page.getByText("Needs attention", { exact: true }), "color");
+        expect(
+          contrast(heading, sidebar),
+          `heading is ${heading.css} on ${sidebar.css}`,
+        ).toBeGreaterThanOrEqual(4.5);
+
+        // The status line's tertiary text on the surface.
+        const footer = await paintedColor(statusLine(page), "backgroundColor");
+        const status = await paintedColor(statusLine(page).locator("span").nth(1), "color");
+        expect(contrast(status, footer), `status is ${status.css} on ${footer.css}`).toBeGreaterThanOrEqual(
+          4.5,
+        );
+
+        // The selected row: the filled Kill and the active badge are the surface on an ink.
+        await row(page, 3000).click();
+        await expect(row(page, 3000)).toHaveAttribute("aria-selected", "true");
+        await own(killButton(row(page, 3000)), "the selected row's Kill");
+        await own(navItem(page, "all").locator("span").last(), "the active count");
+        await own(killButton(inspector(page)), "the inspector's Kill");
       });
     });
   }

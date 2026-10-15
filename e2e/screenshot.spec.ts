@@ -3,26 +3,31 @@ import { inspector, open, row } from "./helpers";
 
 /**
  * Not part of `pnpm e2e`: only the `screenshot` project runs this file (`pnpm screenshot`), on
- * WebKit at 2×, which is what the Tauri window is on a retina Mac. Mock data, 900×600. The Board
- * follows the system scheme: `screenshot.png` is the Studio in light with the inspector open on
- * :3000, `screenshot-dark.png` the same window in dark.
+ * WebKit at 2×, which is what the Tauri window is on a retina Mac. Mock data, at the window's
+ * default size (tauri.conf.json: 1040×660 since WP-19). The Board follows the system scheme:
+ * `screenshot.png` is the Studio in light with the inspector open on :3000, `screenshot-dark.png`
+ * the same window in dark.
  */
-const boardShots = [
-  { scheme: "light", path: "docs/screenshot.png" },
-  { scheme: "dark", path: "docs/screenshot-dark.png" },
-] as const;
+test.describe("the Board", () => {
+  test.use({ viewport: { width: 1040, height: 660 } });
 
-for (const { scheme, path } of boardShots) {
-  test(`the Board, ${scheme} → ${path}`, async ({ page }) => {
-    await page.emulateMedia({ colorScheme: scheme });
-    await open(page);
-    // The first dev server selected and inspected: the selection bar, the filled Kill and the
-    // inspector column are in the picture.
-    await row(page, 3000).click();
-    await expect(inspector(page)).toContainText("[LISTENING ON :3000]");
-    await page.screenshot({ path });
-  });
-}
+  const boardShots = [
+    { scheme: "light", path: "docs/screenshot.png" },
+    { scheme: "dark", path: "docs/screenshot-dark.png" },
+  ] as const;
+
+  for (const { scheme, path } of boardShots) {
+    test(`${scheme} → ${path}`, async ({ page }) => {
+      await page.emulateMedia({ colorScheme: scheme });
+      await open(page);
+      // The first dev server selected and inspected: the selection bar, the filled Kill and the
+      // inspector column are in the picture.
+      await row(page, 3000).click();
+      await expect(inspector(page)).toContainText("[LISTENING ON :3000]");
+      await page.screenshot({ path });
+    });
+  }
+});
 
 // The Quick strip (WP-8b, WP-12, on the Board tokens since WP-15b) at its window size, 480×320:
 // the pre-selection on an empty query with the two lost-terminal zombies first, the newer

@@ -201,7 +201,9 @@ describe("PortRow", () => {
     expect(plain.get("button[aria-label='Kill']").classes()).toContain("text-red-ink");
     plain.unmount();
     const selected = mountRow(byPort(3000), spies(), { selected: true });
-    expect(selected.get("button[aria-label='Kill']").classes()).toContain("bg-red");
+    expect(selected.get("button[aria-label='Kill']").classes()).toEqual(
+      expect.arrayContaining(["bg-red-ink", "text-surface"]),
+    );
     expect(selected.get("[role='row']").attributes("aria-selected")).toBe("true");
     expect(selected.get("[role='row']").classes()).toContain("bg-sel");
     selected.unmount();

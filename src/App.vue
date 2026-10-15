@@ -201,7 +201,7 @@ onUnmounted(() => {
   <TooltipProvider :delay-duration="500" :skip-delay-duration="300">
     <main
       class="grid h-full overflow-hidden bg-canvas text-[13px] text-ink"
-      :class="inspector.column.value ? 'grid-cols-[200px_minmax(0,1fr)_320px]' : 'grid-cols-[200px_minmax(0,1fr)]'"
+      :class="inspector.column.value ? 'grid-cols-[200px_minmax(0,1fr)_340px]' : 'grid-cols-[200px_minmax(0,1fr)]'"
     >
       <Sidebar
         :view="view"
@@ -279,7 +279,7 @@ onUnmounted(() => {
         <DialogPortal>
           <DialogOverlay class="fixed inset-0 z-30 bg-ink/20" />
           <DialogContent
-            class="fixed inset-y-0 right-0 z-40 w-[320px] max-w-full border-l border-line bg-surface outline-none"
+            class="fixed inset-y-0 right-0 z-40 w-[340px] max-w-full border-l border-line bg-surface outline-none"
             @open-auto-focus.prevent
           >
             <DialogTitle class="sr-only">Inspector</DialogTitle>
