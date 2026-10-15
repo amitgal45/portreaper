@@ -1,4 +1,14 @@
-import type { KillOutcome, KillRequest, PortApi, PortEntry } from "../types";
+import type {
+  Category,
+  EventKind,
+  KillOutcome,
+  KillRequest,
+  PortApi,
+  PortEntry,
+  ProcessNode,
+  RelaunchOutcome,
+  TasklineEvent,
+} from "../types";
 
 /**
  * A believable machine for building the UI in a plain browser (`pnpm dev`) and in tests, with no
@@ -6,8 +16,33 @@ import type { KillOutcome, KillRequest, PortApi, PortEntry } from "../types";
  */
 const now = Math.floor(Date.now() / 1000);
 
+/** The v0.2 taxonomy, by port convention, the way the core's `classify` does it. */
+function classifyMock(port: number): { category: Category; framework: string | null } {
+  const table: Record<number, [Category, string | null]> = {
+    3000: ["web", "Next.js"],
+    5173: ["web", "Vite"],
+    5174: ["web", "Vite"],
+    4200: ["web", "Angular"],
+    8080: ["api", "NestJS"],
+    8000: ["api", "FastAPI"],
+    5000: ["api", null],
+    4000: ["api", null],
+    5432: ["db", "PostgreSQL 16"],
+    6379: ["db", "Redis 7"],
+    27017: ["db", "MongoDB"],
+    11434: ["ai", "Ollama"],
+    1234: ["ai", "LM Studio"],
+    53: ["system", "mDNSResponder"],
+    7000: ["system", "AirPlay"],
+    631: ["system", "CUPS"],
+  };
+  const hit = table[port];
+  return hit ? { category: hit[0], framework: hit[1] } : { category: "other", framework: null };
+}
+
 function entry(partial: Partial<PortEntry> & Pick<PortEntry, "port" | "pid" | "processName">): PortEntry {
   return {
+    ...classifyMock(partial.port),
     protocol: "tcp",
     bind: "loopback",
     address: "127.0.0.1",
@@ -157,17 +192,46 @@ export const MOCK_ENTRIES: PortEntry[] = [
 
 export function createMockApi(seed: PortEntry[] = MOCK_ENTRIES): PortApi {
   let entries = seed.map((e) => ({ ...e }));
+  const events: TasklineEvent[] = [];
+  let nextEventId = 1;
+  let nextPid = 60000;
+  const record = (
+    kind: EventKind,
+    e: PortEntry,
+    durationMs: number,
+    message: string,
+    relaunchable: boolean,
+  ) => {
+    events.unshift({
+      id: nextEventId++,
+      atMs: Date.now(),
+      kind,
+      port: e.port,
+      protocol: e.protocol,
+      pid: e.pid,
+      processName: e.processName,
+      project: e.project?.name ?? null,
+      memoryBytes: e.memoryBytes,
+      durationMs,
+      message,
+      relaunchable,
+    });
+  };
   const kill = (request: KillRequest): KillOutcome => {
     const victim = entries.find((e) => e.pid === request.pid);
     if (!victim) return { status: "notFound", pid: request.pid };
     if (victim.pid <= 1) return { status: "refused", pid: request.pid, reason: "launchd" };
     entries = entries.filter((e) => e.pid !== request.pid);
-    return {
-      status: "killed",
-      pid: request.pid,
-      graceful: !request.force,
-      waitedMs: request.force ? 0 : 180,
-    };
+    const waitedMs = request.force ? 0 : 180;
+    const verb = request.force ? "Force-killed" : "Killed";
+    record(
+      request.force ? "forceKilled" : "portFreed",
+      victim,
+      waitedMs,
+      `${verb} ${victim.processName} (${victim.pid}). Port ${victim.port} is free.`,
+      !victim.protected && victim.command !== "" && victim.cwd !== null,
+    );
+    return { status: "killed", pid: request.pid, graceful: !request.force, waitedMs };
   };
   return {
     listPorts: async () => entries.map((e) => ({ ...e })),
@@ -176,7 +240,61 @@ export function createMockApi(seed: PortEntry[] = MOCK_ENTRIES): PortApi {
       const pids = [...new Set(entries.filter((e) => e.port === port).map((e) => e.pid))];
       return pids.map((pid) => kill({ pid, force }));
     },
-    appVersion: async () => "0.1.0-mock",
+    appVersion: async () => "0.2.0-mock",
+    processTree: async (pid): Promise<ProcessNode[]> => {
+      const e = entries.find((x) => x.pid === pid);
+      if (!e) return [];
+      if (e.parentPid === 1)
+        return [
+          { pid: 1, name: "launchd" },
+          { pid, name: e.processName },
+        ];
+      return [
+        { pid: 1, name: "launchd" },
+        { pid: 948, name: "iTerm2" },
+        { pid: e.parentPid ?? 900, name: "zsh" },
+        { pid, name: e.processName },
+      ];
+    },
+    tasklineEvents: async () => events.map((e) => ({ ...e })),
+    clearTaskline: async () => {
+      events.length = 0;
+    },
+    reapZombies: async () => {
+      const zombies = entries.filter((e) => e.orphan && !e.protected);
+      return zombies.map((z) => {
+        const outcome = kill({ pid: z.pid, force: false });
+        const ev = events[0];
+        if (outcome.status === "killed" && ev && ev.pid === z.pid) {
+          ev.kind = "zombieReaped";
+          ev.message = `Reaped ${z.processName} (${z.pid}), a lost-terminal server on port ${z.port}.`;
+        }
+        return outcome;
+      });
+    },
+    relaunch: async (eventId): Promise<RelaunchOutcome> => {
+      const ev = events.find((e) => e.id === eventId);
+      if (!ev) return { status: "notFound", eventId };
+      const original = seed.find((s) => s.pid === ev.pid);
+      if (!ev.relaunchable || !original) return { status: "failed", eventId, error: "nothing to relaunch" };
+      const pid = nextPid++;
+      const back = {
+        ...original,
+        pid,
+        startedAt: Math.floor(Date.now() / 1000),
+        orphan: false,
+        parentPid: 900,
+      };
+      entries.push(back);
+      record(
+        "relaunched",
+        back,
+        0,
+        `Relaunched ${back.processName} on port ${back.port} (new pid ${pid}).`,
+        false,
+      );
+      return { status: "started", pid };
+    },
   };
 }
 

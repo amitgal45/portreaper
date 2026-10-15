@@ -31,7 +31,7 @@ describe("usePorts: loading and polling", () => {
     await vi.advanceTimersByTimeAsync(0);
     expect(store.loaded.value).toBe(true);
     expect(store.entries.value).toHaveLength(MOCK_ENTRIES.length);
-    expect(store.version.value).toBe("0.1.0-mock");
+    expect(store.version.value).toBe("0.2.0-mock");
     expect(store.lastRefresh.value).not.toBeNull();
     store.stop();
   });

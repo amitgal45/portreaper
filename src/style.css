@@ -1,24 +1,46 @@
 @import "tailwindcss";
 
-/* Design tokens. The UI (WP-3) builds on these; the tray and dialogs reuse them. */
+/* Design tokens: the "Cyber Scythe" identity (v0.2). Dark only. The main window, the Quick
+   HUD and the drawer all build on these; never hard-code a hex in a component. */
 @theme {
   --font-sans: "SF Pro Text", "Inter", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "SF Mono", "JetBrains Mono", ui-monospace, Menlo, monospace;
+
+  /* Surfaces: Void Black is the window ground, Tactical Obsidian the panels, Steel the raised bits. */
+  --color-void: #0a0b0e;
+  --color-obsidian: #121316;
+  --color-steel: #1b1d22;
+  --color-edge: #26292f;
+
+  /* Ink */
+  --color-ink: #f2f3f5;
+  --color-ink-muted: #a3a7b0;
+  --color-ink-faint: #6b7079;
+
+  /* Signals */
+  --color-coral: #ff4528; /* the accent: kill, selection, brand */
+  --color-amber-neon: #ff9a3c; /* zombies, collisions, warnings */
+  --color-emerald-signal: #10b981; /* freed, healthy */
+  --color-azure: #4ea1ff; /* databases, protected */
+  --color-violet: #a78bfa; /* local AI */
 }
 
 :root {
-  color-scheme: light dark;
+  color-scheme: dark;
   -webkit-font-smoothing: antialiased;
 }
 
 html,
 body,
-#app {
+#app,
+#quick {
   height: 100%;
   margin: 0;
 }
 
 body {
+  background: var(--color-void);
+  color: var(--color-ink);
   font-family: var(--font-sans);
   user-select: none;
   cursor: default;
@@ -28,4 +50,16 @@ body {
    can drag the window, so the top strip of the UI must carry it. */
 [data-tauri-drag-region] {
   -webkit-app-region: drag;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--color-ink-faint) 45%, transparent);
+  border-radius: 9999px;
 }

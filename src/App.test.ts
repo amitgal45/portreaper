@@ -34,7 +34,7 @@ describe("App", () => {
     // The count lives in the status line only; the title strip's right side is empty.
     expect(wrapper.get("footer").text()).toContain("9 ports · 6 projects");
     expect(wrapper.get("header").text()).not.toContain("port");
-    expect(wrapper.text()).toContain("v0.1.0-mock");
+    expect(wrapper.text()).toContain("v0.2.0-mock");
   });
 
   it("type 3000, Enter: kills shop-api's next dev and frees the port", async () => {

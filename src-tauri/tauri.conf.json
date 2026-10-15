@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "PortReaper",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "identifier": "dev.amitgal.portreaper",
   "build": {
     "beforeDevCommand": "pnpm dev",
@@ -20,7 +20,8 @@
         "minHeight": 380,
         "titleBarStyle": "Overlay",
         "hiddenTitle": true,
-        "center": true
+        "center": true,
+        "backgroundColor": "#0A0B0E"
       }
     ],
     "security": {
@@ -29,7 +30,10 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["app", "dmg"],
+    "targets": [
+      "app",
+      "dmg"
+    ],
     "category": "DeveloperTool",
     "shortDescription": "Kill ports. See what is behind them.",
     "longDescription": "PortReaper shows every listening port on your Mac, which project and branch it belongs to, and kills it in one click.",

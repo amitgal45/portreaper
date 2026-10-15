@@ -27,3 +27,14 @@ pub fn free_port(port: u16, force: bool) -> Result<Vec<KillOutcome>, String> {
 pub fn app_version(app: tauri::AppHandle) -> String {
     app.package_info().version.to_string()
 }
+
+/// Kills every lost-terminal, unprotected process. One outcome per pid.
+#[tauri::command]
+pub fn reap_zombies() -> Result<Vec<KillOutcome>, String> {
+    // WP-10b replaces this stub (and records each kill as `ZombieReaped`).
+    let entries = crate::ports::list().map_err(|e| e.to_string())?;
+    let mut pids: Vec<u32> = entries.iter().filter(|e| e.orphan && !e.protected).map(|e| e.pid).collect();
+    pids.sort_unstable();
+    pids.dedup();
+    Ok(pids.into_iter().map(|pid| crate::kill::kill(&KillRequest { pid, force: false })).collect())
+}
