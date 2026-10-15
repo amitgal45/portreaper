@@ -60,12 +60,14 @@ second time. Esc backs out one step: disarms, clears the query, hides the strip.
 - **Menu bar.** An icon with the count of open ports and one "Free :3000 · shop-api" item per
   port. ⌘⇧P brings the window up from anywhere. Closing the window hides it; the app stays in the
   Dock; Quit lives in the tray menu and the app menu.
-- **Nothing leaves the machine.** No analytics, no network calls, no crash reporting.
+- **Nothing leaves the machine.** No analytics, no crash reporting. The one network request is
+  the update check (below), and it carries nothing about you.
 
 ## Install
 
-There is no download yet. Build it from source (Xcode Command Line Tools, Rust stable 1.85+,
-Node 24, pnpm 11). Clone the repository, then:
+Download the `.dmg` of the latest [release](https://github.com/amitgal45/portreaper/releases),
+or build it from source (Xcode Command Line Tools, Rust stable 1.85+, Node 24, pnpm 11). Clone
+the repository, then:
 
 ```bash
 pnpm install
@@ -75,6 +77,18 @@ open src-tauri/target/release/bundle/macos/PortReaper.app
 
 Once the repository has a GitHub remote, CI (`.github/workflows/ci.yml`) builds an unsigned
 `.app` for every push that can be downloaded from the workflow run.
+
+## Updates
+
+PortReaper updates itself. Every release is published on
+[GitHub Releases](https://github.com/amitgal45/portreaper/releases) with a `latest.json`; the
+app reads that file ten seconds after launch and every six hours, and when a newer version is
+there it offers it in a dialog ("Update & relaunch" / "Later") and in the sidebar
+("PortReaper 0.3.0 is ready · Update"). The update bundle is signed (minisign, through Tauri's
+updater) and verified against the public key built into the app before anything is installed;
+a bundle that does not verify is refused and the running version stays. To check by hand, open
+the menu-bar icon and choose "Check for Updates…". The check is a single GET of that file, with
+no identifying data; while there is no release to find, the app stays quiet.
 
 ## Develop
 
@@ -108,9 +122,9 @@ System Settings → Privacy & Security and click "Open Anyway", or run
 **What does it read, and where does it go?**
 The list of listening sockets, and for each process behind one: pid, name, command line, working
 directory, executable path, user, memory, start time and parent pid. It reads them to show them
-and to find the project. Nothing is sent anywhere: the core's dependencies
-(`src-tauri/Cargo.toml`) contain no HTTP client, the UI is bundled with the app and loads nothing
-remote, and there is no analytics SDK.
+and to find the project. None of it is sent anywhere: the only network request the core makes is
+the update check, a GET of the latest release's `latest.json` on GitHub (see Updates); the UI is
+bundled with the app and loads nothing remote, and there is no analytics SDK.
 
 **Why does it not ask for sudo?**
 Your own processes can be listed and signalled by your own user, and a dev server is your own

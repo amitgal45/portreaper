@@ -1,0 +1,86 @@
+name: Release
+
+# A `vX.Y.Z` tag builds the macOS app, signs the updater bundle with the minisign key in the
+# repository's secrets, and publishes a GitHub Release carrying the .dmg, the .app.tar.gz with its
+# .sig, and the latest.json the running app checks (`plugins.updater.endpoints` in
+# src-tauri/tauri.conf.json). The recipe that gets here is in CLAUDE.md: a `## X.Y.Z` section at
+# the top of CHANGELOG.md, the three version fields bumped in one commit, then the tag.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build, sign and publish (macOS)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - run: pnpm install --frozen-lockfile
+
+      # The updater compares latest.json's version with the running app's (tauri.conf.json), and
+      # tauri-action names the release from the app version too: a tag that says otherwise would
+      # publish under the wrong name. Stop here instead.
+      - name: The tag must match the app version
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          app="$(node -p "require('./src-tauri/tauri.conf.json').version")"
+          if [ "$tag" != "$app" ]; then
+            echo "::error::tag v$tag but src-tauri/tauri.conf.json says $app; bump the three version fields, then tag" >&2
+            exit 1
+          fi
+
+      # The release body: CHANGELOG.md's section for this version, which the app shows in its
+      # update dialog too.
+      - name: Release notes from CHANGELOG.md
+        id: notes
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          body="$(awk -v v="$version" '
+            /^## / { if (found) exit; found = ($2 == v); next }
+            found { print }
+          ' CHANGELOG.md)"
+          if [ -z "$(printf '%s' "$body" | tr -d '[:space:]')" ]; then
+            echo "::error::CHANGELOG.md has no '## $version' section with content" >&2
+            exit 1
+          fi
+          delimiter="notes-$RANDOM-$RANDOM"
+          {
+            echo "body<<$delimiter"
+            printf '%s\n' "$body"
+            echo "$delimiter"
+          } >> "$GITHUB_OUTPUT"
+
+      # Runs `pnpm tauri build` (app + dmg, and with createUpdaterArtifacts the .app.tar.gz, which
+      # the private key signs), creates the release for the tag and uploads the artifacts plus
+      # latest.json. The private key never leaves the secrets; only its public half is in the repo.
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: v__VERSION__
+          releaseName: "PortReaper v__VERSION__"
+          releaseBody: ${{ steps.notes.outputs.body }}
+          releaseDraft: false
+          prerelease: false
+          includeUpdaterJson: true
