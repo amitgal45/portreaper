@@ -39,6 +39,8 @@ export const inspector = (page: Page): Locator => page.locator("[data-inspector]
 /** The brand mark of a row's stack (`data-brand` names it), or nothing for an unknown stack. */
 export const frameworkIcon = (r: Locator): Locator => r.locator("[data-testid='framework-icon']");
 export const feed = (page: Page): Locator => page.getByRole("feed");
+/** The sidebar's update banner (WP-16); absent until a newer release is known (`/?update=1` in a browser). */
+export const updateBanner = (page: Page): Locator => page.getByRole("region", { name: "Update" });
 export const events = (page: Page): Locator => feed(page).locator("article");
 export const eventOfKind = (page: Page, kind: string): Locator =>
   feed(page).locator(`article[data-kind="${kind}"]`);

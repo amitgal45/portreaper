@@ -20,4 +20,6 @@ export const tauriApi: PortApi = {
   clearTaskline: () => invoke<void>("clear_taskline"),
   relaunch: (eventId: number) => invoke<RelaunchOutcome>("relaunch", { eventId }),
   reapZombies: () => invoke<KillOutcome[]>("reap_zombies"),
+  checkForUpdates: () => invoke<void>("check_for_updates"),
+  installUpdate: () => invoke<void>("install_update"),
 };

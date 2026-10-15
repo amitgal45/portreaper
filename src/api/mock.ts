@@ -8,6 +8,7 @@ import type {
   ProcessNode,
   RelaunchOutcome,
   TasklineEvent,
+  UpdateInfo,
 } from "../types";
 
 /**
@@ -15,6 +16,20 @@ import type {
  * Tauri core behind it. Kills are simulated: a killed pid disappears on the next list.
  */
 const now = Math.floor(Date.now() / 1000);
+
+/**
+ * The update the sidebar banner shows in a browser with `?update=1` in the URL (`demoUpdate` in
+ * `composables/useUpdate.ts`), so `pnpm dev` and the e2e can see the banner without a release.
+ * Inside Tauri the seam does nothing: there the core's `update:available` is the only source.
+ */
+export const MOCK_UPDATE: UpdateInfo = {
+  version: "0.3.0",
+  notes: "- Auto-update from GitHub Releases\n- The Board: sidebar, cards, inspector",
+  date: "2026-10-15T20:00:00Z",
+};
+
+/** How long the mock's "download" takes, so the banner's progress state is visible in `pnpm dev`. */
+export const MOCK_INSTALL_MS = 600;
 
 /** The v0.2 taxonomy, by port convention, the way the core's `classify` does it. */
 function classifyMock(port: number): { category: Category; framework: string | null } {
@@ -327,6 +342,10 @@ export function createMockApi(seed: PortEntry[] = MOCK_ENTRIES): PortApi {
       );
       return { status: "started", pid };
     },
+    // No GitHub behind the mock: a check finds nothing and says nothing; an install "succeeds"
+    // after a moment, and the banner reads "Restarting…" because nothing restarts here.
+    checkForUpdates: async () => {},
+    installUpdate: () => new Promise<void>((resolve) => setTimeout(resolve, MOCK_INSTALL_MS)),
   };
 }
 

@@ -1,10 +1,12 @@
 <script setup lang="ts">
 // The 200 px column at the left of the Board: a row for the traffic lights, the brand below it, the
 // category filters with their counts ("Ports"), the two alarms ("Needs attention"), and at the
-// bottom the Taskline and Settings. One item is on: a category while the Studio shows, the
-// Taskline while the feed shows. Clicking a category from the Taskline goes back to the Studio.
+// bottom the update banner when a newer release is known (WP-16), the Taskline and Settings. One
+// item is on: a category while the Studio shows, the Taskline while the feed shows. Clicking a
+// category from the Taskline goes back to the Studio.
 import { Clock, Database, Globe, LayoutGrid, Settings, Sparkles, Terminal, Zap } from "lucide-vue-next";
 import type { CategoryCounts, CategoryFilter } from "../composables/usePorts";
+import { bannerText, percentOf, type UpdateState } from "../composables/useUpdate";
 
 export type View = "studio" | "taskline";
 
@@ -14,9 +16,16 @@ const props = defineProps<{
   counts: CategoryCounts;
   /** Events in the Taskline this session: the badge on its item. */
   tasklineCount: number;
+  /** The update banner's state; `idle` shows no banner. */
+  update: UpdateState;
 }>();
 
-const emit = defineEmits<{ "update:view": [view: View]; "update:category": [category: CategoryFilter] }>();
+const emit = defineEmits<{
+  "update:view": [view: View];
+  "update:category": [category: CategoryFilter];
+  /** The banner's Update or Retry: download and install the found release. */
+  install: [];
+}>();
 
 interface Item {
   key: CategoryFilter;
@@ -43,6 +52,15 @@ const item =
 const on = "bg-brand-tint font-semibold text-brand-ink hover:bg-brand-tint";
 const badge = "ml-auto rounded-full px-1.5 py-px font-mono text-[11px] font-medium leading-4 tabular-nums";
 const section = "px-2 pt-3.5 pb-1.5 text-[11px] font-semibold uppercase tracking-wide text-ink-3";
+const updateButton =
+  "h-6 rounded-md bg-brand px-2 text-[12px] font-semibold text-white outline-none hover:opacity-90 focus-visible:ring-2 focus-visible:ring-brand/40";
+
+/** The progress bar's fill: the known percent, full once installed, empty while the size is unknown. */
+function downloadedWidth(state: UpdateState): string {
+  if (state.phase !== "downloading") return "0%";
+  if (state.installed) return "100%";
+  return `${percentOf(state.downloaded, state.total) ?? 0}%`;
+}
 
 function isOn(key: CategoryFilter): boolean {
   return props.view === "studio" && props.category === key;
@@ -123,6 +141,26 @@ function pick(key: CategoryFilter) {
     </button>
 
     <div class="mt-auto grid gap-0.5 pt-3">
+      <!-- The update banner (WP-16): ready · Update, Downloading… N%, or the failure · Retry.
+           A region, not a status: the toasts own that role. -->
+      <section
+        v-if="update.phase !== 'idle'"
+        data-update
+        :data-phase="update.phase"
+        aria-label="Update"
+        class="mb-1 grid gap-1.5 rounded-md bg-brand-tint p-2 text-[12px] leading-4 text-brand-ink"
+      >
+        <span class="break-words font-semibold">{{ bannerText(update) }}</span>
+        <div v-if="update.phase === 'downloading'" class="h-1 overflow-hidden rounded-full bg-brand/20" aria-hidden="true">
+          <div class="h-full bg-brand transition-[width]" :style="{ width: downloadedWidth(update) }"></div>
+        </div>
+        <button v-if="update.phase === 'available'" type="button" data-action="update" :class="updateButton" @click="emit('install')">
+          Update
+        </button>
+        <button v-else-if="update.phase === 'error'" type="button" data-action="retry" :class="updateButton" @click="emit('install')">
+          Retry
+        </button>
+      </section>
       <button
         type="button"
         data-nav="taskline"

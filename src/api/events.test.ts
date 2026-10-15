@@ -1,6 +1,19 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { TasklineEvent } from "../types";
-import { isTasklineEvent, onTasklineEvent, TASKLINE_EVENT } from "./events";
+import {
+  isTasklineEvent,
+  isUpdateFailure,
+  isUpdateInfo,
+  isUpdateProgress,
+  onTasklineEvent,
+  onUpdateAvailable,
+  onUpdateError,
+  onUpdateProgress,
+  TASKLINE_EVENT,
+  UPDATE_AVAILABLE_EVENT,
+  UPDATE_ERROR_EVENT,
+  UPDATE_PROGRESS_EVENT,
+} from "./events";
 
 const { listen } = vi.hoisted(() => ({ listen: vi.fn() }));
 vi.mock("@tauri-apps/api/event", () => ({ listen }));
@@ -75,5 +88,69 @@ describe("onTasklineEvent", () => {
     await Promise.resolve();
     await Promise.resolve();
     expect(unlisten).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("the update payload guards", () => {
+  it("accept the contract's shapes and nothing else", () => {
+    expect(isUpdateInfo({ version: "0.3.0", notes: "- The Board", date: "2026-10-15T20:00:00Z" })).toBe(true);
+    expect(isUpdateInfo({ version: "0.3.0", notes: null, date: null })).toBe(true);
+    expect(isUpdateInfo({ version: 3, notes: null, date: null })).toBe(false);
+    expect(isUpdateInfo({ version: "0.3.0", notes: 7, date: null })).toBe(false);
+    expect(isUpdateInfo({ version: "0.3.0" })).toBe(false);
+    expect(isUpdateInfo(null)).toBe(false);
+
+    expect(isUpdateProgress({ downloaded: 42, total: 100 })).toBe(true);
+    expect(isUpdateProgress({ downloaded: 42, total: null })).toBe(true);
+    expect(isUpdateProgress({ downloaded: "42", total: 100 })).toBe(false);
+    expect(isUpdateProgress({ downloaded: 42 })).toBe(false);
+
+    expect(isUpdateFailure({ message: "Couldn't reach the update server" })).toBe(true);
+    expect(isUpdateFailure({ message: 1 })).toBe(false);
+    expect(isUpdateFailure("nope")).toBe(false);
+  });
+});
+
+describe("the update listeners", () => {
+  afterEach(() => {
+    listen.mockReset();
+    delete (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__;
+  });
+
+  it("are no-ops outside Tauri", () => {
+    for (const off of [onUpdateAvailable(vi.fn()), onUpdateProgress(vi.fn()), onUpdateError(vi.fn())]) off();
+    expect(listen).not.toHaveBeenCalled();
+  });
+
+  it("subscribe to their event inside Tauri and drop a payload that is not theirs", async () => {
+    (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {};
+    listen.mockResolvedValue(vi.fn());
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const available = vi.fn();
+    const progress = vi.fn();
+    const error = vi.fn();
+    onUpdateAvailable(available);
+    onUpdateProgress(progress);
+    onUpdateError(error);
+    await Promise.resolve();
+    expect(listen.mock.calls.map((c) => c[0])).toEqual([
+      UPDATE_AVAILABLE_EVENT,
+      UPDATE_PROGRESS_EVENT,
+      UPDATE_ERROR_EVENT,
+    ]);
+    const deliver = (index: number, payload: unknown) => {
+      const handler = listen.mock.calls[index]?.[1] as ((event: { payload: unknown }) => void) | undefined;
+      if (!handler) throw new Error(`no listener ${index}`);
+      handler({ payload });
+    };
+    deliver(0, { version: "0.3.0", notes: null, date: null });
+    deliver(0, { downloaded: 1, total: null });
+    deliver(1, { downloaded: 1, total: null });
+    deliver(2, { message: "x" });
+    deliver(2, {});
+    expect(available).toHaveBeenCalledTimes(1);
+    expect(progress).toHaveBeenCalledWith({ downloaded: 1, total: null });
+    expect(error).toHaveBeenCalledWith({ message: "x" });
+    expect(console.error).toHaveBeenCalledTimes(2);
   });
 });
