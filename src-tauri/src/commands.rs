@@ -99,19 +99,20 @@ pub async fn install_update(app: AppHandle) -> Result<(), String> {
     crate::update::on_thread(move || crate::update::install_found(&app)).await?
 }
 
-/// The preferences as stored, with the live start-at-login state (WP-17a). The foundation stub
-/// answers the defaults.
+/// The preferences as stored, with the live start-at-login state (WP-17a).
 #[tauri::command]
-pub fn get_settings(_app: AppHandle) -> Settings {
-    Settings::default()
+pub fn get_settings(app: AppHandle) -> Settings {
+    crate::settings::current(&app)
 }
 
-/// Stores `settings`, applies them (Dock icon, login item, shortcuts, refresh), emits
-/// `settings:changed` and returns the effective value. `Err` names the field that could not be
-/// applied (a shortcut another app owns); everything else stands. The foundation stub echoes.
+/// Stores `settings`, applies them (Dock icon, login item, shortcuts; the refresh interval and
+/// the notification switch are read where they are used), emits `settings:changed` and returns
+/// the effective value. `Err` names the field that could not be applied (a shortcut the plugin
+/// cannot parse or another app owns: `quickShortcut: …` / `windowShortcut: …`); everything else
+/// stands and the old shortcut stays registered.
 #[tauri::command]
-pub fn set_settings(_app: AppHandle, settings: Settings) -> Result<Settings, String> {
-    Ok(settings)
+pub fn set_settings(app: AppHandle, settings: Settings) -> Result<Settings, String> {
+    crate::settings::update(&app, settings)
 }
 
 /// Every watched port with its current state (WP-18). The foundation stubs know no watches.
