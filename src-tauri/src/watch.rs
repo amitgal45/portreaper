@@ -25,7 +25,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_notification::NotificationExt as _;
 use tauri_plugin_store::StoreExt as _;
 
-use crate::model::{PortEntry, Protocol, Settings, TasklineEvent, WatchState, WatchedPort};
+use crate::model::{PortEntry, Protocol, TasklineEvent, WatchState, WatchedPort};
 use crate::settings::STORE_FILE;
 use crate::taskline::Taskline;
 use crate::tray::{info, warn};
@@ -35,10 +35,6 @@ use crate::tray::{info, warn};
 pub const EVENT: &str = "watch:changed";
 /// The store key, in `settings.json`: an array of `{port, protocol}`.
 pub const STORE_KEY: &str = "watchedPorts";
-/// The `Settings` field the notifications are gated on, as WP-17a stores it next to
-/// `firstRunDone`. While the key is missing the default applies.
-const NOTIFICATIONS_KEY: &str = "notifications";
-
 /// What the store keeps per watch: the port and the protocol, nothing else.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "camelCase")]
@@ -287,8 +283,7 @@ pub fn notification_text(watch: &WatchedPort) -> (String, String) {
 /// `settings.json`, the default while the key is not there. `crate::settings::current(app)`
 /// replaces the body once it exists.
 fn notifications_enabled(app: &AppHandle) -> bool {
-    let stored = app.store(STORE_FILE).ok().and_then(|s| s.get(NOTIFICATIONS_KEY)).and_then(|v| v.as_bool());
-    stored.unwrap_or(Settings::default().notifications)
+    crate::settings::load(app).notifications
 }
 
 /// A desktop notification with the watch's title. A refusal (an unsigned build, a user who said
