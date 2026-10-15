@@ -146,6 +146,13 @@ fn distinct_pids(listing: &Listing, keep: impl Fn(&PortEntry) -> bool) -> Vec<u3
 /// is sorted by port, so that is its lowest port). Without such an entry the kill still
 /// happens, unrecorded: the user asked for it, and the Taskline cannot describe what it never
 /// saw.
+///
+/// A pid whose picked entries publish a container (Docker's backend, which holds every
+/// container's port under its one pid) is never killed here: the container is stopped instead
+/// (`taskline::stop_recorded`, WP-20). When the picked entries belong to several containers the
+/// request cannot say which one it meant (`kill_process` carries only the pid), and guessing
+/// would stop the wrong one, so it is refused and the feed names them; `free_port` picks by
+/// port, which is always one container.
 fn kill_listed(
     app: &AppHandle,
     listing: &Listing,
@@ -154,11 +161,25 @@ fn kill_listed(
     kind: Option<EventKind>,
     pick: impl Fn(&PortEntry) -> bool,
 ) -> KillOutcome {
-    match listing.entries.iter().find(|e| e.pid == pid && pick(e)) {
-        Some(entry) => crate::taskline::kill_recorded(app, listing, entry, force, kind),
-        None => {
-            info(format_args!("pid {pid} holds no port the list knows; killing it unrecorded"));
-            crate::kill::kill(&KillRequest { pid, force })
+    let picked: Vec<&PortEntry> = listing.entries.iter().filter(|e| e.pid == pid && pick(e)).collect();
+    let Some(first) = picked.first().copied() else {
+        info(format_args!("pid {pid} holds no port the list knows; killing it unrecorded"));
+        return crate::kill::kill(&KillRequest { pid, force });
+    };
+    let mut containers: Vec<&PortEntry> = picked.iter().copied().filter(|e| e.container.is_some()).collect();
+    containers.sort_by_key(|e| e.container.as_deref());
+    containers.dedup_by_key(|e| e.container.clone());
+    match containers.as_slice() {
+        [] => crate::taskline::kill_recorded(app, listing, first, force, kind),
+        [entry] => crate::taskline::stop_recorded(app, entry, entry.container.as_deref().unwrap_or_default(), force),
+        several => {
+            let names: Vec<&str> = several.iter().filter_map(|e| e.container.as_deref()).collect();
+            let reason = format!(
+                "it publishes {} containers ({}) under one pid; use Free a port on the port you mean",
+                names.len(),
+                names.join(", ")
+            );
+            crate::taskline::stop_refused(app, first, reason)
         }
     }
 }

@@ -20,6 +20,7 @@
 
 mod classify;
 mod commands;
+mod docker;
 mod kill;
 mod model;
 mod ports;
