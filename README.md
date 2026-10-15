@@ -9,10 +9,10 @@ and in the menu bar. Instead of `node 48213` you see `shop-api · feature/cart �
 Status: **v0.2 in progress, macOS only.** Nothing is released yet; what follows is what v0.2 is
 being built to do, work package by work package.
 
-![PortReaper: nine listening ports grouped by project, the first one selected](docs/screenshot.png)
+![PortReaper: eleven listening ports grouped by project, the first one selected](docs/screenshot.png)
 
 *Mock data, from the browser build (`pnpm dev`), 760×540. Regenerate with `pnpm screenshot`;
-`docs/screenshot-dark.png` is the same window in dark mode.*
+`docs/screenshot-dark.png` is the same window with the process drawer open; `docs/screenshot-quick.png` is the ⌘⇧K strip.*
 
 ## The instant flow
 
