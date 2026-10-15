@@ -11,6 +11,7 @@ import {
   row,
   rows,
   statusLine,
+  tile,
   toasts,
 } from "./helpers";
 
@@ -73,7 +74,7 @@ test("three toasts stacked leave the last row's ✕ clickable", async ({ page })
   await expect(stack.getByRole("button")).toHaveCount(3);
 
   // The last row and the toasts never share a pixel: the toasts are a band below the list.
-  const last = row(page, 7000);
+  const last = row(page, 11434);
   await last.scrollIntoViewIfNeeded();
   const [rowBox, stackBox] = await Promise.all([last.boundingBox(), stack.boundingBox()]);
   expect(rowBox, "last row has a box").not.toBeNull();
@@ -86,7 +87,7 @@ test("three toasts stacked leave the last row's ✕ clickable", async ({ page })
   await expect(stack.getByRole("button")).toHaveCount(3);
   await killButton(last).click();
   const dialog = confirmDialog(page);
-  await expect(dialog).toContainText("Kill ControlCenter (635)?");
+  await expect(dialog).toContainText("Kill ollama (32014)?");
   await dialog.getByRole("button", { name: "Cancel" }).click();
   await expect(dialog).toHaveCount(0);
 
@@ -98,25 +99,32 @@ test("three toasts stacked leave the last row's ✕ clickable", async ({ page })
   );
 });
 
-test.describe("in dark mode", () => {
-  test.use({ colorScheme: "dark" });
+test.describe("the tokens", () => {
+  // The app is dark only since v0.2: the OS scheme must not matter.
+  test.use({ colorScheme: "light" });
 
-  test("the surface is dark and the text is light", async ({ page }) => {
+  test("are applied: the body paints Void Black and the rows Ink, whatever the OS scheme says", async ({
+    page,
+  }) => {
     await open(page);
 
-    // The body paints nothing itself: `main` is the surface the rows sit on, and it fills the
-    // window. Measure the body when it has a colour, else the surface under it.
     const body = await paintedColor(page.locator("body"), "backgroundColor");
-    const surface = body.a > 0 ? body : await paintedColor(page.locator("main"), "backgroundColor");
-    expect(surface.a, `surface is ${surface.css}`).toBe(1);
-    expect(luminance(surface), `surface is ${surface.css}`).toBeLessThan(0.1);
+    const voidToken = await page.evaluate(() =>
+      getComputedStyle(document.documentElement).getPropertyValue("--color-void").trim(),
+    );
+    expect(voidToken).toBe("#0a0b0e");
+    expect(body.a, `body is ${body.css}`).toBe(1);
+    expect([body.r, body.g, body.b], `body is ${body.css}`).toEqual([10, 11, 14]);
+    expect(luminance(body)).toBeLessThan(0.1);
 
     const text = await paintedColor(rows(page).first(), "color");
     expect(text.a, `row text is ${text.css}`).toBe(1);
     expect(luminance(text), `row text is ${text.css}`).toBeGreaterThan(0.6);
   });
 
-  test("the secondary text clears AA (4.5:1) on the row and on the group band", async ({ page }) => {
+  test("the secondary text clears AA (4.5:1) on the row, on the group band and in the tiles", async ({
+    page,
+  }) => {
     await open(page);
     const surface = await paintedColor(page.locator("main"), "backgroundColor");
     const first = row(page, 3000);
@@ -129,15 +137,29 @@ test.describe("in dark mode", () => {
       );
     }
 
-    // The branch and the tool chip sit on the translucent group band.
+    // The branch chip sits on the group band (opaque Obsidian) inside its own Steel chip.
     const shopApi = group(page, "p:shop-api");
     const band = over(
       await paintedColor(shopApi.locator(":scope > div").first(), "backgroundColor"),
       surface,
     );
-    for (const cell of ["feature/cart", "next"]) {
-      const colour = await paintedColor(shopApi.getByText(cell, { exact: true }), "color");
-      expect(contrast(colour, band), `${cell} is ${colour.css} on ${band.css}`).toBeGreaterThanOrEqual(4.5);
+    const branch = shopApi.getByText("feature/cart", { exact: true });
+    const chipSurface = over(await paintedColor(branch, "backgroundColor"), band);
+    const branchColour = await paintedColor(branch, "color");
+    expect(
+      contrast(branchColour, chipSurface),
+      `branch is ${branchColour.css} on ${chipSurface.css}`,
+    ).toBeGreaterThanOrEqual(4.5);
+
+    // The tiles' captions on the tile surface.
+    for (const name of ["ports", "memory", "zombies", "public"] as const) {
+      const t = tile(page, name);
+      const tileSurface = over(await paintedColor(t, "backgroundColor"), surface);
+      const caption = await paintedColor(t.locator("div > div").first(), "color");
+      expect(
+        contrast(caption, tileSurface),
+        `${name} caption is ${caption.css} on ${tileSurface.css}`,
+      ).toBeGreaterThanOrEqual(4.5);
     }
   });
 });

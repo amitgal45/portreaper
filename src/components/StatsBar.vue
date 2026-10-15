@@ -96,7 +96,7 @@ function signal(count: number, pressed: boolean, tone: "amber" | "coral"): strin
         <div :class="[label, publicCount ? 'text-coral' : 'text-ink-muted']">Public LAN</div>
         <div class="flex items-baseline gap-1.5">
           <span :class="[value, publicCount ? 'text-coral' : 'text-ink']">{{ publicCount }}</span>
-          <span :class="sub">{{ publicCount ? "reachable from your network" : "none exposed" }}</span>
+          <span :class="sub">{{ publicCount ? "on your network" : "none exposed" }}</span>
         </div>
       </div>
       <span :class="[icon, publicCount ? 'bg-coral/20' : 'bg-steel']" aria-hidden="true">🌐</span>

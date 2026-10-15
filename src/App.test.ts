@@ -192,6 +192,7 @@ describe("App", () => {
     expect(killProcess).toHaveBeenCalledWith({ pid: 48213, force: false });
     const back = wrapper.get("[role='row'][data-port='3000']");
     expect(back.attributes("data-pid")).not.toBe("48213");
+    expect(back.attributes("aria-selected")).toBe("true");
     expect(drawer()?.textContent).toContain(`Back on :3000 as pid ${back.attributes("data-pid")}.`);
     expect(drawer()?.textContent).toContain(`PID ${back.attributes("data-pid")}`);
     expect(wrapper.text()).toContain(

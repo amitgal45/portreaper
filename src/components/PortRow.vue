@@ -121,7 +121,7 @@ watch(
     </span>
 
     <span class="w-16 shrink-0 text-right font-mono text-[11px] text-ink-muted tabular-nums">{{ memory }}</span>
-    <span class="w-10 shrink-0 text-right font-mono text-[11px] text-ink-muted tabular-nums">{{ uptime }}</span>
+    <span class="w-12 shrink-0 whitespace-nowrap text-right font-mono text-[11px] text-ink-muted tabular-nums">{{ uptime }}</span>
 
     <span class="flex w-18 shrink-0 items-center justify-end gap-1">
       <LoaderCircle v-if="pending" :size="14" class="animate-spin text-ink-muted" aria-label="killing" />

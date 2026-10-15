@@ -89,12 +89,10 @@ watch(
 async function restart(entry: PortEntry) {
   const outcome = await flow.restart(entry);
   if (outcome.status === "started" && inspecting.value?.pid === entry.pid) {
-    inspecting.value = {
-      ...entry,
-      pid: outcome.pid,
-      startedAt: Math.floor(Date.now() / 1000),
-      orphan: false,
-    };
+    const back = { ...entry, pid: outcome.pid, startedAt: Math.floor(Date.now() / 1000), orphan: false };
+    inspecting.value = back;
+    // The selection follows the relaunched row instead of sliding to its neighbour.
+    ports.select(back);
   }
 }
 

@@ -94,6 +94,14 @@ const restartLine = computed(() => {
   }
 });
 
+// Biome must not see a type-only use of DialogContent here: it would demote the template's import.
+const content = ref<{ $el: HTMLElement } | null>(null);
+/** Focus the panel itself on open, not the ✕: nothing looks pressed, Esc still closes, Tab reaches everything. */
+function focusPanel(event: Event) {
+  event.preventDefault();
+  content.value?.$el.focus();
+}
+
 const section = "space-y-1.5 rounded-lg border border-edge bg-void/60 p-3";
 const heading = "font-mono text-[10px] uppercase tracking-wider text-ink-muted";
 const chip = "inline-flex h-4 items-center gap-0.5 rounded px-1 font-mono text-[10px]";
@@ -110,8 +118,11 @@ function onOpenChange(open: boolean) {
     <DialogPortal>
       <DialogOverlay class="fixed inset-0 z-30 bg-void/40" />
       <DialogContent
+        ref="content"
         data-drawer
+        tabindex="-1"
         class="fixed inset-y-0 right-0 z-40 flex w-[440px] max-w-full flex-col border-l border-edge bg-obsidian text-[12px] text-ink shadow-2xl shadow-void outline-none"
+        @open-auto-focus="focusPanel"
       >
         <template v-if="entry">
           <header class="flex shrink-0 items-center gap-2.5 border-b border-edge px-4 py-3">
@@ -187,7 +198,7 @@ function onOpenChange(open: boolean) {
 
             <div data-section="command" :class="section">
               <div :class="heading">Full command</div>
-              <p class="select-text break-all rounded-md border border-edge bg-void p-2 font-mono text-[11px] leading-relaxed" :class="entry.command ? 'text-ink' : 'text-ink-muted'">
+              <p class="select-text break-words rounded-md border border-edge bg-void p-2 font-mono text-[11px] leading-relaxed" :class="entry.command ? 'text-ink' : 'text-ink-muted'">
                 {{ entry.command || "unknown" }}
               </p>
               <div class="flex flex-wrap gap-1.5 pt-1">

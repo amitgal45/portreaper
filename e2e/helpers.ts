@@ -1,4 +1,5 @@
 import { expect, type Locator, type Page } from "@playwright/test";
+import type { CategoryFilter } from "../src/composables/usePorts";
 
 /**
  * Locators for the parts of the window the tests talk about, by role, label or data attribute;
@@ -7,7 +8,9 @@ import { expect, type Locator, type Page } from "@playwright/test";
  */
 
 /** Entries in the mock core. */
-export const MOCK_PORT_COUNT = 9;
+export const MOCK_PORT_COUNT = 11;
+/** Projects among them (the status line and the first tile count these). */
+export const MOCK_PROJECT_COUNT = 7;
 
 export const rows = (page: Page): Locator => page.getByRole("row");
 export const row = (page: Page, port: number): Locator => page.locator(`[role="row"][data-port="${port}"]`);
@@ -17,14 +20,32 @@ export const search = (page: Page): Locator => page.getByRole("textbox", { name:
 export const toasts = (page: Page): Locator => page.getByRole("status");
 export const confirmDialog = (page: Page): Locator => page.getByRole("alertdialog");
 export const statusLine = (page: Page): Locator => page.locator("footer");
-/** The ✕ on a row. It is transparent until the row is hovered or selected; Playwright hovers first. */
+/** The Kill button on a row (the drawer has one too; scope through the row). */
 export const killButton = (r: Locator): Locator => r.getByRole("button", { name: "Kill", exact: true });
+
+// v0.2
+export const pill = (page: Page, key: CategoryFilter): Locator => page.locator(`[data-pill="${key}"]`);
+export const tile = (page: Page, name: "ports" | "memory" | "zombies" | "public"): Locator =>
+  page.locator(`[data-tile="${name}"]`);
+export const reapButton = (page: Page): Locator => page.locator("[data-action='reap']");
+export const tab = (page: Page, name: "Studio" | "Taskline"): Locator => page.getByRole("tab", { name });
+export const tasklineBadge = (page: Page): Locator => page.locator("[data-badge='taskline-count']");
+/** The slide-over, portalled to the body. */
+export const drawer = (page: Page): Locator => page.locator("[data-drawer]");
+export const feed = (page: Page): Locator => page.getByRole("feed");
+export const events = (page: Page): Locator => feed(page).locator("article");
+export const eventOfKind = (page: Page, kind: string): Locator =>
+  feed(page).locator(`article[data-kind="${kind}"]`);
 
 /** Opens the app and waits for the first poll: every mock row on screen. */
 export async function open(page: Page): Promise<void> {
   await page.goto("/");
   await expect(rows(page)).toHaveCount(MOCK_PORT_COUNT);
 }
+
+/** The ports on screen, top to bottom. */
+export const shownPorts = (page: Page) =>
+  rows(page).evaluateAll((els) => els.map((el) => Number(el.getAttribute("data-port"))));
 
 /**
  * Waits for the next poll to complete. The status line counts seconds since the last refresh and

@@ -33,7 +33,7 @@ describe("StatsBar", () => {
     expect(tile("zombies")).toContain("1");
     expect(tile("zombies")).toContain("220 MB reclaimable");
     expect(tile("public")).toContain("3");
-    expect(tile("public")).toContain("reachable from your network");
+    expect(tile("public")).toContain("on your network");
   });
 
   it("the zombie and public tiles are buttons that set the pill and read as pressed", async () => {
