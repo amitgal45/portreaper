@@ -31,6 +31,7 @@ mod shortcuts;
 mod taskline;
 mod tray;
 mod update;
+mod watch;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -51,6 +52,8 @@ pub fn run() {
         // The update the last check found, for the banner's Update and Retry.
         .manage(update::UpdateState::default())
         .setup(|app| {
+            // The watches load before the tray: its refresh thread observes them from its first snapshot.
+            watch::setup(app.handle());
             settings::enable_autostart_on_first_run(app.handle());
             // The Dock policy and the shortcuts come from the settings, and the tray's labels
             // read the registered shortcuts: settings first, shortcuts second, the tray after.

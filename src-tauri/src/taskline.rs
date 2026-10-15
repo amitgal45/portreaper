@@ -19,7 +19,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use tauri::{AppHandle, Emitter, Manager, State};
 
-use crate::model::{EventKind, KillOutcome, KillRequest, PortEntry, Protocol, TasklineEvent};
+use crate::model::{EventKind, KillOutcome, KillRequest, PortEntry, Protocol, TasklineEvent, WatchedPort};
 use crate::ports::Listing;
 use crate::tray::warn;
 
@@ -142,6 +142,28 @@ impl Log {
             memory_bytes: 0,
             duration_ms: millis(elapsed),
             message,
+            relaunchable: false,
+        };
+        self.insert(event.clone());
+        event
+    }
+
+    /// Records that a watched port went free on its own (WP-18): its holder stopped listening
+    /// and nobody here killed it. No memory came back and there is nothing to relaunch; `watch`
+    /// names the last holder when the watch knew one.
+    pub fn record_watch_freed(&mut self, watch: &WatchedPort) -> TasklineEvent {
+        let event = TasklineEvent {
+            id: self.take_id(),
+            at_ms: now_ms(),
+            kind: EventKind::PortFreed,
+            port: watch.port,
+            protocol: watch.protocol,
+            pid: watch.pid.unwrap_or(0),
+            process_name: watch.process_name.clone().unwrap_or_default(),
+            project: watch.project.clone(),
+            memory_bytes: 0,
+            duration_ms: 0,
+            message: format!("Port {} is free (watched).", watch.port),
             relaunchable: false,
         };
         self.insert(event.clone());
@@ -291,6 +313,10 @@ impl Taskline {
 
     pub fn record_relaunch(&self, source: &TasklineEvent, pid: u32, elapsed: Duration) -> TasklineEvent {
         self.lock().record_relaunch(source, pid, elapsed)
+    }
+
+    pub fn record_watch_freed(&self, watch: &WatchedPort) -> TasklineEvent {
+        self.lock().record_watch_freed(watch)
     }
 
     pub fn observe(&self, entries: &[PortEntry]) -> Vec<TasklineEvent> {

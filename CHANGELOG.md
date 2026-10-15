@@ -13,7 +13,11 @@ app shows it in its update dialog. Add a section for every release before taggin
   menu-bar menu; "Start at login" there and in the window are one switch.
 - One universal build: the same `.dmg` runs on Intel and Apple Silicon Macs.
 - WP-17b: The Preferences view (⌘,) and a first-run card.
-- WP-18: Watch a port: a notification when it frees up or gets taken.
+- Watch a port: "Watch :3000" in the row menu and the eye in the inspector. A notification and a
+  toast when it frees up ("Port 3000 is free · node (48213) stopped listening.") or gets taken
+  ("Port 3000 taken · node (51022) · shop-api"); a freed port lands in the Taskline. The sidebar's
+  "Watching" counts the watched ports that are free and lists them with "Stop watching". Watches
+  survive a restart.
 - WP-19: Every small text clears WCAG AA: the status pills are a tint with their ink, the filled buttons and badges use the ink shades, the tertiary grey is darker. The window opens at 1040×660 with a 340 px inspector.
 - WP-20: Docker containers by name; Kill stops the container.
 

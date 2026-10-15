@@ -2,7 +2,7 @@
 // One listening port: a 40 px row. Port · process (name, pid) · status pills and the brand mark
 // · memory · uptime · Kill and the row menu. The row opens the inspector; Kill kills (⌥ forces).
 // The command line is not here: it lives in the inspector.
-import { Ellipsis, LoaderCircle } from "lucide-vue-next";
+import { Ellipsis, Eye, LoaderCircle } from "lucide-vue-next";
 import {
   DropdownMenuContent,
   DropdownMenuItem,
@@ -14,6 +14,7 @@ import {
 import { computed, ref, watch } from "vue";
 import { useActions } from "../composables/useActions";
 import { isPublic, isZombie } from "../composables/usePorts";
+import { useWatched } from "../composables/useWatch";
 import { formatBytes, formatUptime } from "../lib/format";
 import { TABLE_COLUMNS, WIDE_ONLY } from "../lib/table-columns";
 import type { PortEntry } from "../types";
@@ -32,7 +33,11 @@ const props = defineProps<{
 }>();
 
 const actions = useActions();
+const isWatched = useWatched();
 const el = ref<HTMLElement | null>(null);
+
+/** The port is watched (WP-18): the eye after the brand mark, and the menu offers to stop. */
+const watched = computed(() => isWatched(props.entry));
 
 const uptime = computed(() => formatUptime(props.entry.startedAt));
 const memory = computed(() => formatBytes(props.entry.memoryBytes));
@@ -150,6 +155,14 @@ watch(
       <FrameworkIcon :entry="entry" :size="16">
         <span v-if="framework" data-badge="framework" :class="soft">{{ framework }}</span>
       </FrameworkIcon>
+      <span
+        v-if="watched"
+        data-badge="watched"
+        class="flex shrink-0 items-center text-blue-ink"
+        title="Watching: PortReaper will say when this port is free"
+      >
+        <Eye :size="14" :stroke-width="2" aria-label="watched" />
+      </span>
     </span>
 
     <span :class="[num, WIDE_ONLY]">{{ memory }}</span>
@@ -193,6 +206,9 @@ watch(
               @click.stop
             >
               <DropdownMenuItem :class="menuItem" @select="actions.inspect(entry)">Inspect</DropdownMenuItem>
+              <DropdownMenuItem :class="menuItem" data-action="watch" @select="actions.watch(entry)">
+                {{ watched ? `Stop watching :${entry.port}` : `Watch :${entry.port}` }}
+              </DropdownMenuItem>
               <DropdownMenuItem :class="menuItem" :disabled="entry.protocol !== 'tcp'" @select="actions.openInBrowser(entry)">
                 Open localhost:{{ entry.port }}
               </DropdownMenuItem>

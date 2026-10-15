@@ -414,6 +414,7 @@ fn take_snapshot(app: &AppHandle) -> Snapshot {
         warn(format_args!("could not list ports for the tray: {e}"));
         Vec::new()
     });
+    crate::watch::observe(app, &entries);
     Snapshot {
         shortcuts: shortcuts_model(&entries),
         title: tray_title(&entries),

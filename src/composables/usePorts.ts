@@ -1,14 +1,33 @@
-import { computed, getCurrentScope, onScopeDispose, reactive, ref, watch } from "vue";
+import { computed, getCurrentScope, onScopeDispose, type Ref, reactive, ref, watch } from "vue";
 import { guessCurrentUser, protectionReason } from "../lib/protection";
-import type { KillOutcome, PortApi, PortEntry } from "../types";
+import type { KillOutcome, PortApi, PortEntry, WatchedPort } from "../types";
 
 /**
  * The pills (v0.2). `dev` is web + api; `zombie` is an orphan that is not protected; `public` is
- * anything bound to every interface that is not a system daemon.
+ * anything bound to every interface that is not a system daemon; `watching` (WP-18) is every
+ * watched port: the listening ones as rows, the free ones as `freeRows`.
  */
-export type CategoryFilter = "all" | "dev" | "ai" | "db" | "zombie" | "public";
+export type CategoryFilter = "all" | "dev" | "ai" | "db" | "zombie" | "public" | "watching";
 
-export const CATEGORY_FILTERS: readonly CategoryFilter[] = ["all", "dev", "ai", "db", "zombie", "public"];
+export const CATEGORY_FILTERS: readonly CategoryFilter[] = [
+  "all",
+  "dev",
+  "ai",
+  "db",
+  "zombie",
+  "public",
+  "watching",
+];
+
+/** A port and its protocol: what a watch is about, and what an entry or a `WatchedPort` has. */
+export type WatchTarget = Pick<PortEntry, "port" | "protocol">;
+
+/** The key a watch is known by: `tcp:3000`. */
+export function watchKey(t: WatchTarget): string {
+  return `${t.protocol}:${t.port}`;
+}
+
+const NO_WATCHES: ReadonlySet<string> = new Set();
 
 export function isZombie(e: PortEntry): boolean {
   return e.orphan && !e.protected;
@@ -18,7 +37,12 @@ export function isPublic(e: PortEntry): boolean {
   return e.bind === "any" && e.category !== "system";
 }
 
-export function matchesCategory(e: PortEntry, filter: CategoryFilter): boolean {
+/** `watched` holds the keys (`watchKey`) of the watched ports; only `watching` reads it. */
+export function matchesCategory(
+  e: PortEntry,
+  filter: CategoryFilter,
+  watched: ReadonlySet<string> = NO_WATCHES,
+): boolean {
   switch (filter) {
     case "all":
       return true;
@@ -32,6 +56,8 @@ export function matchesCategory(e: PortEntry, filter: CategoryFilter): boolean {
       return isZombie(e);
     case "public":
       return isPublic(e);
+    case "watching":
+      return watched.has(watchKey(e));
   }
 }
 
@@ -99,6 +125,8 @@ export interface UsePortsOptions {
   storage?: Storage | null;
   /** How long a pid reported `killed` stays hidden even if a stale poll still lists it. */
   tombstoneMs?: number;
+  /** The watched ports (`useWatch`): the `watching` filter, its count and its free rows read them. */
+  watches?: Ref<WatchedPort[]>;
 }
 
 const COLLAPSED_KEY = "portreaper.collapsed";
@@ -181,6 +209,7 @@ function writeCollapsed(storage: Storage | null, keys: Iterable<string>) {
 export function usePorts(api: PortApi, options: UsePortsOptions = {}) {
   const intervalMs = options.intervalMs ?? 2000;
   const tombstoneMs = options.tombstoneMs ?? 3000;
+  const watches = options.watches ?? ref<WatchedPort[]>([]);
   const isVisible =
     options.isVisible ??
     (() => (typeof document === "undefined" ? true : document.visibilityState === "visible"));
@@ -208,11 +237,23 @@ export function usePorts(api: PortApi, options: UsePortsOptions = {}) {
   const tombstones = new Map<number, number>();
 
   const normalizedQuery = computed(() => query.value.trim().toLowerCase());
+  const watchedKeys = computed(() => new Set(watches.value.map(watchKey)));
+  /** Watches whose port nothing holds: something to act on. A killed pid frees its port at once. */
+  const freeWatches = computed(() =>
+    watches.value.filter((w) => !entries.value.some((e) => e.port === w.port && e.protocol === w.protocol)),
+  );
   const filtered = computed(() => {
     const q = normalizedQuery.value;
     const c = category.value;
     if (!q && c === "all") return entries.value;
-    return entries.value.filter((e) => (!q || matches(e, q)) && matchesCategory(e, c));
+    const watched = watchedKeys.value;
+    return entries.value.filter((e) => (!q || matches(e, q)) && matchesCategory(e, c, watched));
+  });
+  /** The free watched ports the table shows under the `watching` filter, by port; the search narrows them. */
+  const freeRows = computed(() => {
+    if (category.value !== "watching") return [];
+    const q = normalizedQuery.value;
+    return freeWatches.value.filter((w) => !q || String(w.port).startsWith(q));
   });
   const groups = computed(() => groupEntries(filtered.value));
   /** The rows on screen, top to bottom, skipping collapsed groups. Selection moves through this. */
@@ -225,10 +266,14 @@ export function usePorts(api: PortApi, options: UsePortsOptions = {}) {
     () => new Set(entries.value.flatMap((e) => (e.project ? [e.project.name] : []))).size,
   );
   const currentUser = computed(() => guessCurrentUser(entries.value));
-  /** Rows per pill, over the whole list (a pill's count does not shrink with the search). */
+  /**
+   * Rows per pill, over the whole list (a pill's count does not shrink with the search).
+   * `watching` counts the watches whose port is free: the ones with something to act on.
+   */
   const counts = computed<CategoryCounts>(() => {
-    const c: CategoryCounts = { all: 0, dev: 0, ai: 0, db: 0, zombie: 0, public: 0 };
+    const c: CategoryCounts = { all: 0, dev: 0, ai: 0, db: 0, zombie: 0, public: 0, watching: 0 };
     for (const e of entries.value) for (const f of CATEGORY_FILTERS) if (matchesCategory(e, f)) c[f]++;
+    c.watching = freeWatches.value.length;
     return c;
   });
   /** Memory held by the dev servers (web, api and ai), once per pid. */
@@ -472,6 +517,8 @@ export function usePorts(api: PortApi, options: UsePortsOptions = {}) {
     zombieMemoryBytes,
     scanMs,
     groups,
+    freeWatches,
+    freeRows,
     visibleEntries,
     selectedKey,
     selected,

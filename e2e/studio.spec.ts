@@ -224,6 +224,7 @@ test("the row menu: Inspect, Open localhost, the copies, Reveal folder, Force ki
   await expect(menu).toBeVisible();
   await expect(menu.getByRole("menuitem")).toHaveText([
     "Inspect",
+    "Watch :3000",
     "Open localhost:3000",
     "Copy kill -9 48213",
     "Copy command",
