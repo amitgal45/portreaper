@@ -53,6 +53,8 @@ export interface PortEntry {
   category: Category;
   /** A human name for the stack behind the port: `Next.js`, `NestJS`, `PostgreSQL`, `Ollama`... */
   framework: string | null;
+  /** The Docker container publishing this port when Docker's backend holds it (WP-20); null for every other process. */
+  container: string | null;
 }
 
 export interface KillRequest {
@@ -130,6 +132,57 @@ export interface UpdateFailure {
   message: string;
 }
 
+/** `show`: a regular app with a Dock icon. `hide`: menu bar only. */
+export type DockIcon = "show" | "hide";
+
+/**
+ * The user's preferences (WP-17). Stored by the core, applied live, announced as
+ * `settings:changed`. Mirrors `Settings` in `model.rs`, defaults included.
+ */
+export interface Settings {
+  dockIcon: DockIcon;
+  startAtLogin: boolean;
+  /** The Quick window's global shortcut, in the global-shortcut plugin's syntax: `CmdOrCtrl+Shift+K`. */
+  quickShortcut: string;
+  /** The main window's global shortcut. */
+  windowShortcut: string;
+  /** How often the UI and the tray re-read the ports: 1 000–30 000 ms. */
+  refreshMs: number;
+  /** Kill sends SIGKILL at once; ⌥ flips it either way. */
+  defaultForce: boolean;
+  /** macOS notifications for tray kills and watched ports. */
+  notifications: boolean;
+  /** The first-run card was dismissed. */
+  onboardingDone: boolean;
+}
+
+/** `impl Default for Settings` in `model.rs`, field for field. */
+export const DEFAULT_SETTINGS: Readonly<Settings> = Object.freeze({
+  dockIcon: "show",
+  startAtLogin: true,
+  quickShortcut: "CmdOrCtrl+Shift+K",
+  windowShortcut: "CmdOrCtrl+Shift+P",
+  refreshMs: 2000,
+  defaultForce: false,
+  notifications: true,
+  onboardingDone: false,
+});
+
+export type WatchState = "listening" | "free";
+
+/** A port the user watches (WP-18): the core notifies when its state changes. */
+export interface WatchedPort {
+  port: number;
+  protocol: Protocol;
+  state: WatchState;
+  /** The process holding the port while `listening`; the last holder while `free`, if known. */
+  pid: number | null;
+  processName: string | null;
+  project: string | null;
+  /** Unix milliseconds: when the current state began. */
+  sinceMs: number;
+}
+
 /** What the UI can ask the core to do. Implemented by `api/tauri.ts` and `api/mock.ts`. */
 export interface PortApi {
   listPorts(): Promise<PortEntry[]>;
@@ -157,4 +210,16 @@ export interface PortApi {
    * relaunches. Rejects with what the user should read when nothing was found yet or it failed.
    */
   installUpdate(): Promise<void>;
+  /** The preferences (WP-17), with the live start-at-login state. */
+  getSettings(): Promise<Settings>;
+  /**
+   * Stores and applies `settings`; resolves with the effective value. Rejects with the field that
+   * could not be applied (a shortcut another app owns); everything else stands.
+   */
+  setSettings(settings: Settings): Promise<Settings>;
+  /** Every watched port with its current state (WP-18). */
+  watchedPorts(): Promise<WatchedPort[]>;
+  /** Both resolve with the full list afterwards. */
+  watchPort(port: number, protocol: Protocol): Promise<WatchedPort[]>;
+  unwatchPort(port: number, protocol: Protocol): Promise<WatchedPort[]>;
 }

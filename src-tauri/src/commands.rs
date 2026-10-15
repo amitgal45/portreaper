@@ -7,7 +7,10 @@
 
 use tauri::AppHandle;
 
-use crate::model::{EventKind, KillOutcome, KillRequest, PortEntry, ProcessNode, RelaunchOutcome, TasklineEvent};
+use crate::model::{
+    EventKind, KillOutcome, KillRequest, PortEntry, ProcessNode, Protocol, RelaunchOutcome, Settings, TasklineEvent,
+    WatchedPort,
+};
 use crate::ports::Listing;
 use crate::tray::{info, warn};
 
@@ -94,6 +97,41 @@ pub async fn check_for_updates(app: AppHandle) -> Result<(), String> {
 #[tauri::command]
 pub async fn install_update(app: AppHandle) -> Result<(), String> {
     crate::update::on_thread(move || crate::update::install_found(&app)).await?
+}
+
+/// The preferences as stored, with the live start-at-login state (WP-17a). The foundation stub
+/// answers the defaults.
+#[tauri::command]
+pub fn get_settings(_app: AppHandle) -> Settings {
+    Settings::default()
+}
+
+/// Stores `settings`, applies them (Dock icon, login item, shortcuts, refresh), emits
+/// `settings:changed` and returns the effective value. `Err` names the field that could not be
+/// applied (a shortcut another app owns); everything else stands. The foundation stub echoes.
+#[tauri::command]
+pub fn set_settings(_app: AppHandle, settings: Settings) -> Result<Settings, String> {
+    Ok(settings)
+}
+
+/// Every watched port with its current state (WP-18). The foundation stubs know no watches.
+#[tauri::command]
+pub fn watched_ports(_app: AppHandle) -> Vec<WatchedPort> {
+    Vec::new()
+}
+
+/// Watches `port`; resolves with the full list afterwards.
+#[tauri::command]
+pub fn watch_port(_app: AppHandle, port: u16, protocol: Protocol) -> Vec<WatchedPort> {
+    let _ = (port, protocol);
+    Vec::new()
+}
+
+/// Stops watching `port`; resolves with the full list afterwards.
+#[tauri::command]
+pub fn unwatch_port(_app: AppHandle, port: u16, protocol: Protocol) -> Vec<WatchedPort> {
+    let _ = (port, protocol);
+    Vec::new()
 }
 
 /// The distinct, sorted pids of the entries `keep` accepts.

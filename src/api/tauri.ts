@@ -5,8 +5,11 @@ import type {
   PortApi,
   PortEntry,
   ProcessNode,
+  Protocol,
   RelaunchOutcome,
+  Settings,
   TasklineEvent,
+  WatchedPort,
 } from "../types";
 
 /** The real core. Command names and argument keys match `src-tauri/src/commands.rs`. */
@@ -22,4 +25,10 @@ export const tauriApi: PortApi = {
   reapZombies: () => invoke<KillOutcome[]>("reap_zombies"),
   checkForUpdates: () => invoke<void>("check_for_updates"),
   installUpdate: () => invoke<void>("install_update"),
+  getSettings: () => invoke<Settings>("get_settings"),
+  setSettings: (settings: Settings) => invoke<Settings>("set_settings", { settings }),
+  watchedPorts: () => invoke<WatchedPort[]>("watched_ports"),
+  watchPort: (port: number, protocol: Protocol) => invoke<WatchedPort[]>("watch_port", { port, protocol }),
+  unwatchPort: (port: number, protocol: Protocol) =>
+    invoke<WatchedPort[]>("unwatch_port", { port, protocol }),
 };

@@ -34,6 +34,9 @@ pub struct PortEntry {
     pub category: Category,
     /// A human name for the stack behind the port: `Next.js`, `NestJS`, `PostgreSQL`, `Ollama`...
     pub framework: Option<String>,
+    /// The Docker container publishing this port when Docker's backend holds it (WP-20).
+    /// `None` for every other process.
+    pub container: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
@@ -177,9 +180,106 @@ pub enum RelaunchOutcome {
     Failed { event_id: u64, error: String },
 }
 
+/// The user's preferences (WP-17). Stored in `settings.json`, applied live by `settings`,
+/// announced as `settings:changed`. Every field has a default, so a store written by an older
+/// release loads without it.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Settings {
+    /// `Show`: a regular app with a Dock icon. `Hide`: menu bar only.
+    pub dock_icon: DockIcon,
+    pub start_at_login: bool,
+    /// The Quick window's global shortcut, in the global-shortcut plugin's syntax.
+    pub quick_shortcut: String,
+    /// The main window's global shortcut.
+    pub window_shortcut: String,
+    /// How often the UI and the tray re-read the ports: 1 000–30 000 ms.
+    pub refresh_ms: u32,
+    /// Kill sends SIGKILL at once; ⌥ flips it either way.
+    pub default_force: bool,
+    /// macOS notifications for tray kills and watched ports.
+    pub notifications: bool,
+    /// The first-run card was dismissed.
+    pub onboarding_done: bool,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            dock_icon: DockIcon::Show,
+            start_at_login: true,
+            quick_shortcut: "CmdOrCtrl+Shift+K".into(),
+            window_shortcut: "CmdOrCtrl+Shift+P".into(),
+            refresh_ms: 2000,
+            default_force: false,
+            notifications: true,
+            onboarding_done: false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum DockIcon {
+    Show,
+    Hide,
+}
+
+/// A port the user watches (WP-18): the core notifies when its state changes.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct WatchedPort {
+    pub port: u16,
+    pub protocol: Protocol,
+    pub state: WatchState,
+    /// The process holding the port while `Listening`; the last holder while `Free`, if known.
+    pub pid: Option<u32>,
+    pub process_name: Option<String>,
+    pub project: Option<String>,
+    /// Unix milliseconds: when the current state began (the watch's creation until the first change).
+    pub since_ms: u64,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum WatchState {
+    Listening,
+    Free,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn settings_and_watches_serialise_as_the_ui_expects() {
+        let json = serde_json::to_value(Settings::default()).unwrap();
+        assert_eq!(json["dockIcon"], "show");
+        assert_eq!(json["quickShortcut"], "CmdOrCtrl+Shift+K");
+        assert_eq!(json["refreshMs"], 2000);
+        assert_eq!(json["onboardingDone"], false);
+        // A store from 0.2.x has none of these keys: every missing field falls back to its default.
+        let partial: Settings = serde_json::from_value(serde_json::json!({ "refreshMs": 5000 })).unwrap();
+        assert_eq!(partial.refresh_ms, 5000);
+        assert_eq!(partial.dock_icon, DockIcon::Show);
+        assert_eq!(partial.quick_shortcut, "CmdOrCtrl+Shift+K");
+
+        let watch = WatchedPort {
+            port: 3000,
+            protocol: Protocol::Tcp,
+            state: WatchState::Free,
+            pid: Some(48213),
+            process_name: Some("node".into()),
+            project: None,
+            since_ms: 1_700_000_000_123,
+        };
+        let json = serde_json::to_value(&watch).unwrap();
+        assert_eq!(json["state"], "free");
+        assert_eq!(json["processName"], "node");
+        assert_eq!(json["sinceMs"], 1_700_000_000_123u64);
+        let back: WatchedPort = serde_json::from_value(json).unwrap();
+        assert_eq!(back, watch);
+    }
 
     #[test]
     fn port_entry_serialises_as_the_ui_expects() {
@@ -208,6 +308,7 @@ mod tests {
             protected: false,
             category: Category::Web,
             framework: Some("Next.js".into()),
+            container: None,
         };
         let json = serde_json::to_value(&entry).unwrap();
         assert_eq!(json["processName"], "node");
@@ -217,6 +318,7 @@ mod tests {
         assert_eq!(json["memoryBytes"], 1024);
         assert_eq!(json["category"], "web");
         assert_eq!(json["framework"], "Next.js");
+        assert_eq!(json["container"], serde_json::Value::Null);
         let back: PortEntry = serde_json::from_value(json).unwrap();
         assert_eq!(back, entry);
     }

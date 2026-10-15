@@ -396,6 +396,7 @@ mod tests {
             protected: false,
             category: Category::Web,
             framework: Some("Next.js".into()),
+            container: None,
         }
     }
 

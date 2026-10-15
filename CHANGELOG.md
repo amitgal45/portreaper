@@ -5,6 +5,14 @@ section whose heading matches the tag (`v0.2.0` → `## 0.2.0`) into the GitHub 
 app shows it in its update dialog. Add a section for every release before tagging it
 (the recipe is in `CLAUDE.md`).
 
+## 0.3.0
+
+- WP-17a: Preferences in the core: Dock icon, start at login, shortcuts, refresh rate, notifications; one universal build for Intel and Apple Silicon.
+- WP-17b: The Preferences view (⌘,) and a first-run card.
+- WP-18: Watch a port: a notification when it frees up or gets taken.
+- WP-19: Text contrast at AA everywhere; a wider default window.
+- WP-20: Docker containers by name; Kill stops the container.
+
 ## 0.2.1
 
 - The repository is public and releases are published here. No change in the app.

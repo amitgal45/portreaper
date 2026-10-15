@@ -170,6 +170,7 @@ mod tests {
             protected: false,
             category: Category::Other,
             framework: None,
+            container: None,
         }
     }
 

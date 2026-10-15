@@ -22,6 +22,7 @@ const base: PortEntry = {
   protected: false,
   category: "other",
   framework: null,
+  container: null,
 };
 
 const entry = (partial: Partial<PortEntry>): PortEntry => ({ ...base, ...partial });

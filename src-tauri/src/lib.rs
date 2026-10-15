@@ -70,7 +70,12 @@ pub fn run() {
             commands::clear_taskline,
             commands::relaunch,
             commands::check_for_updates,
-            commands::install_update
+            commands::install_update,
+            commands::get_settings,
+            commands::set_settings,
+            commands::watched_ports,
+            commands::watch_port,
+            commands::unwatch_port
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

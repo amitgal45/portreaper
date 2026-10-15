@@ -126,6 +126,7 @@ pub(crate) fn listing() -> Result<Listing, PortsError> {
                 protected: d.protected || matches!(category, Category::Db | Category::System),
                 category,
                 framework,
+                container: None,
             }
         })
         .collect();
