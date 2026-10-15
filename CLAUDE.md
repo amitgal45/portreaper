@@ -29,3 +29,27 @@ Part of: PortReaper (`~/work/portreaper`). Startup-wide rules come from the pare
   - `listeners` and `sysinfo` see other users' processes only partially without root. Show what
     is known and leave the rest `null`; never fail the whole list over one process.
   - `src-tauri/gen/` is generated and ignored. `src-tauri/target/` is 2+ GB; never commit it.
+
+## Release (WP-16)
+- The app updates itself from GitHub Releases: `src-tauri/src/update.rs` checks the endpoint in
+  `src-tauri/tauri.conf.json` (`plugins.updater`) and verifies the bundle with the public key
+  there. Updates are only found once the repository is public
+  (`gh repo edit amitgal45/portreaper --visibility public`); a private one answers 404 and the
+  app stays quiet.
+- To ship `X.Y.Z`:
+  1. Add a `## X.Y.Z` section at the top of `CHANGELOG.md`; it becomes the release body and the
+     update dialog's notes.
+  2. Bump `version` in `package.json`, `src-tauri/tauri.conf.json` and `src-tauri/Cargo.toml` in
+     one commit (`src/lib/version-parity.test.ts` fails on a mismatch; run `cargo build` so
+     `Cargo.lock` follows), and let the owner merge it.
+  3. On `main`: `git tag vX.Y.Z && git push origin vX.Y.Z`. `.github/workflows/release.yml`
+     refuses a tag that does not match the app version, then builds, signs and publishes the
+     release with the `.dmg`, the `.app.tar.gz` + `.sig` and `latest.json`.
+- `createUpdaterArtifacts` lives in `src-tauri/tauri.release.conf.json`, which only the release
+  job merges in (`--config`): with it on, the Tauri CLI refuses to build without the private key,
+  and CI's unsigned `pnpm tauri build --bundles app` has none. Keep it out of `tauri.conf.json`.
+- The signing key. Private: `~/.tauri/portreaper.key`, and in the repository's Actions secrets
+  `TAURI_SIGNING_PRIVATE_KEY` / `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` (empty). Public:
+  `~/.tauri/portreaper.key.pub`, pasted into `tauri.conf.json`. Never commit, print, copy or move
+  the private key; an app built with a different key cannot verify these releases, and a lost
+  key means every installed app stops updating until it is reinstalled by hand.

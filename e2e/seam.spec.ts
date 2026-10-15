@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { inspector, open, row, toasts } from "./helpers";
+import { inspector, MOCK_PORT_COUNT, open, row, rows, toasts, updateBanner } from "./helpers";
 
 /**
  * The seam these tests do not reach: `invoke`, the tray, the shortcut, the Taskline event,
@@ -26,4 +26,25 @@ test("without Tauri the listeners are no-ops and the page does not throw", async
   await inspector(page).getByRole("button", { name: "Open localhost:3000" }).click();
   await expect(toasts(page)).toContainText("Not available in the browser");
   expect(thrown).toEqual([]);
+
+  // No release is known without the core (or the seam below), so there is no update banner.
+  await expect(updateBanner(page)).toHaveCount(0);
+  expect(logged.filter((m) => m.includes("update:"))).toEqual([]);
+});
+
+/**
+ * The browser-only seam of WP-16: `?update=1` starts the sidebar banner from the mock update, so
+ * the banner can be seen without a release. The mock's install resolves after a moment and the
+ * banner reads "Restarting…", which is what the real core shows between install and relaunch.
+ */
+test("`?update=1` shows the update banner; Update walks it through to Restarting…", async ({ page }) => {
+  await page.goto("/?update=1");
+  await expect(rows(page)).toHaveCount(MOCK_PORT_COUNT);
+  const banner = updateBanner(page);
+  await expect(banner).toContainText("PortReaper 0.3.0 is ready");
+  await expect(banner).toHaveAttribute("data-phase", "available");
+  await banner.getByRole("button", { name: "Update" }).click();
+  await expect(banner).toHaveAttribute("data-phase", "downloading");
+  await expect(banner).toContainText("Restarting…");
+  await expect(banner.getByRole("button")).toHaveCount(0);
 });

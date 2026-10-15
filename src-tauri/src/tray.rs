@@ -29,7 +29,7 @@ use tauri_plugin_autostart::ManagerExt as _;
 use tauri_plugin_notification::NotificationExt as _;
 
 use crate::model::{EventKind, KillOutcome, PortEntry, Protocol};
-use crate::{quick, shortcuts, taskline};
+use crate::{quick, shortcuts, taskline, update};
 
 /// How many "Free :PORT" items the menu shows at most.
 pub const MAX_MENU_PORTS: usize = 12;
@@ -50,6 +50,7 @@ const ID_KILL_ORPHANS: &str = "kill-orphans";
 const ID_KILL_DEV_SERVERS: &str = "kill-dev-servers";
 const ID_OPEN: &str = "open";
 const ID_NO_PORTS: &str = "no-ports";
+const ID_CHECK_UPDATES: &str = "check-updates";
 const ID_AUTOSTART: &str = "autostart";
 const ID_QUIT: &str = "quit";
 const ID_PORT_PREFIX: &str = "port:";
@@ -388,7 +389,7 @@ fn apply_snapshot(app: &AppHandle, snapshot: &Snapshot) {
 
 /// The header (disabled) · `Free a port…` ⌘⇧K · separator · `Shortcuts ▸` (the port items, or
 /// a disabled `No ports`; separator; the two bulk kills, disabled at zero) · separator ·
-/// `Open PortReaper` ⌘⇧P · `Start at login` · `Quit PortReaper`.
+/// `Open PortReaper` ⌘⇧P · `Check for Updates…` · `Start at login` · `Quit PortReaper`.
 ///
 /// The accelerators are labels: a status-item menu never fires them. `shortcuts.rs` registers
 /// the real ones.
@@ -415,6 +416,7 @@ fn build_menu(app: &AppHandle, snapshot: &Snapshot) -> tauri::Result<Menu<tauri:
     menu.append(&PredefinedMenuItem::separator(app)?)?;
 
     menu.append(&MenuItem::with_id(app, ID_OPEN, "Open PortReaper", true, Some(shortcuts::TOGGLE_WINDOW))?)?;
+    menu.append(&MenuItem::with_id(app, ID_CHECK_UPDATES, "Check for Updates…", true, None::<&str>)?)?;
     menu.append(&CheckMenuItem::with_id(app, ID_AUTOSTART, "Start at login", true, snapshot.autostart, None::<&str>)?)?;
     menu.append(&MenuItem::with_id(app, ID_QUIT, "Quit PortReaper", true, None::<&str>)?)?;
     Ok(menu)
@@ -427,6 +429,8 @@ fn on_menu_event(app: &AppHandle, event: MenuEvent) {
         ID_OPEN => show_window(app),
         ID_QUICK => quick::show_quick(app),
         ID_AUTOSTART => toggle_autostart(app),
+        // The check waits on the network and on a dialog; it gets its own thread.
+        ID_CHECK_UPDATES => update::spawn_check(app, update::Trigger::Manual),
         ID_QUIT => app.exit(0),
         ID_KILL_ORPHANS => spawn_bulk_kill(app, Bulk::Orphans),
         ID_KILL_DEV_SERVERS => spawn_bulk_kill(app, Bulk::DevServers),

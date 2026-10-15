@@ -79,6 +79,23 @@ pub fn relaunch(app: AppHandle, event_id: u64) -> RelaunchOutcome {
     crate::relaunch::relaunch(&app, event_id)
 }
 
+/// Checks GitHub Releases now and tells the user what it found in a native dialog: the offer,
+/// "You're up to date", or why it could not check. Resolves when the dialog closed; never
+/// resolves when the user took the update, because the app relaunches. `Err` only when the
+/// check could not run at all.
+#[tauri::command]
+pub async fn check_for_updates(app: AppHandle) -> Result<(), String> {
+    crate::update::on_thread(move || crate::update::check(&app, crate::update::Trigger::Manual)).await.map(|_| ())
+}
+
+/// Downloads and installs the update the last check found (the sidebar banner's Update and
+/// Retry), then relaunches. `Err` with what the user should read when nothing was found yet or
+/// the install failed; the failure was also emitted as `update:error`.
+#[tauri::command]
+pub async fn install_update(app: AppHandle) -> Result<(), String> {
+    crate::update::on_thread(move || crate::update::install_found(&app)).await?
+}
+
 /// The distinct, sorted pids of the entries `keep` accepts.
 fn distinct_pids(listing: &Listing, keep: impl Fn(&PortEntry) -> bool) -> Vec<u32> {
     let mut pids: Vec<u32> = listing.entries.iter().filter(|e| keep(e)).map(|e| e.pid).collect();

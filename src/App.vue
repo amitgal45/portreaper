@@ -32,6 +32,7 @@ import { usePorts } from "./composables/usePorts";
 import { useTaskline } from "./composables/useTaskline";
 import { useToasts } from "./composables/useToasts";
 import { selectFromTray, useTrayListener } from "./composables/useTray";
+import { demoUpdate, useUpdate } from "./composables/useUpdate";
 import type { PortEntry } from "./types";
 
 const api = provideApi();
@@ -40,6 +41,8 @@ const toasts = useToasts();
 const taskline = useTaskline(api, toasts);
 const flow = useKillFlow(ports, toasts, taskline);
 const inspector = useInspector(ports, flow);
+// The sidebar's update banner (WP-16): fed by the core's events; in a browser, `?update=1` shows the demo.
+const update = useUpdate(api, { seed: demoUpdate(location.search) });
 const {
   query,
   category,
@@ -183,8 +186,10 @@ onMounted(() => {
   taskline.start();
   keyboard.start();
   void tray.start();
+  update.start();
 });
 onUnmounted(() => {
+  update.stop();
   tray.stop();
   keyboard.stop();
   taskline.stop();
@@ -203,8 +208,10 @@ onUnmounted(() => {
         :category="category"
         :counts="counts"
         :taskline-count="taskline.count.value"
+        :update="update.state.value"
         @update:view="(v) => (view = v)"
         @update:category="pickCategory"
+        @install="update.install()"
       />
 
       <section class="@container/main flex min-h-0 min-w-0 flex-col">

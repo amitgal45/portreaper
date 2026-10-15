@@ -25,6 +25,10 @@ tauri-plugin-store = "2"
 tauri-plugin-autostart = "2"
 tauri-plugin-clipboard-manager = "2"
 tauri-plugin-process = "2"
+# Auto-update from GitHub Releases (WP-16): the updater checks `latest.json`, verifies the
+# minisign signature with the key in tauri.conf.json and swaps the bundle; the dialog offers it.
+tauri-plugin-updater = "2"
+tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # Which process listens on which port, without shelling out to lsof. macOS, Linux, Windows.

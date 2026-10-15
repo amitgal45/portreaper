@@ -108,6 +108,28 @@ export type RelaunchOutcome =
   | { status: "notFound"; eventId: number }
   | { status: "failed"; eventId: number; error: string };
 
+/** A newer release the core found on GitHub: the payload of `update:available` (WP-16). */
+export interface UpdateInfo {
+  /** As `latest.json` announces it: `0.3.0`. */
+  version: string;
+  /** The release notes, or null when the release has none. */
+  notes: string | null;
+  /** The release's publish date, RFC 3339, or null. */
+  date: string | null;
+}
+
+/** The payload of `update:progress`, about every 256 kB while the update downloads. */
+export interface UpdateProgress {
+  downloaded: number;
+  /** The download's size in bytes, or null when the server did not say. */
+  total: number | null;
+}
+
+/** The payload of `update:error`: the download or the install failed; the app keeps running. */
+export interface UpdateFailure {
+  message: string;
+}
+
 /** What the UI can ask the core to do. Implemented by `api/tauri.ts` and `api/mock.ts`. */
 export interface PortApi {
   listPorts(): Promise<PortEntry[]>;
@@ -124,4 +146,15 @@ export interface PortApi {
   relaunch(eventId: number): Promise<RelaunchOutcome>;
   /** Kills every lost-terminal (orphan, unprotected) process. One outcome per pid; each lands in the Taskline as `zombieReaped`. */
   reapZombies(): Promise<KillOutcome[]>;
+  /**
+   * Checks GitHub Releases now and tells the user in a native dialog: the offer, "You're up to
+   * date", or why it could not check. Resolves when the dialog closed; never when the user took
+   * the update, because the app relaunches.
+   */
+  checkForUpdates(): Promise<void>;
+  /**
+   * Downloads and installs the update the last check found (the banner's Update and Retry), then
+   * relaunches. Rejects with what the user should read when nothing was found yet or it failed.
+   */
+  installUpdate(): Promise<void>;
 }
