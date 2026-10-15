@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "PortReaper",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "identifier": "dev.amitgal.portreaper",
   "build": {
     "beforeDevCommand": "pnpm dev",
@@ -31,7 +31,7 @@
   "plugins": {
     "updater": {
       "endpoints": [
-        "https://github.com/amitgal45/portreaper/releases/latest/download/latest.json"
+        "https://github.com/amitgal45/portreaper-releases/releases/latest/download/latest.json"
       ],
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDVGRTdFODVDODBFREZGOTYKUldTVy8rMkFYT2puWDJBWGtLVXFuZ3Qxd3dEZnQwT2QvZjhBMEFESjA2bnp4NGdwZHNtbUV0UUMK"
     }

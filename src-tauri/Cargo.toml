@@ -1,6 +1,6 @@
 [package]
 name = "portreaper"
-version = "0.2.0"
+version = "0.2.1"
 description = "See every listening port on your Mac, which project it belongs to, and kill it in one click."
 authors = ["Amit Gal"]
 edition = "2021"

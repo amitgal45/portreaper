@@ -56,7 +56,7 @@ describe("updater configuration", () => {
   it("points at the GitHub release's latest.json and carries a public key", () => {
     const updater = conf.plugins?.updater;
     expect(updater?.endpoints).toEqual([
-      "https://github.com/amitgal45/portreaper/releases/latest/download/latest.json",
+      "https://github.com/amitgal45/portreaper-releases/releases/latest/download/latest.json",
     ]);
     // The base64 of `~/.tauri/portreaper.key.pub` (an "untrusted comment: minisign public key" file).
     expect(updater?.pubkey).toMatch(/^[A-Za-z0-9+/=]{100,}$/);

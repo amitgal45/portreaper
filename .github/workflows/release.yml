@@ -3,7 +3,9 @@ name: Release
 # A `vX.Y.Z` tag builds the macOS app, signs the updater bundle with the minisign key in the
 # repository's secrets, and publishes a GitHub Release carrying the .dmg, the .app.tar.gz with its
 # .sig, and the latest.json the running app checks (`plugins.updater.endpoints` in
-# src-tauri/tauri.conf.json). The recipe that gets here is in CLAUDE.md: a `## X.Y.Z` section at
+# src-tauri/tauri.conf.json). The release lands in the PUBLIC repository amitgal45/portreaper-releases,
+# not here: this code is private, and the updater fetches latest.json anonymously. That needs
+# RELEASES_TOKEN, a fine-grained PAT with Contents: read and write on portreaper-releases only. The recipe that gets here is in CLAUDE.md: a `## X.Y.Z` section at
 # the top of CHANGELOG.md, the three version fields bumped in one commit, then the tag.
 on:
   push:
@@ -76,10 +78,12 @@ jobs:
       # build has none. The private key never leaves the secrets; its public half is in the repo.
       - uses: tauri-apps/tauri-action@v0
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.RELEASES_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
+          owner: amitgal45
+          repo: portreaper-releases
           tagName: v__VERSION__
           releaseName: "PortReaper v__VERSION__"
           releaseBody: ${{ steps.notes.outputs.body }}

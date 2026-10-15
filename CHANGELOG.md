@@ -5,6 +5,11 @@ section whose heading matches the tag (`v0.2.0` → `## 0.2.0`) into the GitHub 
 app shows it in its update dialog. Add a section for every release before tagging it
 (the recipe is in `CLAUDE.md`).
 
+## 0.2.1
+
+- Updates now come from the public `portreaper-releases` repository, so the installed app can find
+  them while the source stays private. No other change.
+
 ## 0.2.0
 
 - Every listening port, classified: TCP and UDP, IPv4 and IPv6 merged, with the process behind

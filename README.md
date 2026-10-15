@@ -65,7 +65,7 @@ second time. Esc backs out one step: disarms, clears the query, hides the strip.
 
 ## Install
 
-Download the `.dmg` of the latest [release](https://github.com/amitgal45/portreaper/releases),
+Download the `.dmg` of the latest [release](https://github.com/amitgal45/portreaper-releases/releases),
 or build it from source (Xcode Command Line Tools, Rust stable 1.85+, Node 24, pnpm 11). Clone
 the repository, then:
 
@@ -81,7 +81,7 @@ Once the repository has a GitHub remote, CI (`.github/workflows/ci.yml`) builds 
 ## Updates
 
 PortReaper updates itself. Every release is published on
-[GitHub Releases](https://github.com/amitgal45/portreaper/releases) with a `latest.json`; the
+[GitHub Releases](https://github.com/amitgal45/portreaper-releases/releases) with a `latest.json`; the
 app reads that file ten seconds after launch and every six hours, and when a newer version is
 there it offers it in a dialog ("Update & relaunch" / "Later") and in the sidebar
 ("PortReaper 0.3.0 is ready · Update"). The update bundle is signed (minisign, through Tauri's
