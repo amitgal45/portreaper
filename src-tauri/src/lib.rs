@@ -2,9 +2,10 @@
 //!
 //! Module ownership (one work package each, so they can be built in parallel):
 //! - `model`     the contract with the UI (mirrored in `src/types.ts`)
-//! - `ports`     listing sockets and the processes behind them      (WP-1)
+//! - `ports`     listing sockets and the processes behind them      (WP-1, WP-10)
 //! - `kill`      graceful then forceful termination                  (WP-1)
 //! - `project`   cwd -> project name, kind, branch, tool             (WP-2)
+//! - `classify`  the port taxonomy: category and framework           (WP-10)
 //! - `tray`      menu-bar icon, menu, close-to-hide                  (WP-4, WP-8a)
 //! - `shortcuts` the global shortcuts                                (WP-4, WP-8a)
 //! - `quick`     the Quick window that hosts "Free a port…"          (WP-8a)
@@ -14,6 +15,7 @@
 //! Every plugin is registered here and allowed in `capabilities/default.json`. Add new ones in
 //! both places in the same commit.
 
+mod classify;
 mod commands;
 mod kill;
 mod model;

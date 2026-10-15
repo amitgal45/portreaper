@@ -672,7 +672,7 @@ fn notify(app: &AppHandle, body: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{BindScope, ProjectInfo, ProjectKind};
+    use crate::model::{BindScope, Category, ProjectInfo, ProjectKind};
 
     fn entry(port: u16, protocol: Protocol, address: &str, pid: u32, process: &str) -> PortEntry {
         PortEntry {
@@ -692,6 +692,8 @@ mod tests {
             orphan: false,
             project: None,
             protected: false,
+            category: Category::Other,
+            framework: None,
         }
     }
 

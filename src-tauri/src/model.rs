@@ -31,6 +31,9 @@ pub struct PortEntry {
     pub project: Option<ProjectInfo>,
     /// Killing this needs a second confirmation in the UI (databases, Docker, system daemons).
     pub protected: bool,
+    pub category: Category,
+    /// A human name for the stack behind the port: `Next.js`, `NestJS`, `PostgreSQL`, `Ollama`...
+    pub framework: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
@@ -38,6 +41,21 @@ pub struct PortEntry {
 pub enum Protocol {
     Tcp,
     Udp,
+}
+
+/// Port taxonomy (v0.2): `Web` dev servers (3000–3010, 5173+, 4200), `Api` backends (8000, 8080,
+/// 5000, 4000), `Db` databases and caches (always protected), `Ai` local model servers (11434
+/// Ollama, 1234 LM Studio, 8001 vLLM; heavy on memory), `System` macOS daemons (always protected).
+/// Decided by `crate::classify`, so the tray, the HUD and the Studio agree.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[serde(rename_all = "lowercase")]
+pub enum Category {
+    Web,
+    Api,
+    Db,
+    Ai,
+    System,
+    Other,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -105,6 +123,60 @@ pub enum KillOutcome {
     Failed { pid: u32, error: String },
 }
 
+/// One link of a process's ancestry, launchd first, the process itself last.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ProcessNode {
+    pub pid: u32,
+    pub name: String,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[serde(rename_all = "camelCase")]
+pub enum EventKind {
+    PortFreed,
+    ForceKilled,
+    ZombieReaped,
+    CollisionResolved,
+    Relaunched,
+    Refused,
+    Failed,
+}
+
+/// What happened, for the Taskline. Recorded by the core, so the tray's kills show up too.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct TasklineEvent {
+    pub id: u64,
+    /// Unix milliseconds.
+    pub at_ms: u64,
+    pub kind: EventKind,
+    pub port: u16,
+    pub protocol: Protocol,
+    pub pid: u32,
+    pub process_name: String,
+    pub project: Option<String>,
+    /// Memory the process held when it was killed (what the kill gave back).
+    pub memory_bytes: u64,
+    /// How long the kill took, signal to exit.
+    pub duration_ms: u64,
+    /// One sentence for the feed.
+    pub message: String,
+    /// The core remembers the command and cwd, so "Relaunch" can bring it back.
+    pub relaunchable: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "status", rename_all = "camelCase")]
+pub enum RelaunchOutcome {
+    #[serde(rename_all = "camelCase")]
+    Started { pid: u32 },
+    #[serde(rename_all = "camelCase")]
+    NotFound { event_id: u64 },
+    #[serde(rename_all = "camelCase")]
+    Failed { event_id: u64, error: String },
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -134,6 +206,8 @@ mod tests {
                 tool: Some("node".into()),
             }),
             protected: false,
+            category: Category::Web,
+            framework: Some("Next.js".into()),
         };
         let json = serde_json::to_value(&entry).unwrap();
         assert_eq!(json["processName"], "node");
@@ -141,8 +215,70 @@ mod tests {
         assert_eq!(json["bind"], "loopback");
         assert_eq!(json["project"]["kind"], "node");
         assert_eq!(json["memoryBytes"], 1024);
+        assert_eq!(json["category"], "web");
+        assert_eq!(json["framework"], "Next.js");
         let back: PortEntry = serde_json::from_value(json).unwrap();
         assert_eq!(back, entry);
+    }
+
+    #[test]
+    fn categories_and_event_kinds_use_the_ui_spelling() {
+        let categories = [Category::Web, Category::Api, Category::Db, Category::Ai, Category::System, Category::Other];
+        let spelled: Vec<_> = categories.iter().map(|c| serde_json::to_value(c).unwrap()).collect();
+        assert_eq!(spelled, ["web", "api", "db", "ai", "system", "other"]);
+
+        let kinds = [
+            EventKind::PortFreed,
+            EventKind::ForceKilled,
+            EventKind::ZombieReaped,
+            EventKind::CollisionResolved,
+            EventKind::Relaunched,
+            EventKind::Refused,
+            EventKind::Failed,
+        ];
+        let spelled: Vec<_> = kinds.iter().map(|k| serde_json::to_value(k).unwrap()).collect();
+        assert_eq!(
+            spelled,
+            ["portFreed", "forceKilled", "zombieReaped", "collisionResolved", "relaunched", "refused", "failed"]
+        );
+    }
+
+    #[test]
+    fn taskline_event_and_relaunch_outcome_serialise_as_the_ui_expects() {
+        let event = TasklineEvent {
+            id: 3,
+            at_ms: 1_700_000_000_123,
+            kind: EventKind::PortFreed,
+            port: 3000,
+            protocol: Protocol::Tcp,
+            pid: 48213,
+            process_name: "node".into(),
+            project: Some("shop-api".into()),
+            memory_bytes: 412 * 1024 * 1024,
+            duration_ms: 180,
+            message: "Killed node (48213). Port 3000 is free.".into(),
+            relaunchable: true,
+        };
+        let json = serde_json::to_value(&event).unwrap();
+        assert_eq!(json["atMs"], 1_700_000_000_123u64);
+        assert_eq!(json["kind"], "portFreed");
+        assert_eq!(json["processName"], "node");
+        assert_eq!(json["memoryBytes"], 412 * 1024 * 1024);
+        assert_eq!(json["durationMs"], 180);
+        assert_eq!(json["relaunchable"], true);
+        let back: TasklineEvent = serde_json::from_value(json).unwrap();
+        assert_eq!(back, event);
+
+        let json = serde_json::to_value(ProcessNode { pid: 1, name: "launchd".into() }).unwrap();
+        assert_eq!(json, serde_json::json!({ "pid": 1, "name": "launchd" }));
+
+        let json = serde_json::to_value(RelaunchOutcome::Started { pid: 60001 }).unwrap();
+        assert_eq!(json, serde_json::json!({ "status": "started", "pid": 60001 }));
+        let json = serde_json::to_value(RelaunchOutcome::NotFound { event_id: 9 }).unwrap();
+        assert_eq!(json, serde_json::json!({ "status": "notFound", "eventId": 9 }));
+        let json = serde_json::to_value(RelaunchOutcome::Failed { event_id: 9, error: "gone".into() }).unwrap();
+        assert_eq!(json["status"], "failed");
+        assert_eq!(json["eventId"], 9);
     }
 
     #[test]

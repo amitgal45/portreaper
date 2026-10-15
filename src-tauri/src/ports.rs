@@ -10,6 +10,10 @@
 //! Sockets come from `listeners` (libproc, no `lsof`: that costs ~200 ms a call and its output is
 //! not a contract). Process details come from `sysinfo`, refreshed for the listening pids only,
 //! so a poll is a handful of syscalls rather than a walk of the whole process table.
+//!
+//! WP-10 adds the taxonomy (`crate::classify`, per entry, since the port is part of the
+//! evidence), `protected` widened to every `Db` and `System` entry, the process's argv kept
+//! apart from the joined command (relaunch needs the arguments as they were), and [`tree`].
 
 use std::collections::HashMap;
 use std::net::IpAddr;
@@ -20,7 +24,7 @@ use listeners::{Listener, SocketState};
 use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System, Uid, UpdateKind, Users};
 use thiserror::Error;
 
-use crate::model::{BindScope, PortEntry, ProjectInfo, Protocol};
+use crate::model::{BindScope, Category, PortEntry, ProcessNode, ProjectInfo, Protocol};
 
 /// Executables under these roots belong to macOS, not to the user: never an orphan, always protected.
 pub const SYSTEM_PREFIXES: &[&str] =
@@ -51,14 +55,32 @@ pub const PROTECTED_NAMES: &[&str] = &[
     "cupsd",
 ];
 
+/// How many parents [`tree`] follows at most. A real chain on macOS is under ten links; a longer
+/// one is a loop in what sysinfo reported, and the walk must end either way.
+const MAX_TREE_HOPS: usize = 16;
+
 #[derive(Debug, Error)]
 pub enum PortsError {
     #[error("could not read listening sockets: {0}")]
     Listeners(String),
 }
 
+/// What one scan found: the entries the UI shows, plus what the core keeps for itself.
+pub(crate) struct Listing {
+    pub entries: Vec<PortEntry>,
+    /// Each pid's command line as separate arguments, for the pids sysinfo could read. The
+    /// contract carries only the joined `command`; relaunch needs the arguments as they were.
+    pub argv: HashMap<u32, Vec<String>>,
+}
+
 /// Every listening socket on this machine with the process behind it.
 pub fn list() -> Result<Vec<PortEntry>, PortsError> {
+    listing().map(|l| l.entries)
+}
+
+/// [`list`] with the argv kept: what the kill paths take, so the Taskline can remember how to
+/// relaunch what they killed.
+pub(crate) fn listing() -> Result<Listing, PortsError> {
     let raw = listeners::get_all().map_err(|e| PortsError::Listeners(e.to_string()))?;
     let sockets = merge_sockets(raw);
 
@@ -80,6 +102,10 @@ pub fn list() -> Result<Vec<PortEntry>, PortsError> {
             let d = details
                 .entry(socket.pid)
                 .or_insert_with(|| ProcessDetails::gather(&socket, &system, users, current_user));
+            // The port is part of the evidence, so the category is decided per socket, not per pid.
+            let tool = d.project.as_ref().and_then(|p| p.tool.as_deref());
+            let (category, framework) =
+                crate::classify::classify(socket.port, socket.protocol, tool, &d.name, d.exe.as_deref(), &d.command);
             PortEntry {
                 port: socket.port,
                 protocol: socket.protocol,
@@ -96,11 +122,67 @@ pub fn list() -> Result<Vec<PortEntry>, PortsError> {
                 parent_pid: d.parent_pid,
                 orphan: d.orphan,
                 project: d.project.clone(),
-                protected: d.protected,
+                // A database or a piece of macOS asks twice whatever WP-1's rule said about it.
+                protected: d.protected || matches!(category, Category::Db | Category::System),
+                category,
+                framework,
             }
         })
         .collect();
-    Ok(entries)
+    let argv = details.into_iter().filter(|(_, d)| !d.argv.is_empty()).map(|(pid, d)| (pid, d.argv)).collect();
+    Ok(Listing { entries, argv })
+}
+
+/// The ancestry of `pid`, launchd (pid 1) first and `pid` itself last, through sysinfo's parent
+/// links. A pid sysinfo cannot see yields `[pid]` with the name the socket scan has for it, and
+/// a pid nothing knows yields `[]`. A chain that breaks before pid 1 (an ancestor we may not
+/// read) ends where it broke: the tree says what is known, never what is guessed.
+pub(crate) fn tree(pid: u32) -> Vec<ProcessNode> {
+    let mut system = System::new();
+    // Collected child-first and reversed at the end.
+    let mut nodes: Vec<ProcessNode> = Vec::new();
+    let mut current = pid;
+    while nodes.len() < MAX_TREE_HOPS {
+        let id = Pid::from_u32(current);
+        // Name and parent come with the cheapest refresh; nothing else is needed per link.
+        system.refresh_processes_specifics(ProcessesToUpdate::Some(&[id]), true, ProcessRefreshKind::nothing());
+        let Some(process) = system.process(id) else {
+            // Pid 1 is launchd by definition, even when its details are not ours to read.
+            if current == 1 && !nodes.is_empty() {
+                nodes.push(ProcessNode { pid: 1, name: init_name().to_string() });
+            }
+            break;
+        };
+        nodes.push(ProcessNode { pid: current, name: process.name().to_string_lossy().into_owned() });
+        match process.parent().map(|p| p.as_u32()) {
+            // The kernel (pid 0) is nobody's ancestor worth showing; a self-parent would loop.
+            Some(parent) if current > 1 && parent != 0 && parent != current => current = parent,
+            _ => break,
+        }
+    }
+    if nodes.is_empty() {
+        if let Some(name) = socket_name(pid) {
+            nodes.push(ProcessNode { pid, name });
+        }
+    }
+    nodes.reverse();
+    nodes
+}
+
+/// What pid 1 is called when sysinfo cannot say.
+fn init_name() -> &'static str {
+    if cfg!(target_os = "macos") {
+        "launchd"
+    } else {
+        "init"
+    }
+}
+
+/// The name the socket scan has for `pid`, when it holds a port: libproc names a process whose
+/// details sysinfo may not read.
+fn socket_name(pid: u32) -> Option<String> {
+    let raw = listeners::get_all().ok()?;
+    merge_sockets(raw).into_iter().find(|s| s.pid == pid).map(|s| s.process_name)
 }
 
 /// One socket after the IPv4/IPv6 twins are folded: what `list()` still needs from `listeners`.
@@ -226,6 +308,10 @@ fn is_system_path(exe: &str) -> bool {
 #[derive(Clone)]
 struct ProcessDetails {
     name: String,
+    /// The command line as the kernel has it, one string per argument. Empty when sysinfo could
+    /// not read it (another user's process).
+    argv: Vec<String>,
+    /// `argv` joined with spaces: what the contract shows.
     command: String,
     cwd: Option<String>,
     exe: Option<String>,
@@ -249,9 +335,9 @@ impl ProcessDetails {
         } else {
             socket.process_name.clone()
         };
-        let command = process
-            .map(|p| p.cmd().iter().map(|arg| arg.to_string_lossy()).collect::<Vec<_>>().join(" "))
-            .unwrap_or_default();
+        let argv: Vec<String> =
+            process.map(|p| p.cmd().iter().map(|arg| arg.to_string_lossy().into_owned()).collect()).unwrap_or_default();
+        let command = argv.join(" ");
         let cwd = process.and_then(|p| p.cwd()).map(path_string);
         let exe = process
             .and_then(|p| p.exe())
@@ -267,7 +353,7 @@ impl ProcessDetails {
         let project = crate::project::detect(cwd.as_deref().map(Path::new), exe.as_deref().map(Path::new), &command);
         let orphan = is_orphan(parent_pid, exe.as_deref(), user.as_deref(), current_user);
         let protected = is_protected(&name, exe.as_deref(), user.as_deref(), current_user);
-        Self { name, command, cwd, exe, user, memory_bytes, started_at, parent_pid, orphan, protected, project }
+        Self { name, argv, command, cwd, exe, user, memory_bytes, started_at, parent_pid, orphan, protected, project }
     }
 }
 
@@ -455,6 +541,45 @@ mod tests {
         assert!(!entry.protected, "our own test binary is nothing special");
         assert!(!entry.orphan, "cargo is still our parent");
         assert!(entry.memory_bytes > 0);
+        assert_eq!((entry.category, entry.framework.as_deref()), (Category::Other, None), "a test binary on a random port is nothing we can name");
+    }
+
+    #[test]
+    fn listing_keeps_our_argv_apart_from_the_joined_command() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let pid = std::process::id();
+
+        let listing = listing().unwrap();
+        let entry = listing.entries.iter().find(|e| e.port == port && e.pid == pid).expect("our listener");
+        let argv = listing.argv.get(&pid).expect("our own argv is readable");
+        assert!(!argv.is_empty());
+        assert_eq!(argv.join(" "), entry.command, "the command is the argv joined, nothing more");
+        assert!(argv[0].contains("portreaper"), "argv[0] is the test binary: {argv:?}");
+    }
+
+    #[test]
+    fn tree_of_this_process_starts_at_pid_1_and_ends_here() {
+        let me = std::process::id();
+        let tree = tree(me);
+        println!("tree: {tree:?}");
+        assert!(tree.len() >= 2, "at least launchd and us: {tree:?}");
+        assert_eq!(tree.last().map(|n| n.pid), Some(me));
+        assert_eq!(tree.first().map(|n| n.pid), Some(1), "launchd first: {tree:?}");
+        assert_eq!(tree.first().map(|n| n.name.as_str()), Some("launchd"));
+        assert!(tree.iter().all(|n| !n.name.is_empty()), "every link is named: {tree:?}");
+        // The parent sysinfo reports is the link before us.
+        let parent = tree[tree.len() - 2].pid;
+        let entries = list().unwrap();
+        if let Some(entry) = entries.iter().find(|e| e.pid == me) {
+            assert_eq!(entry.parent_pid, Some(parent));
+        }
+    }
+
+    #[test]
+    fn tree_of_a_pid_nobody_knows_is_empty() {
+        // macOS pids stop at 99998; this number is never a process.
+        assert!(tree(99_999).is_empty());
     }
 
     #[test]
