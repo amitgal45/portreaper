@@ -4,6 +4,7 @@ import { API_KEY } from "../api";
 import { createMockApi, MOCK_ENTRIES } from "../api/mock";
 import { ACTIONS_KEY, type UiActions } from "../composables/useActions";
 import type { RestartState } from "../composables/useKillFlow";
+import { WATCHED_KEY } from "../composables/useWatch";
 import type { PortApi, PortEntry } from "../types";
 import Inspector from "./Inspector.vue";
 
@@ -26,6 +27,7 @@ function spies(): UiActions {
     copyKill: vi.fn(),
     copyCommand: vi.fn(),
     revealFolder: vi.fn(),
+    watch: vi.fn(),
   };
 }
 
@@ -38,11 +40,18 @@ async function mountInspector(
     actions = spies(),
     restart = null as RestartState | null,
     reason = null as string | null,
+    watched = false,
   } = {},
 ) {
   const wrapper = mount(Inspector, {
     props: { entry, reason, restart },
-    global: { provide: { [API_KEY as symbol]: api, [ACTIONS_KEY as symbol]: actions } },
+    global: {
+      provide: {
+        [API_KEY as symbol]: api,
+        [ACTIONS_KEY as symbol]: actions,
+        [WATCHED_KEY as symbol]: () => watched,
+      },
+    },
     attachTo: document.body,
   });
   mounted = wrapper;
@@ -129,6 +138,22 @@ describe("Inspector", () => {
     const { wrapper } = await mountInspector(byPort(3000));
     await wrapper.get("button[aria-label='Close']").trigger("click");
     expect(wrapper.emitted("close")).toHaveLength(1);
+  });
+
+  it("the eye toggles the watch, and a watched port says so under Network (WP-18)", async () => {
+    const { wrapper, actions } = await mountInspector(byPort(3000));
+    const eye = wrapper.get("button[aria-label='Watch']");
+    expect(eye.attributes("aria-pressed")).toBe("false");
+    expect(eye.attributes("data-action")).toBe("watch");
+    expect(wrapper.find("[data-watching]").exists()).toBe(false);
+    await eye.trigger("click");
+    expect(actions.watch).toHaveBeenCalledWith(byPort(3000));
+    wrapper.unmount();
+
+    const { wrapper: on } = await mountInspector(byPort(3000), { watched: true });
+    expect(on.get("button[aria-label='Watch']").attributes("aria-pressed")).toBe("true");
+    expect(on.get("button[aria-label='Watch']").classes()).toContain("text-blue-ink");
+    expect(on.get("[data-section='bind'] [data-watching]").text()).toBe("Watching · will notify when free");
   });
 
   it("tells the Restart's story: busy, the new pid, or the failure", async () => {

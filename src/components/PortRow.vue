@@ -2,7 +2,7 @@
 // One listening port: a 40 px row. Port · process (name, pid) · status pills and the brand mark
 // · memory · uptime · Kill and the row menu. The row opens the inspector; Kill kills (⌥ forces).
 // The command line is not here: it lives in the inspector.
-import { Ellipsis, LoaderCircle } from "lucide-vue-next";
+import { Ellipsis, Eye, LoaderCircle } from "lucide-vue-next";
 import {
   DropdownMenuContent,
   DropdownMenuItem,
@@ -12,8 +12,9 @@ import {
   DropdownMenuTrigger,
 } from "reka-ui";
 import { computed, ref, watch } from "vue";
-import { useActions } from "../composables/useActions";
+import { killLabels, useActions } from "../composables/useActions";
 import { isPublic, isZombie } from "../composables/usePorts";
+import { useWatched } from "../composables/useWatch";
 import { formatBytes, formatUptime } from "../lib/format";
 import { TABLE_COLUMNS, WIDE_ONLY } from "../lib/table-columns";
 import type { PortEntry } from "../types";
@@ -32,7 +33,12 @@ const props = defineProps<{
 }>();
 
 const actions = useActions();
+const labels = computed(() => killLabels(actions.defaultForce?.() ?? false));
+const isWatched = useWatched();
 const el = ref<HTMLElement | null>(null);
+
+/** The port is watched (WP-18): the eye after the brand mark, and the menu offers to stop. */
+const watched = computed(() => isWatched(props.entry));
 
 const uptime = computed(() => formatUptime(props.entry.startedAt));
 const memory = computed(() => formatBytes(props.entry.memoryBytes));
@@ -57,7 +63,7 @@ const pills = computed<Pill[]>(() => {
     out.push({
       key: "zombie",
       label: "Zombie",
-      tone: "bg-orange",
+      tone: "bg-orange-tint text-orange-ink",
       hint: isZombie(e)
         ? "its terminal is gone; a dev server nobody is using"
         : "its terminal is gone, but it is protected: Reap leaves it alone",
@@ -67,7 +73,7 @@ const pills = computed<Pill[]>(() => {
     out.push({
       key: "public",
       label: "Public",
-      tone: "bg-red",
+      tone: "bg-red-tint text-red-ink",
       hint: "bound to every interface: reachable from your network",
     });
   }
@@ -75,7 +81,7 @@ const pills = computed<Pill[]>(() => {
     out.push({
       key: "protected",
       label: "Protected",
-      tone: "bg-blue",
+      tone: "bg-blue-tint text-blue-ink",
       hint: `${props.reason ?? "protected"} — asks before killing`,
     });
   }
@@ -83,16 +89,17 @@ const pills = computed<Pill[]>(() => {
     out.push({
       key: "ai",
       label: `AI · ${memory.value}`,
-      tone: "bg-purple",
+      tone: "bg-purple-tint text-purple-ink",
       hint: "a local model server; this is the memory it holds",
     });
   }
-  if (out.length === 0) out.push({ key: "running", label: "Running", tone: "bg-green", hint: "" });
+  if (out.length === 0)
+    out.push({ key: "running", label: "Running", tone: "bg-green-tint text-green-ink", hint: "" });
   return out;
 });
 
 const pill =
-  "inline-flex h-[22px] shrink-0 items-center whitespace-nowrap rounded-full px-2.5 text-[12px] font-semibold text-white";
+  "inline-flex h-[22px] shrink-0 items-center whitespace-nowrap rounded-full px-2.5 text-[12px] font-semibold";
 const soft =
   "inline-flex h-[22px] shrink-0 items-center whitespace-nowrap rounded-full border border-line bg-canvas px-2.5 text-[12px] font-medium text-ink-2";
 const num = "whitespace-nowrap text-right font-mono text-[12px] text-ink-2 tabular-nums";
@@ -134,9 +141,19 @@ watch(
       {{ entry.port }}<span v-if="entry.protocol === 'udp'" class="ml-1 text-[10px] font-normal text-ink-3">udp</span>
     </span>
 
-    <span class="flex min-w-0 items-baseline gap-1.5 overflow-hidden whitespace-nowrap">
-      <span class="truncate font-semibold text-ink">{{ entry.processName }}</span>
-      <span class="shrink-0 font-mono text-[12px] text-ink-2 tabular-nums">{{ entry.pid }}</span>
+    <!-- A container's port names the container, and says so where the pid would be (WP-20). -->
+    <span
+      class="flex min-w-0 items-baseline gap-1.5 overflow-hidden whitespace-nowrap"
+      :data-cell="entry.container ? 'container' : undefined"
+    >
+      <template v-if="entry.container">
+        <span class="truncate font-semibold text-ink">{{ entry.container }}</span>
+        <span class="shrink-0 font-mono text-[12px] text-ink-2">container</span>
+      </template>
+      <template v-else>
+        <span class="truncate font-semibold text-ink">{{ entry.processName }}</span>
+        <span class="shrink-0 font-mono text-[12px] text-ink-2 tabular-nums">{{ entry.pid }}</span>
+      </template>
     </span>
 
     <span class="flex min-w-0 items-center gap-1.5 overflow-hidden">
@@ -149,6 +166,14 @@ watch(
       <FrameworkIcon :entry="entry" :size="16">
         <span v-if="framework" data-badge="framework" :class="soft">{{ framework }}</span>
       </FrameworkIcon>
+      <span
+        v-if="watched"
+        data-badge="watched"
+        class="flex shrink-0 items-center text-blue-ink"
+        title="Watching: PortReaper will say when this port is free"
+      >
+        <Eye :size="14" :stroke-width="2" aria-label="watched" />
+      </span>
     </span>
 
     <span :class="[num, WIDE_ONLY]">{{ memory }}</span>
@@ -162,10 +187,10 @@ watch(
           class="h-[26px] rounded-md border px-2.5 text-[12px] font-medium outline-none focus-visible:ring-2 focus-visible:ring-brand/40"
           :class="
             selected
-              ? 'border-red bg-red text-white hover:brightness-95'
-              : 'border-line-strong bg-surface text-red-ink hover:border-red hover:bg-red hover:text-white'
+              ? 'border-red-ink bg-red-ink text-surface hover:brightness-95'
+              : 'border-line-strong bg-surface text-red-ink hover:border-red-ink hover:bg-red-ink hover:text-surface'
           "
-          :title="entry.protected ? 'Kill (asks first)' : 'Kill · ⌥ to force'"
+          :title="entry.protected ? 'Kill (asks first)' : labels.title"
           aria-label="Kill"
           @click.stop="actions.kill(entry, $event.altKey)"
         >
@@ -192,6 +217,9 @@ watch(
               @click.stop
             >
               <DropdownMenuItem :class="menuItem" @select="actions.inspect(entry)">Inspect</DropdownMenuItem>
+              <DropdownMenuItem :class="menuItem" data-action="watch" @select="actions.watch(entry)">
+                {{ watched ? `Stop watching :${entry.port}` : `Watch :${entry.port}` }}
+              </DropdownMenuItem>
               <DropdownMenuItem :class="menuItem" :disabled="entry.protocol !== 'tcp'" @select="actions.openInBrowser(entry)">
                 Open localhost:{{ entry.port }}
               </DropdownMenuItem>
@@ -204,7 +232,7 @@ watch(
               </DropdownMenuItem>
               <DropdownMenuSeparator class="my-1 h-px bg-line" />
               <DropdownMenuItem :class="[menuItem, 'text-red-ink']" @select="actions.kill(entry, true)">
-                Force kill<span class="ml-auto font-mono text-[11px] text-ink-3">⌥↩</span>
+                {{ labels.alt }}<span class="ml-auto font-mono text-[11px] text-ink-3">⌥↩</span>
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenuPortal>

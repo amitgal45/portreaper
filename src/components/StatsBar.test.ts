@@ -26,7 +26,7 @@ describe("StatsBar", () => {
   it("shows the mock's numbers", async () => {
     const { wrapper } = await mountFromMock();
     const card = (name: string) => wrapper.get(`[data-tile='${name}']`).text().replace(/\s+/g, " ");
-    expect(card("ports")).toContain("11");
+    expect(card("ports")).toContain("12");
     expect(card("ports")).toContain("ports · 7 projects");
     // web + api + ai once per pid: 1842 MB + 4.85 GB.
     expect(card("memory")).toContain("6.6 GB");

@@ -13,6 +13,8 @@ export interface KeyboardHandlers {
   focusSearch(): void;
   /** ⌘R */
   refresh(): void;
+  /** ⌘, : the Preferences view. */
+  preferences(): void;
   /** A digit typed outside any input: start a search with it. */
   digit(digit: string): void;
 }
@@ -58,6 +60,9 @@ export function useKeyboard(handlers: KeyboardHandlers, options: UseKeyboardOpti
       } else if (key === "r") {
         event.preventDefault();
         handlers.refresh();
+      } else if (key === ",") {
+        event.preventDefault();
+        handlers.preferences();
       } else if (event.key === "Backspace") {
         if (handlers.forceKill()) event.preventDefault();
       }

@@ -5,6 +5,24 @@ section whose heading matches the tag (`v0.2.0` → `## 0.2.0`) into the GitHub 
 app shows it in its update dialog. Add a section for every release before tagging it
 (the recipe is in `CLAUDE.md`).
 
+## 0.3.0
+
+- Preferences that take effect the moment they change: the Dock icon (or menu bar only), start
+  at login, the two global shortcuts, the refresh rate, the kill default and notifications are
+  stored, applied by the core and shared by the window and the menu bar. "Preferences…" in the
+  menu-bar menu; "Start at login" there and in the window are one switch.
+- One universal build: the same `.dmg` runs on Intel and Apple Silicon Macs.
+- Preferences, in the window (⌘, or the sidebar's Settings): Show in Dock, Start at login, the refresh rate, both shortcuts with a recorder, Kill sends SIGKILL at once, Notifications, and Check for Updates. Every change saves as you make it. A first-run card says where the app lives and what ⌘⇧K does.
+- Watch a port: "Watch :3000" in the row menu and the eye in the inspector. A notification and a
+  toast when it frees up ("Port 3000 is free · node (48213) stopped listening.") or gets taken
+  ("Port 3000 taken · node (51022) · shop-api"); a freed port lands in the Taskline. The sidebar's
+  "Watching" counts the watched ports that are free and lists them with "Stop watching". Watches
+  survive a restart.
+- Every small text clears WCAG AA: the status pills are a tint with their ink, the filled buttons and badges use the ink shades, the tertiary grey is darker. The window opens at 1040×660 with a 340 px inspector.
+- Docker containers by name: a port a container publishes shows the container instead of
+  `com.docker.backend`, its image names the stack (PostgreSQL, Redis, Ollama…), and Kill stops
+  the container (`docker stop`; ⌥ for `docker kill`) instead of taking Docker Desktop down.
+
 ## 0.2.1
 
 - The repository is public and releases are published here. No change in the app.

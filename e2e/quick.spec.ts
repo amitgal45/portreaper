@@ -1,4 +1,5 @@
 import { expect, type Locator, type Page, test } from "@playwright/test";
+import { contrast, paintedColor } from "./helpers";
 
 /**
  * The Quick strip (`quick.html`: WP-8b, made instant by WP-12, on the Board tokens since WP-15b)
@@ -139,7 +140,7 @@ test("lists rows within 100 ms of load: the lost-terminal zombies first, the new
   await expect(status(option(page, 9335))).toHaveCount(0);
   await expect(brand(option(page, 9335))).toHaveCount(0);
   await expect(option(page, 5432)).toHaveCount(0);
-  await expect(header(page)).toHaveText("PortReaper · 11 ports · ⌘⇧K");
+  await expect(header(page)).toHaveText("PortReaper · 12 ports · ⌘⇧K");
   await expect(footer(page)).toHaveText("↑↓ choose · ↩ free · ⌥↩ force · esc close");
 
   // Warm: a reload paints the cached list before its first poll answers.
@@ -263,6 +264,43 @@ test("an ai row's pill carries its memory", async ({ page }) => {
   await expect(brand(ollama)).toHaveAttribute("data-brand", "Ollama");
   await expect(ollama.getByLabel("lost terminal")).toHaveCount(0);
 });
+
+for (const scheme of ["light", "dark"] as const) {
+  test(`the pills and the hints clear AA (4.5:1) in ${scheme}`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: scheme });
+    await openQuick(page);
+    /** The painted text over the painted background of one element. */
+    const own = async (locator: Locator, what: string) => {
+      const [text, fill] = await Promise.all([
+        paintedColor(locator, "color"),
+        paintedColor(locator, "backgroundColor"),
+      ]);
+      expect(fill.a, `${what} paints an opaque background (${fill.css})`).toBe(1);
+      expect(contrast(text, fill), `${what} is ${text.css} on ${fill.css}`).toBeGreaterThanOrEqual(4.5);
+    };
+    // The pills are a tint with its ink (WP-19), on the selected row and off it.
+    await own(status(option(page, 5174)), "Zombie on the selected row");
+    await own(status(option(page, 4000)), "Zombie");
+    await own(status(option(page, 8080)), "Public");
+    // The hints: "↩ free" on the selected row's tint, the header and the footer on the canvas.
+    const selected = await paintedColor(option(page, 5174), "backgroundColor");
+    const hint = await paintedColor(option(page, 5174).getByText("↩ free", { exact: true }), "color");
+    expect(contrast(hint, selected), `↩ free is ${hint.css} on ${selected.css}`).toBeGreaterThanOrEqual(4.5);
+    const canvas = await paintedColor(page.locator("main"), "backgroundColor");
+    for (const chrome of [header(page), footer(page)]) {
+      const text = await paintedColor(chrome, "color");
+      expect(contrast(text, canvas), `${text.css} on ${canvas.css}`).toBeGreaterThanOrEqual(4.5);
+    }
+
+    // A protected row after its first Enter: "↩ kill" on the orange tint.
+    await page.keyboard.type("5432");
+    await own(status(option(page, 5432)), "Protected");
+    await page.keyboard.press("Enter");
+    const armed = await paintedColor(option(page, 5432), "backgroundColor");
+    const kill = await paintedColor(option(page, 5432).getByText("↩ kill", { exact: true }), "color");
+    expect(contrast(kill, armed), `↩ kill is ${kill.css} on ${armed.css}`).toBeGreaterThanOrEqual(4.5);
+  });
+}
 
 test("a named stack without a brand mark gets a soft text pill", async ({ page }) => {
   await openQuick(page);

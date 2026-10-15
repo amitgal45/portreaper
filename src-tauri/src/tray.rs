@@ -1,21 +1,24 @@
 //! The menu-bar icon, its menu, and what happens when the window is closed.
 //!
-//! Owned by WP-4, extended by WP-8a. The app lives in the Dock like a normal app; the tray is
-//! the fast path: a count of open ports, "Free a port…" (the Quick window), a Shortcuts submenu
-//! with one "Free :3000 · shop-api" item per port and two bulk kills, show/quit, and "Start at
-//! login".
+//! Owned by WP-4, extended by WP-8a and WP-17a. The app lives in the Dock like a normal app
+//! (or in the menu bar only: the `dockIcon` setting); the tray is the fast path: a count of
+//! open ports, "Free a port…" (the Quick window), a Shortcuts submenu with one
+//! "Free :3000 · shop-api" item per port and two bulk kills, show, updates, "Preferences…",
+//! "Start at login" and quit.
 //!
-//! The pure part is [`shortcuts_model`], built on [`menu_model`]: the port list in, every menu
-//! line out. Everything the tray shows is derived from it, so it is the part that gets unit
-//! tests.
+//! The pure parts are [`shortcuts_model`], built on [`menu_model`] (the port list in, every
+//! port line out), and [`FOOTER`], the fixed lines under the submenu in order. Everything the
+//! tray shows is derived from them, so they are the parts that get unit tests.
 //!
 //! A Tauri 2 tray menu is static once built, so a background thread re-reads the ports every
-//! [`REFRESH_INTERVAL`] (and at once whenever the window is shown) and swaps the menu on the
-//! main thread, but only when the model changed, so a menu the user holds open is left alone.
-//! Freeing a port from the menu goes through `crate::ports::listing` and
-//! `crate::taskline::kill_recorded`, the same path the UI's commands take, so a tray kill lands
-//! in the Taskline too; then it posts a notification. Nothing here may panic: every runtime
-//! failure is a [`warn`] on stderr and the app carries on.
+//! `refreshMs` of the settings (and at once whenever the window is shown or a setting changed)
+//! and swaps the menu on the main thread, but only when the model changed, so a menu the user
+//! holds open is left alone. The shortcut labels and the "Start at login" mark are part of that
+//! model: `settings::update` asks for a rebuild, and both faces of a preference agree. Freeing a
+//! port from the menu goes through `crate::ports::listing` and `crate::taskline::kill_recorded`,
+//! the same path the UI's commands take, so a tray kill lands in the Taskline too; then it posts
+//! a notification, unless the `notifications` setting is off. Nothing here may panic: every
+//! runtime failure is a [`warn`] on stderr and the app carries on.
 
 use std::collections::HashSet;
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
@@ -29,15 +32,19 @@ use tauri_plugin_autostart::ManagerExt as _;
 use tauri_plugin_notification::NotificationExt as _;
 
 use crate::model::{EventKind, KillOutcome, PortEntry, Protocol};
-use crate::{quick, shortcuts, taskline, update};
+use crate::shortcuts::Accelerators;
+use crate::{quick, settings, shortcuts, taskline, update};
 
 /// How many "Free :PORT" items the menu shows at most.
 pub const MAX_MENU_PORTS: usize = 12;
-/// How often the menu is rebuilt from a fresh port list.
-pub const REFRESH_INTERVAL: Duration = Duration::from_secs(5);
 /// Emitted to the UI when a protected port is picked from the tray: the window is shown and the
 /// UI selects that port and asks its confirmations there. Payload: [`SelectPort`].
 pub const SELECT_PORT_EVENT: &str = "tray:select-port";
+/// Emitted to the UI when "Preferences…" is picked from the tray, after the window was shown:
+/// the UI switches to the Preferences view. No payload.
+pub const OPEN_PREFERENCES_EVENT: &str = "tray:open-preferences";
+/// The label beside "Preferences…": the window's ⌘, (a status-item menu never fires it).
+const PREFERENCES_ACCELERATOR: &str = "CmdOrCtrl+,";
 
 /// The main window's label in `tauri.conf.json`.
 const MAIN_WINDOW: &str = "main";
@@ -51,9 +58,50 @@ const ID_KILL_DEV_SERVERS: &str = "kill-dev-servers";
 const ID_OPEN: &str = "open";
 const ID_NO_PORTS: &str = "no-ports";
 const ID_CHECK_UPDATES: &str = "check-updates";
+const ID_PREFERENCES: &str = "preferences";
 const ID_AUTOSTART: &str = "autostart";
 const ID_QUIT: &str = "quit";
 const ID_PORT_PREFIX: &str = "port:";
+
+/// The fixed lines under the Shortcuts submenu. [`build_menu`] appends them from [`FOOTER`], so
+/// the order the test asserts is the order the menu shows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FooterItem {
+    /// `Open PortReaper`, labelled with the window shortcut.
+    Open,
+    CheckUpdates,
+    /// `Preferences…`, labelled ⌘,: shows the window and emits [`OPEN_PREFERENCES_EVENT`].
+    Preferences,
+    /// `Start at login`: the check item, written through `settings::update`.
+    Autostart,
+    Quit,
+}
+
+/// Open · Check for Updates… · Preferences… · Start at login · Quit, in that order.
+pub const FOOTER: [FooterItem; 5] =
+    [FooterItem::Open, FooterItem::CheckUpdates, FooterItem::Preferences, FooterItem::Autostart, FooterItem::Quit];
+
+impl FooterItem {
+    pub fn id(self) -> &'static str {
+        match self {
+            FooterItem::Open => ID_OPEN,
+            FooterItem::CheckUpdates => ID_CHECK_UPDATES,
+            FooterItem::Preferences => ID_PREFERENCES,
+            FooterItem::Autostart => ID_AUTOSTART,
+            FooterItem::Quit => ID_QUIT,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            FooterItem::Open => "Open PortReaper",
+            FooterItem::CheckUpdates => "Check for Updates…",
+            FooterItem::Preferences => "Preferences…",
+            FooterItem::Autostart => "Start at login",
+            FooterItem::Quit => "Quit PortReaper",
+        }
+    }
+}
 
 /// One "Free :PORT" line in the tray menu, derived from the port list by [`menu_model`].
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -174,6 +222,7 @@ fn distinct_ports(entries: &[PortEntry]) -> Vec<MenuEntry> {
         protocol: Protocol,
         project: Option<&'a str>,
         process: &'a str,
+        container: Option<&'a str>,
         protected: bool,
     }
 
@@ -186,12 +235,16 @@ fn distinct_ports(entries: &[PortEntry]) -> Vec<MenuEntry> {
                 if line.project.is_none() {
                     line.project = project;
                 }
+                if line.container.is_none() {
+                    line.container = entry.container.as_deref();
+                }
             }
             None => lines.push(Line {
                 port: entry.port,
                 protocol: entry.protocol,
                 project,
                 process: &entry.process_name,
+                container: entry.container.as_deref(),
                 protected: entry.protected,
             }),
         }
@@ -200,8 +253,12 @@ fn distinct_ports(entries: &[PortEntry]) -> Vec<MenuEntry> {
     lines
         .into_iter()
         .map(|l| {
-            let name = l.project.unwrap_or(l.process);
-            let suffix = if l.protected { " (protected)" } else { "" };
+            // A container's port names the container and says so in place of "(protected)"
+            // (WP-20): the item still shows the window, where Kill stops the container.
+            let (name, suffix) = match l.container {
+                Some(container) => (container, " (container)"),
+                None => (l.project.unwrap_or(l.process), if l.protected { " (protected)" } else { "" }),
+            };
             MenuEntry {
                 port: l.port,
                 protocol: l.protocol,
@@ -290,8 +347,11 @@ struct Snapshot {
     title: String,
     tooltip: String,
     autostart: bool,
+    /// The registered global shortcuts: the labels of "Free a port…" and "Open PortReaper".
+    accelerators: Accelerators,
 }
 
+/// Called once from `setup`, after `shortcuts::register_all`: the first menu reads the labels.
 pub fn setup(app: &AppHandle) -> tauri::Result<()> {
     let (signals, inbox) = mpsc::channel();
     app.manage(TrayState { signals });
@@ -302,6 +362,7 @@ pub fn setup(app: &AppHandle) -> tauri::Result<()> {
         title: tray_title(&[]),
         tooltip: tray_tooltip(&[]),
         autostart: autostart_enabled(app),
+        accelerators: shortcuts::current(app),
     };
     let menu = build_menu(app, &snapshot)?;
     let mut tray = TrayIconBuilder::with_id(TRAY_ID)
@@ -329,8 +390,9 @@ pub fn setup(app: &AppHandle) -> tauri::Result<()> {
     Ok(())
 }
 
-/// Runs on its own thread for the life of the app: re-reads the ports every [`REFRESH_INTERVAL`]
-/// or when asked, and hands a changed snapshot to the main thread for the swap.
+/// Runs on its own thread for the life of the app: re-reads the ports every [`refresh_interval`]
+/// or when asked, and hands a changed snapshot to the main thread for the swap. The interval is
+/// read again on every tick, so a new `refreshMs` counts from the next one.
 fn refresh_loop(app: &AppHandle, inbox: &Receiver<Signal>) {
     let mut last: Option<Snapshot> = None;
     loop {
@@ -343,7 +405,7 @@ fn refresh_loop(app: &AppHandle, inbox: &Receiver<Signal>) {
                 Err(e) => warn(format_args!("could not schedule the tray refresh: {e}")),
             }
         }
-        match inbox.recv_timeout(REFRESH_INTERVAL) {
+        match inbox.recv_timeout(refresh_interval(app)) {
             Ok(Signal::Refresh) | Err(RecvTimeoutError::Timeout) => {}
             Ok(Signal::Rebuild) => last = None,
             Ok(Signal::Stop) | Err(RecvTimeoutError::Disconnected) => return,
@@ -351,16 +413,23 @@ fn refresh_loop(app: &AppHandle, inbox: &Receiver<Signal>) {
     }
 }
 
+/// How long the refresh thread waits between two reads of the ports: `refreshMs` of the settings.
+fn refresh_interval(app: &AppHandle) -> Duration {
+    Duration::from_millis(u64::from(settings::load(app).refresh_ms))
+}
+
 fn take_snapshot(app: &AppHandle) -> Snapshot {
     let entries = crate::ports::list().unwrap_or_else(|e| {
         warn(format_args!("could not list ports for the tray: {e}"));
         Vec::new()
     });
+    crate::watch::observe(app, &entries);
     Snapshot {
         shortcuts: shortcuts_model(&entries),
         title: tray_title(&entries),
         tooltip: tray_tooltip(&entries),
         autostart: autostart_enabled(app),
+        accelerators: shortcuts::current(app),
     }
 }
 
@@ -388,16 +457,17 @@ fn apply_snapshot(app: &AppHandle, snapshot: &Snapshot) {
 }
 
 /// The header (disabled) · `Free a port…` ⌘⇧K · separator · `Shortcuts ▸` (the port items, or
-/// a disabled `No ports`; separator; the two bulk kills, disabled at zero) · separator ·
-/// `Open PortReaper` ⌘⇧P · `Check for Updates…` · `Start at login` · `Quit PortReaper`.
+/// a disabled `No ports`; separator; the two bulk kills, disabled at zero) · separator · the
+/// [`FOOTER`]: `Open PortReaper` ⌘⇧P · `Check for Updates…` · `Preferences…` ⌘, ·
+/// `Start at login` · `Quit PortReaper`.
 ///
 /// The accelerators are labels: a status-item menu never fires them. `shortcuts.rs` registers
-/// the real ones.
+/// the real ones, and the two shortcut labels follow what it registered.
 fn build_menu(app: &AppHandle, snapshot: &Snapshot) -> tauri::Result<Menu<tauri::Wry>> {
     let model = &snapshot.shortcuts;
     let menu = Menu::new(app)?;
     menu.append(&MenuItem::with_id(app, ID_HEADER, &model.header, false, None::<&str>)?)?;
-    menu.append(&MenuItem::with_id(app, ID_QUICK, "Free a port…", true, Some(shortcuts::QUICK_WINDOW))?)?;
+    menu.append(&labelled_item(app, ID_QUICK, "Free a port…", &snapshot.accelerators.quick)?)?;
     menu.append(&PredefinedMenuItem::separator(app)?)?;
 
     let submenu = Submenu::with_id(app, ID_SHORTCUTS, "Shortcuts", true)?;
@@ -415,11 +485,33 @@ fn build_menu(app: &AppHandle, snapshot: &Snapshot) -> tauri::Result<Menu<tauri:
     menu.append(&submenu)?;
     menu.append(&PredefinedMenuItem::separator(app)?)?;
 
-    menu.append(&MenuItem::with_id(app, ID_OPEN, "Open PortReaper", true, Some(shortcuts::TOGGLE_WINDOW))?)?;
-    menu.append(&MenuItem::with_id(app, ID_CHECK_UPDATES, "Check for Updates…", true, None::<&str>)?)?;
-    menu.append(&CheckMenuItem::with_id(app, ID_AUTOSTART, "Start at login", true, snapshot.autostart, None::<&str>)?)?;
-    menu.append(&MenuItem::with_id(app, ID_QUIT, "Quit PortReaper", true, None::<&str>)?)?;
+    for item in FOOTER {
+        let (id, label) = (item.id(), item.label());
+        match item {
+            FooterItem::Open => menu.append(&labelled_item(app, id, label, &snapshot.accelerators.window)?)?,
+            FooterItem::Preferences => menu.append(&labelled_item(app, id, label, PREFERENCES_ACCELERATOR)?)?,
+            FooterItem::Autostart => {
+                menu.append(&CheckMenuItem::with_id(app, id, label, true, snapshot.autostart, None::<&str>)?)?
+            }
+            FooterItem::CheckUpdates | FooterItem::Quit => {
+                menu.append(&MenuItem::with_id(app, id, label, true, None::<&str>)?)?
+            }
+        }
+    }
     Ok(menu)
+}
+
+/// An enabled item with an accelerator label. The two shortcut labels are what the user typed
+/// into the settings: when the menu's own parser will not take one, the item is built without
+/// the label rather than failing the whole menu.
+fn labelled_item(app: &AppHandle, id: &str, text: &str, accelerator: &str) -> tauri::Result<MenuItem<tauri::Wry>> {
+    match MenuItem::with_id(app, id, text, true, Some(accelerator)) {
+        Ok(item) => Ok(item),
+        Err(e) => {
+            warn(format_args!("the menu cannot label \"{text}\" with {accelerator}; shown without it: {e}"));
+            MenuItem::with_id(app, id, text, true, None::<&str>)
+        }
+    }
 }
 
 /// Every menu event in the app lands here, the app menu's included; ids that are not ours pass.
@@ -428,6 +520,7 @@ fn on_menu_event(app: &AppHandle, event: MenuEvent) {
     match id {
         ID_OPEN => show_window(app),
         ID_QUICK => quick::show_quick(app),
+        ID_PREFERENCES => open_preferences(app),
         ID_AUTOSTART => toggle_autostart(app),
         // The check waits on the network and on a dialog; it gets its own thread.
         ID_CHECK_UPDATES => update::spawn_check(app, update::Trigger::Manual),
@@ -497,6 +590,12 @@ pub(crate) fn show_window(app: &AppHandle) {
     signal(app, Signal::Refresh);
 }
 
+/// Rebuilds the menu now, whether or not the ports changed: a setting moved (the labels, the
+/// "Start at login" mark, the interval).
+pub(crate) fn rebuild(app: &AppHandle) {
+    signal(app, Signal::Rebuild);
+}
+
 fn signal(app: &AppHandle, signal: Signal) {
     match app.try_state::<TrayState>() {
         Some(state) => {
@@ -515,25 +614,31 @@ fn autostart_enabled(app: &AppHandle) -> bool {
     })
 }
 
+/// "Start at login" from the menu: the opposite of the live state, written through
+/// `settings::update` so the store, the login item and the Preferences view agree. The check
+/// mark follows the real state whatever happened: `update` asks for the rebuild.
 fn toggle_autostart(app: &AppHandle) {
-    let autostart = app.autolaunch();
-    let result = match autostart.is_enabled() {
-        Ok(true) => autostart.disable(),
-        Ok(false) => autostart.enable(),
-        Err(e) => Err(e),
-    };
-    if let Err(e) = result {
+    let mut settings = settings::current(app);
+    settings.start_at_login = !settings.start_at_login;
+    if let Err(e) = settings::update(app, settings) {
         warn(format_args!("could not toggle start at login: {e}"));
+        rebuild(app);
     }
-    // The check mark follows the real state, whatever happened.
-    signal(app, Signal::Rebuild);
+}
+
+/// "Preferences…" from the menu: the window, then the event the UI switches views on.
+fn open_preferences(app: &AppHandle) {
+    show_window(app);
+    if let Err(e) = app.emit(OPEN_PREFERENCES_EVENT, ()) {
+        warn(format_args!("could not tell the window to open the preferences: {e}"));
+    }
 }
 
 /// Frees `port` from the tray: a graceful kill of every process on it, then a notification. A
 /// protected port is not killed here (the tray cannot ask twice); the window is shown with that
 /// port selected instead.
 fn free_from_tray(app: &AppHandle, port: u16, protocol: Protocol) {
-    // The menu can be up to `REFRESH_INTERVAL` stale: look again before touching anything.
+    // The menu can be up to one refresh interval stale: look again before touching anything.
     let listing = match crate::ports::listing() {
         Ok(listing) => listing,
         Err(e) => {
@@ -624,7 +729,7 @@ fn spawn_bulk_kill(app: &AppHandle, bulk: Bulk) {
 /// Kills every pid a fresh list puts under `bulk`, gracefully and once each, logs each outcome,
 /// then posts one summary notification.
 fn bulk_kill(app: &AppHandle, bulk: Bulk) {
-    // The menu can be up to `REFRESH_INTERVAL` stale: decide from a fresh list, never the menu.
+    // The menu can be up to one refresh interval stale: decide from a fresh list, never the menu.
     let listing = match crate::ports::listing() {
         Ok(listing) => listing,
         Err(e) => {
@@ -685,9 +790,14 @@ fn select_port_in_window(app: &AppHandle, port: u16, protocol: Protocol) {
     }
 }
 
-/// A desktop notification titled with the product name. Unsigned builds may be refused by macOS;
-/// that is a warning, not a failure.
-fn notify(app: &AppHandle, body: &str) {
+/// A desktop notification titled with the product name, unless the `notifications` setting is
+/// off: then the message goes to the log only. Unsigned builds may be refused by macOS; that is
+/// a warning, not a failure. Shared with the watch alerts (WP-18), which obey the same switch.
+pub(crate) fn notify(app: &AppHandle, body: &str) {
+    if !settings::load(app).notifications {
+        info(format_args!("notifications are off; not shown: {body}"));
+        return;
+    }
     if let Err(e) = app.notification().builder().body(body).show() {
         warn(format_args!("could not post a notification: {e}"));
     }
@@ -718,6 +828,7 @@ mod tests {
             protected: false,
             category: Category::Other,
             framework: None,
+            container: None,
         }
     }
 
@@ -810,6 +921,25 @@ mod tests {
         assert_eq!(labels(&model), ["Free :3000 · node", "Free :5432 · shop-db (protected)"]);
         assert!(!model[0].protected);
         assert!(model[1].protected);
+    }
+
+    #[test]
+    fn a_container_port_names_the_container_and_stays_protected() {
+        let mut shop_db = protected(with_project(entry(5432, Protocol::Tcp, "*", 11710, "com.docker.backend"), "postgres:16"));
+        shop_db.container = Some("shop-db".into());
+        let entries = vec![
+            shop_db,
+            // Docker's port no container publishes reads as before.
+            protected(with_project(entry(6379, Protocol::Tcp, "*", 11710, "com.docker.backend"), "redis:7")),
+            entry(3000, Protocol::Tcp, "127.0.0.1", 2, "node"),
+        ];
+        let model = menu_model(&entries, 12);
+        assert_eq!(
+            labels(&model),
+            ["Free :3000 · node", "Free :5432 · shop-db (container)", "Free :6379 · redis:7 (protected)"]
+        );
+        assert!(model[1].protected, "the tray cannot ask twice: the item shows the window");
+        assert_eq!(tray_title(&entries), "1", "a container port is not freeable from the tray");
     }
 
     #[test]
@@ -958,5 +1088,20 @@ mod tests {
         assert_eq!(bulk_summary(1, 1, 0), "Freed 1 port · 1 process");
         assert_eq!(bulk_summary(2, 2, 1), "Freed 2 ports · 2 processes · 1 refused");
         assert_eq!(bulk_summary(0, 0, 2), "Could not free any port · 2 refused");
+    }
+
+    #[test]
+    fn preferences_sits_between_check_for_updates_and_start_at_login() {
+        let labels: Vec<&str> = FOOTER.iter().map(|i| i.label()).collect();
+        assert_eq!(
+            labels,
+            ["Open PortReaper", "Check for Updates…", "Preferences…", "Start at login", "Quit PortReaper"]
+        );
+        let ids: Vec<&str> = FOOTER.iter().map(|i| i.id()).collect();
+        let mut distinct = ids.clone();
+        distinct.sort_unstable();
+        distinct.dedup();
+        assert_eq!(distinct.len(), ids.len(), "every footer item has its own menu id");
+        assert_eq!(FooterItem::Preferences.id(), ID_PREFERENCES);
     }
 }

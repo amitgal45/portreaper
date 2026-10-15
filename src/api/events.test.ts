@@ -1,10 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { TasklineEvent } from "../types";
+import { DEFAULT_SETTINGS, type TasklineEvent } from "../types";
 import {
+  isSettings,
   isTasklineEvent,
   isUpdateFailure,
   isUpdateInfo,
   isUpdateProgress,
+  isWatchedPort,
   onTasklineEvent,
   onUpdateAvailable,
   onUpdateError,
@@ -152,5 +154,33 @@ describe("the update listeners", () => {
     expect(progress).toHaveBeenCalledWith({ downloaded: 1, total: null });
     expect(error).toHaveBeenCalledWith({ message: "x" });
     expect(console.error).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("the v0.3 payload guards", () => {
+  it("isSettings accepts the defaults and rejects a wrong dock value", () => {
+    expect(isSettings(DEFAULT_SETTINGS)).toBe(true);
+    expect(isSettings({ ...DEFAULT_SETTINGS, dockIcon: "sometimes" })).toBe(false);
+    expect(isSettings({ ...DEFAULT_SETTINGS, refreshMs: "2000" })).toBe(false);
+    expect(isSettings(null)).toBe(false);
+  });
+
+  it("isWatchedPort accepts both states and rejects a missing sinceMs", () => {
+    const free = {
+      port: 3000,
+      protocol: "tcp",
+      state: "free",
+      pid: null,
+      processName: null,
+      project: null,
+      sinceMs: 1,
+    };
+    expect(isWatchedPort(free)).toBe(true);
+    expect(
+      isWatchedPort({ ...free, state: "listening", pid: 48213, processName: "node", project: "shop-api" }),
+    ).toBe(true);
+    expect(isWatchedPort({ ...free, state: "gone" })).toBe(false);
+    const { sinceMs: _dropped, ...withoutSince } = free;
+    expect(isWatchedPort(withoutSince)).toBe(false);
   });
 });

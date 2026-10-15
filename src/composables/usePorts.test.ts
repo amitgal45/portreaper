@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { nextTick } from "vue";
+import { nextTick, ref } from "vue";
 import { createMockApi, MOCK_ENTRIES } from "../api/mock";
-import type { KillOutcome, PortApi, PortEntry } from "../types";
-import { entryKey, groupEntries, matchesCategory, memoryOf, usePorts } from "./usePorts";
+import type { KillOutcome, PortApi, PortEntry, WatchedPort } from "../types";
+import { entryKey, groupEntries, matchesCategory, memoryOf, usePorts, watchKey } from "./usePorts";
 
 const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
@@ -63,6 +63,34 @@ describe("usePorts: loading and polling", () => {
     expect(listPorts).toHaveBeenCalledTimes(4);
   });
 
+  it("re-arms the timer when the interval changes, and leaves a stopped poller alone", async () => {
+    const api = createMockApi();
+    const listPorts = vi.spyOn(api, "listPorts");
+    const intervalMs = ref(2000);
+    const store = usePorts(api, { storage: null, intervalMs, isVisible: () => true });
+    store.start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(listPorts).toHaveBeenCalledTimes(1);
+
+    intervalMs.value = 500;
+    await nextTick();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(listPorts).toHaveBeenCalledTimes(3);
+
+    intervalMs.value = 5000;
+    await nextTick();
+    await vi.advanceTimersByTimeAsync(4000);
+    expect(listPorts).toHaveBeenCalledTimes(3);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(listPorts).toHaveBeenCalledTimes(4);
+
+    store.stop();
+    intervalMs.value = 100;
+    await nextTick();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(listPorts).toHaveBeenCalledTimes(4);
+  });
+
   it("keeps the last list and reports the error when a poll fails", async () => {
     const api = createMockApi();
     const store = usePorts(api, { storage: null, isVisible: () => true });
@@ -96,7 +124,7 @@ describe("usePorts: search", () => {
     const ports = () => store.visibleEntries.value.map((e) => e.port);
     store.query.value = "Docker";
     await nextTick();
-    expect(ports()).toEqual([5432, 6379]);
+    expect(ports()).toEqual([5432, 5433, 6379]);
     store.query.value = "shop";
     await nextTick();
     expect(ports()).toEqual([3000]);
@@ -294,14 +322,16 @@ describe("usePorts: kill", () => {
     const docker = store.groups.value.find((g) => g.name === "postgres:16");
     const specmate = store.groups.value.find((g) => g.name === "@specmate/api");
     if (!docker || !specmate) throw new Error("mock changed");
+    // The postgres:16 group holds two backend pids since WP-20 (:5432 and the shop-db container on :5433).
     const reports = await store.killGroup(docker);
-    expect(reports).toHaveLength(1);
-    expect(killProcess).toHaveBeenCalledTimes(1);
+    expect(reports).toHaveLength(2);
+    expect(killProcess).toHaveBeenCalledTimes(2);
     expect(killProcess).toHaveBeenCalledWith({ pid: 11710, force: false });
+    expect(killProcess).toHaveBeenCalledWith({ pid: 11712, force: false });
     await store.killGroup(specmate, true);
     expect(killProcess).toHaveBeenLastCalledWith({ pid: 22104, force: true });
     await flush();
-    expect(store.entries.value.some((e) => e.port === 6379 || e.port === 8080)).toBe(false);
+    expect(store.entries.value.some((e) => [5433, 6379, 8080].includes(e.port))).toBe(false);
   });
 
   it("names the reason for a protected row", async () => {
@@ -316,7 +346,7 @@ describe("usePorts: kill", () => {
 describe("usePorts: categories (v0.2)", () => {
   it("counts the pills over the whole list and sums memory once per pid", async () => {
     const store = await loadedStore();
-    expect(store.counts.value).toEqual({ all: 11, dev: 5, ai: 1, db: 2, zombie: 2, public: 3 });
+    expect(store.counts.value).toEqual({ all: 12, dev: 5, ai: 1, db: 3, zombie: 2, public: 3, watching: 0 });
     // web + api + ai: 412 + 180 + 220 + 610 + 420 MB and Ollama's 4.85 GB.
     expect(Math.round(store.devMemoryBytes.value / (1024 * 1024))).toBe(1842 + Math.round(4.85 * 1024));
     // The two lost-terminal servers: tinyrecipe-lp's 220 MB and the Jekyll's 420 MB.
@@ -342,7 +372,7 @@ describe("usePorts: categories (v0.2)", () => {
     expect(ports()).toEqual([11434]);
     store.setCategory("db");
     await nextTick();
-    expect(ports()).toEqual([5432, 6379]);
+    expect(ports()).toEqual([5432, 5433, 6379]);
     store.setCategory("dev");
     await nextTick();
     // Group order as today: the user's projects by first port, the Jekyll's legacy-docs among them.
@@ -381,7 +411,7 @@ describe("usePorts: categories (v0.2)", () => {
     expect(store.entries.value.some((e) => e.orphan && !e.protected)).toBe(false);
     expect(store.counts.value.zombie).toBe(0);
     await store.refresh();
-    expect(store.entries.value).toHaveLength(9);
+    expect(store.entries.value).toHaveLength(MOCK_ENTRIES.length - 2);
   });
 
   it("counts a refusal and keeps that row", async () => {
@@ -404,5 +434,57 @@ describe("usePorts: categories (v0.2)", () => {
     await store.refresh();
     expect(store.scanMs.value).toBeGreaterThanOrEqual(0);
     expect(store.scanMs.value).toBeLessThan(1000);
+  });
+});
+
+describe("usePorts: the watching filter (WP-18)", () => {
+  const ports = (store: ReturnType<typeof usePorts>) =>
+    store.groups.value.flatMap((g) => g.entries.map((e) => e.port));
+
+  it("shows the watched listening rows, counts the free ones, and lists them as free rows", async () => {
+    const api = createMockApi();
+    const watches = ref<WatchedPort[]>([]);
+    const store = usePorts(api, { storage: null, watches });
+    await store.refresh();
+    expect(store.counts.value.watching).toBe(0);
+    expect(matchesCategory(MOCK_ENTRIES[0] as PortEntry, "watching")).toBe(false);
+    expect(watchKey({ port: 3000, protocol: "tcp" })).toBe("tcp:3000");
+
+    await api.watchPort(3000, "tcp");
+    watches.value = await api.watchPort(5432, "tcp");
+    // Both listen: nothing to act on, and the filter shows them as ordinary rows.
+    expect(store.counts.value.watching).toBe(0);
+    expect(store.counts.value.all).toBe(12);
+    store.setCategory("watching");
+    expect(ports(store)).toEqual([3000, 5432]);
+    expect(store.freeRows.value).toEqual([]);
+
+    // A kill frees the port at once: the count moves, the row becomes a free row.
+    const node = store.entries.value.find((e) => e.port === 3000) as PortEntry;
+    await store.kill(node);
+    expect(store.counts.value.watching).toBe(1);
+    expect(ports(store)).toEqual([5432]);
+    expect(store.freeRows.value.map((w) => w.port)).toEqual([3000]);
+    expect(store.freeWatches.value.map((w) => w.port)).toEqual([3000]);
+
+    // The search narrows the free rows by port, like the list.
+    store.query.value = "54";
+    await nextTick();
+    expect(store.freeRows.value).toEqual([]);
+    expect(ports(store)).toEqual([5432]);
+    store.query.value = "30";
+    await nextTick();
+    expect(store.freeRows.value.map((w) => w.port)).toEqual([3000]);
+    expect(ports(store)).toEqual([]);
+    store.clearSearch();
+
+    // Free rows belong to the watching filter only; the count does not.
+    store.setCategory("all");
+    expect(store.freeRows.value).toEqual([]);
+    expect(store.counts.value.watching).toBe(1);
+
+    // Stop watching: nothing left to act on.
+    watches.value = await api.unwatchPort(3000, "tcp");
+    expect(store.counts.value.watching).toBe(0);
   });
 });

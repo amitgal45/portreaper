@@ -1,14 +1,18 @@
-import type {
-  Category,
-  EventKind,
-  KillOutcome,
-  KillRequest,
-  PortApi,
-  PortEntry,
-  ProcessNode,
-  RelaunchOutcome,
-  TasklineEvent,
-  UpdateInfo,
+import {
+  type Category,
+  DEFAULT_SETTINGS,
+  type EventKind,
+  type KillOutcome,
+  type KillRequest,
+  type PortApi,
+  type PortEntry,
+  type ProcessNode,
+  type Protocol,
+  type RelaunchOutcome,
+  type Settings,
+  type TasklineEvent,
+  type UpdateInfo,
+  type WatchedPort,
 } from "../types";
 
 /**
@@ -43,6 +47,7 @@ function classifyMock(port: number): { category: Category; framework: string | n
     5000: ["api", null],
     4000: ["api", null],
     5432: ["db", "PostgreSQL 16"],
+    5433: ["db", "PostgreSQL 16"],
     6379: ["db", "Redis 7"],
     27017: ["db", "MongoDB"],
     11434: ["ai", "Ollama"],
@@ -71,6 +76,7 @@ function entry(partial: Partial<PortEntry> & Pick<PortEntry, "port" | "pid" | "p
     orphan: false,
     project: null,
     protected: false,
+    container: null,
     ...partial,
   };
 }
@@ -154,6 +160,19 @@ export const MOCK_ENTRIES: PortEntry[] = [
     memoryBytes: 1200 * 1024 * 1024,
     startedAt: now - 3 * 24 * 3600,
     protected: true,
+    project: { name: "postgres:16", root: "", kind: "unknown", branch: null, tool: "docker" },
+  }),
+  // The one container the mock names (WP-20), on its own port and under a second backend
+  // process, so the Docker rows above and the counts the earlier specs assert stay as they are.
+  entry({
+    port: 5433,
+    pid: 11712,
+    processName: "com.docker.backend",
+    command: "/Applications/Docker.app/Contents/MacOS/com.docker.backend",
+    memoryBytes: 1200 * 1024 * 1024,
+    startedAt: now - 3 * 24 * 3600,
+    protected: true,
+    container: "shop-db",
     project: { name: "postgres:16", root: "", kind: "unknown", branch: null, tool: "docker" },
   }),
   entry({
@@ -242,6 +261,37 @@ export function createMockApi(seed: PortEntry[] = MOCK_ENTRIES): PortApi {
   const events: TasklineEvent[] = [];
   let nextEventId = 1;
   let nextPid = 60000;
+  // The preferences live for the page: the view (WP-17b) is testable without the core. The card
+  // is dismissed by default so the existing flows see no card; `?onboarding=1` brings it back.
+  let settings: Settings = { ...DEFAULT_SETTINGS, onboardingDone: true };
+  // Watches (WP-18): a set of port+protocol; the state is read off the entries when asked.
+  const watches = new Map<string, { port: number; protocol: Protocol; sinceMs: number }>();
+  const watchKey = (port: number, protocol: Protocol) => `${protocol}:${port}`;
+  const watched = (): WatchedPort[] =>
+    [...watches.values()]
+      .sort((a, b) => a.port - b.port)
+      .map((w) => {
+        const holder = entries.find((e) => e.port === w.port && e.protocol === w.protocol);
+        return holder
+          ? {
+              port: w.port,
+              protocol: w.protocol,
+              state: "listening",
+              pid: holder.pid,
+              processName: holder.processName,
+              project: holder.project?.name ?? null,
+              sinceMs: w.sinceMs,
+            }
+          : {
+              port: w.port,
+              protocol: w.protocol,
+              state: "free",
+              pid: null,
+              processName: null,
+              project: null,
+              sinceMs: w.sinceMs,
+            };
+      });
   const record = (
     kind: EventKind,
     e: PortEntry,
@@ -268,8 +318,22 @@ export function createMockApi(seed: PortEntry[] = MOCK_ENTRIES): PortApi {
     const victim = entries.find((e) => e.pid === request.pid);
     if (!victim) return { status: "notFound", pid: request.pid };
     if (victim.pid <= 1) return { status: "refused", pid: request.pid, reason: "launchd" };
-    entries = entries.filter((e) => e.pid !== request.pid);
     const waitedMs = request.force ? 0 : 180;
+    if (victim.container) {
+      // The core stops the container and leaves Docker's backend alone (WP-20): only that port
+      // goes, nothing comes back to relaunch, and the sentence names the container.
+      entries = entries.filter((e) => !(e.pid === victim.pid && e.container === victim.container));
+      record(
+        request.force ? "forceKilled" : "portFreed",
+        // The backend keeps its memory: nothing came back that the feed could count.
+        { ...victim, memoryBytes: 0 },
+        waitedMs,
+        `${request.force ? "Killed" : "Stopped"} container ${victim.container}. Port ${victim.port} is free.`,
+        false,
+      );
+      return { status: "killed", pid: request.pid, graceful: !request.force, waitedMs };
+    }
+    entries = entries.filter((e) => e.pid !== request.pid);
     const verb = request.force ? "Force-killed" : "Killed";
     record(
       request.force ? "forceKilled" : "portFreed",
@@ -346,6 +410,21 @@ export function createMockApi(seed: PortEntry[] = MOCK_ENTRIES): PortApi {
     // after a moment, and the banner reads "Restarting…" because nothing restarts here.
     checkForUpdates: async () => {},
     installUpdate: () => new Promise<void>((resolve) => setTimeout(resolve, MOCK_INSTALL_MS)),
+    getSettings: async () => ({ ...settings }),
+    setSettings: async (next) => {
+      settings = { ...next, refreshMs: Math.min(30_000, Math.max(1_000, next.refreshMs)) };
+      return { ...settings };
+    },
+    watchedPorts: async () => watched(),
+    watchPort: async (port, protocol) => {
+      const key = watchKey(port, protocol);
+      if (!watches.has(key)) watches.set(key, { port, protocol, sinceMs: Date.now() });
+      return watched();
+    },
+    unwatchPort: async (port, protocol) => {
+      watches.delete(watchKey(port, protocol));
+      return watched();
+    },
   };
 }
 

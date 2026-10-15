@@ -1,5 +1,12 @@
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { TasklineEvent, UpdateFailure, UpdateInfo, UpdateProgress } from "../types";
+import type {
+  Settings,
+  TasklineEvent,
+  UpdateFailure,
+  UpdateInfo,
+  UpdateProgress,
+  WatchedPort,
+} from "../types";
 import { isTauri } from "./index";
 
 /** Emitted by the core every time it records something in the Taskline. Payload: `TasklineEvent`. */
@@ -10,6 +17,12 @@ export const UPDATE_AVAILABLE_EVENT = "update:available";
 export const UPDATE_PROGRESS_EVENT = "update:progress";
 /** Emitted by the core when the download or the install failed. Payload: `UpdateFailure`. */
 export const UPDATE_ERROR_EVENT = "update:error";
+/** Emitted by the core after a settings change was applied (WP-17a). Payload: `Settings`. */
+export const SETTINGS_CHANGED_EVENT = "settings:changed";
+/** Emitted by the tray's "Preferences…" item (WP-17a): the UI shows the view. No payload. */
+export const OPEN_PREFERENCES_EVENT = "tray:open-preferences";
+/** Emitted by the core when a watched port changes state (WP-18). Payload: `WatchedPort`. */
+export const WATCH_CHANGED_EVENT = "watch:changed";
 
 const KINDS = new Set([
   "portFreed",
@@ -58,6 +71,39 @@ export function isUpdateFailure(value: unknown): value is UpdateFailure {
   if (typeof value !== "object" || value === null) return false;
   const v = value as Record<string, unknown>;
   return typeof v.message === "string";
+}
+
+export function isSettings(value: unknown): value is Settings {
+  if (typeof value !== "object" || value === null) return false;
+  const v = value as Record<string, unknown>;
+  return (
+    (v.dockIcon === "show" || v.dockIcon === "hide") &&
+    typeof v.startAtLogin === "boolean" &&
+    typeof v.quickShortcut === "string" &&
+    typeof v.windowShortcut === "string" &&
+    typeof v.refreshMs === "number" &&
+    typeof v.defaultForce === "boolean" &&
+    typeof v.notifications === "boolean" &&
+    typeof v.onboardingDone === "boolean"
+  );
+}
+
+export function isWatchedPort(value: unknown): value is WatchedPort {
+  if (typeof value !== "object" || value === null) return false;
+  const v = value as Record<string, unknown>;
+  return (
+    typeof v.port === "number" &&
+    (v.protocol === "tcp" || v.protocol === "udp") &&
+    (v.state === "listening" || v.state === "free") &&
+    (v.pid === null || typeof v.pid === "number") &&
+    (v.processName === null || typeof v.processName === "string") &&
+    (v.project === null || typeof v.project === "string") &&
+    typeof v.sinceMs === "number"
+  );
+}
+
+function isAnything(_value: unknown): _value is unknown {
+  return true;
 }
 
 /**
@@ -111,4 +157,19 @@ export function onUpdateProgress(handler: (progress: UpdateProgress) => void): (
 /** `update:error`: the download or the install failed; the banner offers Retry. */
 export function onUpdateError(handler: (failure: UpdateFailure) => void): () => void {
   return subscribe(UPDATE_ERROR_EVENT, isUpdateFailure, handler);
+}
+
+/** `settings:changed`: the core applied a change (from the view or the tray); the UI follows. */
+export function onSettingsChanged(handler: (settings: Settings) => void): () => void {
+  return subscribe(SETTINGS_CHANGED_EVENT, isSettings, handler);
+}
+
+/** `tray:open-preferences`: the tray asked for the Preferences view. */
+export function onOpenPreferences(handler: () => void): () => void {
+  return subscribe(OPEN_PREFERENCES_EVENT, isAnything, () => handler());
+}
+
+/** `watch:changed`: a watched port is now free, or taken. */
+export function onWatchChanged(handler: (watch: WatchedPort) => void): () => void {
+  return subscribe(WATCH_CHANGED_EVENT, isWatchedPort, handler);
 }

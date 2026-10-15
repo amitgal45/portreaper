@@ -7,7 +7,10 @@
 
 use tauri::AppHandle;
 
-use crate::model::{EventKind, KillOutcome, KillRequest, PortEntry, ProcessNode, RelaunchOutcome, TasklineEvent};
+use crate::model::{
+    EventKind, KillOutcome, KillRequest, PortEntry, ProcessNode, Protocol, RelaunchOutcome, Settings, TasklineEvent,
+    WatchedPort,
+};
 use crate::ports::Listing;
 use crate::tray::{info, warn};
 
@@ -15,6 +18,7 @@ use crate::tray::{info, warn};
 pub fn list_ports(app: AppHandle) -> Result<Vec<PortEntry>, String> {
     let entries = crate::ports::list().map_err(|e| e.to_string())?;
     crate::taskline::observe(&app, &entries);
+    crate::watch::observe(&app, &entries);
     Ok(entries)
 }
 
@@ -96,6 +100,40 @@ pub async fn install_update(app: AppHandle) -> Result<(), String> {
     crate::update::on_thread(move || crate::update::install_found(&app)).await?
 }
 
+/// The preferences as stored, with the live start-at-login state (WP-17a).
+#[tauri::command]
+pub fn get_settings(app: AppHandle) -> Settings {
+    crate::settings::current(&app)
+}
+
+/// Stores `settings`, applies them (Dock icon, login item, shortcuts; the refresh interval and
+/// the notification switch are read where they are used), emits `settings:changed` and returns
+/// the effective value. `Err` names the field that could not be applied (a shortcut the plugin
+/// cannot parse or another app owns: `quickShortcut: …` / `windowShortcut: …`); everything else
+/// stands and the old shortcut stays registered.
+#[tauri::command]
+pub fn set_settings(app: AppHandle, settings: Settings) -> Result<Settings, String> {
+    crate::settings::update(&app, settings)
+}
+
+/// Every watched port with its current state (WP-18), after one fresh listing.
+#[tauri::command]
+pub fn watched_ports(app: AppHandle) -> Vec<WatchedPort> {
+    crate::watch::list(&app)
+}
+
+/// Watches `port`; resolves with the full list afterwards.
+#[tauri::command]
+pub fn watch_port(app: AppHandle, port: u16, protocol: Protocol) -> Vec<WatchedPort> {
+    crate::watch::watch(&app, port, protocol)
+}
+
+/// Stops watching `port`; resolves with the full list afterwards.
+#[tauri::command]
+pub fn unwatch_port(app: AppHandle, port: u16, protocol: Protocol) -> Vec<WatchedPort> {
+    crate::watch::unwatch(&app, port, protocol)
+}
+
 /// The distinct, sorted pids of the entries `keep` accepts.
 fn distinct_pids(listing: &Listing, keep: impl Fn(&PortEntry) -> bool) -> Vec<u32> {
     let mut pids: Vec<u32> = listing.entries.iter().filter(|e| keep(e)).map(|e| e.pid).collect();
@@ -108,6 +146,13 @@ fn distinct_pids(listing: &Listing, keep: impl Fn(&PortEntry) -> bool) -> Vec<u3
 /// is sorted by port, so that is its lowest port). Without such an entry the kill still
 /// happens, unrecorded: the user asked for it, and the Taskline cannot describe what it never
 /// saw.
+///
+/// A pid whose picked entries publish a container (Docker's backend, which holds every
+/// container's port under its one pid) is never killed here: the container is stopped instead
+/// (`taskline::stop_recorded`, WP-20). When the picked entries belong to several containers the
+/// request cannot say which one it meant (`kill_process` carries only the pid), and guessing
+/// would stop the wrong one, so it is refused and the feed names them; `free_port` picks by
+/// port, which is always one container.
 fn kill_listed(
     app: &AppHandle,
     listing: &Listing,
@@ -116,11 +161,25 @@ fn kill_listed(
     kind: Option<EventKind>,
     pick: impl Fn(&PortEntry) -> bool,
 ) -> KillOutcome {
-    match listing.entries.iter().find(|e| e.pid == pid && pick(e)) {
-        Some(entry) => crate::taskline::kill_recorded(app, listing, entry, force, kind),
-        None => {
-            info(format_args!("pid {pid} holds no port the list knows; killing it unrecorded"));
-            crate::kill::kill(&KillRequest { pid, force })
+    let picked: Vec<&PortEntry> = listing.entries.iter().filter(|e| e.pid == pid && pick(e)).collect();
+    let Some(first) = picked.first().copied() else {
+        info(format_args!("pid {pid} holds no port the list knows; killing it unrecorded"));
+        return crate::kill::kill(&KillRequest { pid, force });
+    };
+    let mut containers: Vec<&PortEntry> = picked.iter().copied().filter(|e| e.container.is_some()).collect();
+    containers.sort_by_key(|e| e.container.as_deref());
+    containers.dedup_by_key(|e| e.container.clone());
+    match containers.as_slice() {
+        [] => crate::taskline::kill_recorded(app, listing, first, force, kind),
+        [entry] => crate::taskline::stop_recorded(app, entry, entry.container.as_deref().unwrap_or_default(), force),
+        several => {
+            let names: Vec<&str> = several.iter().filter_map(|e| e.container.as_deref()).collect();
+            let reason = format!(
+                "it publishes {} containers ({}) under one pid; use Free a port on the port you mean",
+                names.len(),
+                names.join(", ")
+            );
+            crate::taskline::stop_refused(app, first, reason)
         }
     }
 }

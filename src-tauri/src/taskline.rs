@@ -19,7 +19,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use tauri::{AppHandle, Emitter, Manager, State};
 
-use crate::model::{EventKind, KillOutcome, KillRequest, PortEntry, Protocol, TasklineEvent};
+use crate::model::{EventKind, KillOutcome, KillRequest, PortEntry, Protocol, TasklineEvent, WatchedPort};
 use crate::ports::Listing;
 use crate::tray::warn;
 
@@ -126,6 +126,54 @@ impl Log {
         event
     }
 
+    /// Records what stopping a container did to `entry`'s port (WP-20): the port is freed, the
+    /// process behind it (Docker's backend) stays. `container` is `None` only for a refusal
+    /// decided before `docker` ran, where the request could not name one. Nothing here is
+    /// relaunchable (a stopped container is started on purpose, `docker start`, not by a click)
+    /// and no memory came back that the feed could count: the backend keeps its own.
+    pub fn record_stop(
+        &mut self,
+        entry: &PortEntry,
+        container: Option<&str>,
+        force: bool,
+        outcome: &KillOutcome,
+        elapsed: Duration,
+    ) -> TasklineEvent {
+        let port = entry.port;
+        let subject = match container {
+            Some(name) => format!("container {name}"),
+            None => format!("a container of {} ({})", display_name(entry), entry.pid),
+        };
+        let (kind, message, duration_ms) = match outcome {
+            KillOutcome::Killed { waited_ms, .. } if force => {
+                (EventKind::ForceKilled, format!("Killed {subject}. Port {port} is free."), *waited_ms)
+            }
+            KillOutcome::Killed { waited_ms, .. } => {
+                (EventKind::PortFreed, format!("Stopped {subject}. Port {port} is free."), *waited_ms)
+            }
+            KillOutcome::NotFound { .. } => (
+                EventKind::PortFreed,
+                format!("{} was already stopped. Port {port} is free.", capitalised(&subject)),
+                millis(elapsed),
+            ),
+            KillOutcome::Refused { reason, .. } => {
+                (EventKind::Refused, format!("Refused to stop {subject}: {reason}."), millis(elapsed))
+            }
+            KillOutcome::Failed { error, .. } => {
+                (EventKind::Failed, format!("Could not stop {subject}: {error}."), millis(elapsed))
+            }
+        };
+        if matches!(outcome, KillOutcome::Killed { .. }) {
+            // A restarted container comes back under the same backend pid: `observe` stays quiet
+            // for it, as it does for a kill that did not take, and speaks for a different pid.
+            self.recently_freed.insert(
+                (entry.port, entry.protocol),
+                FreedMark { at: Instant::now(), old_pid: entry.pid, old_name: subject },
+            );
+        }
+        self.push(kind, entry, entry.pid, 0, duration_ms, message, false)
+    }
+
     /// Records that `source`'s process is running again as `pid`.
     pub fn record_relaunch(&mut self, source: &TasklineEvent, pid: u32, elapsed: Duration) -> TasklineEvent {
         let message = format!("Relaunched {} on port {} (new pid {pid}).", source.process_name, source.port);
@@ -142,6 +190,28 @@ impl Log {
             memory_bytes: 0,
             duration_ms: millis(elapsed),
             message,
+            relaunchable: false,
+        };
+        self.insert(event.clone());
+        event
+    }
+
+    /// Records that a watched port went free on its own (WP-18): its holder stopped listening
+    /// and nobody here killed it. No memory came back and there is nothing to relaunch; `watch`
+    /// names the last holder when the watch knew one.
+    pub fn record_watch_freed(&mut self, watch: &WatchedPort) -> TasklineEvent {
+        let event = TasklineEvent {
+            id: self.take_id(),
+            at_ms: now_ms(),
+            kind: EventKind::PortFreed,
+            port: watch.port,
+            protocol: watch.protocol,
+            pid: watch.pid.unwrap_or(0),
+            process_name: watch.process_name.clone().unwrap_or_default(),
+            project: watch.project.clone(),
+            memory_bytes: 0,
+            duration_ms: 0,
+            message: format!("Port {} is free (watched).", watch.port),
             relaunchable: false,
         };
         self.insert(event.clone());
@@ -253,6 +323,15 @@ fn display_name(entry: &PortEntry) -> &str {
     }
 }
 
+/// `container shop-db` → `Container shop-db`, for the start of a sentence.
+fn capitalised(subject: &str) -> String {
+    let mut chars = subject.chars();
+    match chars.next() {
+        Some(first) => first.to_uppercase().chain(chars).collect(),
+        None => String::new(),
+    }
+}
+
 fn millis(elapsed: Duration) -> u64 {
     u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX)
 }
@@ -289,8 +368,22 @@ impl Taskline {
         (outcome, event)
     }
 
+    /// Stops `container` (`docker stop`, or `docker kill` when `force`), timed, and records what
+    /// happened to `entry`'s port (WP-20). The twin of [`Taskline::kill_and_record`] for the one
+    /// kind of entry whose Kill must not touch the process.
+    pub fn stop_and_record(&self, entry: &PortEntry, container: &str, force: bool) -> (KillOutcome, TasklineEvent) {
+        let started = Instant::now();
+        let outcome = crate::docker::stop(container, force, entry.pid);
+        let event = self.lock().record_stop(entry, Some(container), force, &outcome, started.elapsed());
+        (outcome, event)
+    }
+
     pub fn record_relaunch(&self, source: &TasklineEvent, pid: u32, elapsed: Duration) -> TasklineEvent {
         self.lock().record_relaunch(source, pid, elapsed)
+    }
+
+    pub fn record_watch_freed(&self, watch: &WatchedPort) -> TasklineEvent {
+        self.lock().record_watch_freed(watch)
     }
 
     pub fn observe(&self, entries: &[PortEntry]) -> Vec<TasklineEvent> {
@@ -346,6 +439,28 @@ pub(crate) fn kill_recorded(
     outcome
 }
 
+/// Stops the container behind `entry` the way [`kill_recorded`] kills a process, and records
+/// the outcome (WP-20). The process (Docker's backend) is never signalled.
+pub(crate) fn stop_recorded(app: &AppHandle, entry: &PortEntry, container: &str, force: bool) -> KillOutcome {
+    let Some(taskline) = state(app) else {
+        return crate::docker::stop(container, force, entry.pid);
+    };
+    let (outcome, event) = taskline.stop_and_record(entry, container, force);
+    emit(app, &event);
+    outcome
+}
+
+/// A container stop refused before `docker` ran: `commands::kill_listed` could not tell which
+/// container a pid-only request meant. Recorded like every refusal, so the feed says why.
+pub(crate) fn stop_refused(app: &AppHandle, entry: &PortEntry, reason: String) -> KillOutcome {
+    let outcome = KillOutcome::Refused { pid: entry.pid, reason };
+    if let Some(taskline) = state(app) {
+        let event = taskline.lock().record_stop(entry, None, false, &outcome, Duration::ZERO);
+        emit(app, &event);
+    }
+    outcome
+}
+
 /// Looks at a fresh list for resolved collisions and tells the windows about each one.
 pub fn observe(app: &AppHandle, entries: &[PortEntry]) {
     if let Some(taskline) = state(app) {
@@ -396,6 +511,7 @@ mod tests {
             protected: false,
             category: Category::Web,
             framework: Some("Next.js".into()),
+            container: None,
         }
     }
 
@@ -603,6 +719,84 @@ mod tests {
         assert_eq!(taskline.events().len(), 1, "what it holds is still readable");
         taskline.clear();
         assert!(taskline.events().is_empty(), "and writable");
+    }
+
+    fn container_entry() -> PortEntry {
+        let mut e = entry(5432, 11710, "com.docker.backend");
+        e.command = "/Applications/Docker.app/Contents/MacOS/com.docker.backend".into();
+        e.cwd = Some("/".into());
+        e.exe = Some("/Applications/Docker.app/Contents/MacOS/com.docker.backend".into());
+        e.memory_bytes = 1200 * 1024 * 1024;
+        e.project = Some(ProjectInfo { name: "postgres:16".into(), root: String::new(), kind: ProjectKind::Unknown, branch: None, tool: Some("docker".into()) });
+        e.protected = true;
+        e.category = Category::Db;
+        e.framework = Some("PostgreSQL".into());
+        e.container = Some("shop-db".into());
+        e
+    }
+
+    #[test]
+    fn a_container_stop_is_port_freed_with_the_sentence_the_ui_shows_and_nothing_to_relaunch() {
+        let mut log = Log::default();
+        let e = container_entry();
+        let event = log.record_stop(&e, Some("shop-db"), false, &killed(11710, true), ELAPSED);
+        assert_eq!(event.kind, EventKind::PortFreed);
+        assert_eq!(event.message, "Stopped container shop-db. Port 5432 is free.");
+        assert_eq!((event.port, event.protocol, event.pid), (5432, Protocol::Tcp, 11710));
+        assert_eq!(event.process_name, "com.docker.backend");
+        assert_eq!(event.project.as_deref(), Some("postgres:16"));
+        assert_eq!(event.memory_bytes, 0, "the backend keeps its memory; nothing came back");
+        assert_eq!(event.duration_ms, 180, "docker's own round trip");
+        assert!(!event.relaunchable, "a container is started on purpose, not by a click");
+        assert_eq!(log.source(event.id).unwrap().1, None, "no record is kept for it");
+
+        let forced = log.record_stop(&e, Some("shop-db"), true, &killed(11710, false), ELAPSED);
+        assert_eq!(forced.kind, EventKind::ForceKilled);
+        assert_eq!(forced.message, "Killed container shop-db. Port 5432 is free.");
+        assert!(!forced.relaunchable);
+    }
+
+    #[test]
+    fn a_container_stop_that_did_not_happen_keeps_its_reason() {
+        let mut log = Log::default();
+        let e = container_entry();
+        let gone = log.record_stop(&e, Some("shop-db"), false, &KillOutcome::NotFound { pid: 11710 }, ELAPSED);
+        assert_eq!(gone.kind, EventKind::PortFreed);
+        assert_eq!(gone.message, "Container shop-db was already stopped. Port 5432 is free.");
+        assert_eq!(gone.duration_ms, 250, "no stop to measure: the round trip");
+
+        let failed = KillOutcome::Failed { pid: 11710, error: "Cannot connect to the Docker daemon".into() };
+        let event = log.record_stop(&e, Some("shop-db"), false, &failed, ELAPSED);
+        assert_eq!(event.kind, EventKind::Failed);
+        assert_eq!(event.message, "Could not stop container shop-db: Cannot connect to the Docker daemon.");
+
+        // Refused before docker ran: the request named the pid, not the container.
+        let refused = KillOutcome::Refused { pid: 11710, reason: "it publishes 2 containers (cache, shop-db) under one pid".into() };
+        let event = log.record_stop(&e, None, false, &refused, Duration::ZERO);
+        assert_eq!(event.kind, EventKind::Refused);
+        assert_eq!(
+            event.message,
+            "Refused to stop a container of com.docker.backend (11710): it publishes 2 containers (cache, shop-db) under one pid."
+        );
+        assert!(!event.relaunchable);
+        assert!(log.observe(&[entry(5432, 900, "postgres")]).is_empty(), "nothing was freed, so nothing is a collision");
+    }
+
+    #[test]
+    fn a_stopped_container_coming_back_under_the_backend_is_not_a_collision_but_another_pid_is() {
+        let mut log = Log::default();
+        let e = container_entry();
+        log.record_stop(&e, Some("shop-db"), false, &killed(11710, true), ELAPSED);
+        let now = Instant::now();
+        // `docker start shop-db`: the same backend pid holds the port again. Silent, mark spent.
+        assert!(log.observe_at(&[container_entry()], now).is_empty());
+        assert!(log.observe_at(&[entry(5432, 900, "postgres")], now + Duration::from_secs(1)).is_empty());
+
+        log.record_stop(&e, Some("shop-db"), false, &killed(11710, true), ELAPSED);
+        let events = log.observe_at(&[entry(5432, 900, "postgres")], Instant::now() + Duration::from_secs(5));
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].kind, EventKind::CollisionResolved);
+        assert_eq!(events[0].message, "Port 5432, freed from container shop-db (11710), is now postgres (900).");
     }
 
     #[test]

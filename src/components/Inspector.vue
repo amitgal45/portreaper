@@ -2,11 +2,12 @@
 // One process, in full: the header, network, resources, project, ancestry, the full command
 // with its copy button, and the two verbs. The same panel sits as the third column of the Board
 // in a wide window and inside a slide-over in a narrow one (App.vue decides).
-import { Copy, ExternalLink, FolderOpen, GitBranch, LoaderCircle, RotateCw, X } from "lucide-vue-next";
+import { Copy, ExternalLink, Eye, FolderOpen, GitBranch, LoaderCircle, RotateCw, X } from "lucide-vue-next";
 import { computed, ref, watch } from "vue";
 import { useApi } from "../api";
-import { useActions } from "../composables/useActions";
+import { killLabels, useActions } from "../composables/useActions";
 import type { RestartState } from "../composables/useKillFlow";
+import { useWatched } from "../composables/useWatch";
 import { formatBytes, formatUptime } from "../lib/format";
 import type { PortEntry, ProcessNode } from "../types";
 import FrameworkIcon from "./FrameworkIcon.vue";
@@ -23,6 +24,11 @@ const emit = defineEmits<{ close: [] }>();
 
 const api = useApi();
 const actions = useActions();
+const labels = computed(() => killLabels(actions.defaultForce?.() ?? false));
+const isWatched = useWatched();
+
+/** The port is watched (WP-18): the eye in the header is on, and the Network card says so. */
+const watched = computed(() => isWatched(props.entry));
 
 /** The ancestry, launchd first. `null` while loading, `[]` when the core does not know. */
 const tree = ref<ProcessNode[] | null>(null);
@@ -48,6 +54,10 @@ const framework = computed(() => {
 });
 const uptime = computed(() => formatUptime(props.entry.startedAt));
 const memory = computed(() => formatBytes(props.entry.memoryBytes));
+/** The image a container runs, which the core hands over as the entry's project (WP-20). */
+const image = computed(() => (props.entry.project?.tool === "docker" ? props.entry.project.name : null));
+/** The Container card's mark is Docker's whatever the header's framework icon says. */
+const DOCKER_MARK = { framework: "Docker", processName: "docker" } as const;
 const isPublic = computed(() => props.entry.bind === "any");
 const bindNote = computed(() => {
   if (props.entry.bind === "any") return "reachable from your network";
@@ -103,6 +113,18 @@ const ghost =
       </div>
       <button
         type="button"
+        data-action="watch"
+        class="flex h-7 w-7 shrink-0 items-center justify-center rounded-md outline-none hover:bg-hover focus-visible:ring-2 focus-visible:ring-brand/40"
+        :class="watched ? 'text-blue-ink' : 'text-ink-3 hover:text-ink'"
+        :aria-pressed="watched"
+        aria-label="Watch"
+        :title="watched ? `Stop watching :${entry.port}` : `Watch :${entry.port} · notify when it is free`"
+        @click="actions.watch(entry)"
+      >
+        <Eye :size="14" :stroke-width="2" />
+      </button>
+      <button
+        type="button"
         class="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-ink-3 outline-none hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-brand/40"
         aria-label="Close"
         title="Close (Esc)"
@@ -121,12 +143,23 @@ const ghost =
             {{ entry.address }}
           </div>
           <p class="text-[12px] leading-snug text-ink-2">{{ bindNote }}</p>
+          <p v-if="watched" data-watching class="text-[12px] leading-snug text-blue-ink">Watching · will notify when free</p>
         </div>
         <div data-section="resources" :class="section">
           <div :class="heading">Resources</div>
           <div class="font-mono text-[13px] font-semibold text-ink tabular-nums">{{ memory }}</div>
           <p class="text-[12px] leading-snug text-ink-2">running {{ uptime }}</p>
         </div>
+      </div>
+
+      <div v-if="entry.container" data-section="container" :class="section">
+        <div :class="heading">Container</div>
+        <div class="flex min-w-0 items-center gap-1.5">
+          <FrameworkIcon :entry="DOCKER_MARK" :size="14" />
+          <span class="truncate font-semibold text-ink">{{ entry.container }}</span>
+        </div>
+        <p v-if="image" class="truncate font-mono text-[12px] text-ink-2" :title="image">image {{ image }}</p>
+        <p class="text-[12px] leading-snug text-ink-2">Kill stops the container; Docker stays up.</p>
       </div>
 
       <div data-section="project" :class="section">
@@ -207,8 +240,8 @@ const ghost =
         </button>
         <button
           type="button"
-          class="flex h-8 flex-1 items-center justify-center gap-1.5 rounded-lg border border-red bg-red text-[13px] font-semibold text-white outline-none transition-colors hover:brightness-95 focus-visible:ring-2 focus-visible:ring-brand/40"
-          :title="entry.protected ? 'Kill (asks first)' : 'Kill · ⌥ to force'"
+          class="flex h-8 flex-1 items-center justify-center gap-1.5 rounded-lg border border-red-ink bg-red-ink text-[13px] font-semibold text-surface outline-none transition-colors hover:brightness-95 focus-visible:ring-2 focus-visible:ring-brand/40"
+          :title="entry.protected ? 'Kill (asks first)' : labels.title"
           @click="actions.kill(entry, $event.altKey)"
         >
           <X :size="13" :stroke-width="2.5" aria-hidden="true" />

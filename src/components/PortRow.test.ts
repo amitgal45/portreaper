@@ -7,6 +7,7 @@ import { ACTIONS_KEY, type UiActions } from "../composables/useActions";
 import { useKillFlow } from "../composables/useKillFlow";
 import { usePorts } from "../composables/usePorts";
 import { useToasts } from "../composables/useToasts";
+import { WATCHED_KEY } from "../composables/useWatch";
 import type { PortEntry } from "../types";
 import PortRow from "./PortRow.vue";
 
@@ -29,6 +30,7 @@ function spies(): UiActions {
     copyKill: vi.fn(),
     copyCommand: vi.fn(),
     revealFolder: vi.fn(),
+    watch: vi.fn(),
   };
 }
 
@@ -36,6 +38,7 @@ function mountRow(
   entry: PortEntry,
   actions: UiActions,
   extra: Partial<InstanceType<typeof PortRow>["$props"]> = {},
+  provide: Record<symbol, unknown> = {},
 ) {
   const Wrapper = defineComponent({
     setup: () => () =>
@@ -52,7 +55,7 @@ function mountRow(
       }),
   });
   return mount(Wrapper, {
-    global: { provide: { [ACTIONS_KEY as symbol]: actions } },
+    global: { provide: { [ACTIONS_KEY as symbol]: actions, ...provide } },
     attachTo: document.body,
   });
 }
@@ -201,7 +204,9 @@ describe("PortRow", () => {
     expect(plain.get("button[aria-label='Kill']").classes()).toContain("text-red-ink");
     plain.unmount();
     const selected = mountRow(byPort(3000), spies(), { selected: true });
-    expect(selected.get("button[aria-label='Kill']").classes()).toContain("bg-red");
+    expect(selected.get("button[aria-label='Kill']").classes()).toEqual(
+      expect.arrayContaining(["bg-red-ink", "text-surface"]),
+    );
     expect(selected.get("[role='row']").attributes("aria-selected")).toBe("true");
     expect(selected.get("[role='row']").classes()).toContain("bg-sel");
     selected.unmount();
@@ -213,5 +218,24 @@ describe("PortRow", () => {
     expect(wrapper.find("button[aria-label='More']").exists()).toBe(false);
     expect(wrapper.find("[aria-label='killing']").exists()).toBe(true);
     wrapper.unmount();
+  });
+
+  it("marks a watched row with the eye after the brand mark, and leaves the pills alone (WP-18)", () => {
+    const plain = mountRow(byPort(3000), spies());
+    expect(plain.find("[data-badge='watched']").exists()).toBe(false);
+    plain.unmount();
+
+    const isWatched = (t: { port: number; protocol: string }) => t.port === 3000 && t.protocol === "tcp";
+    const watched = mountRow(byPort(3000), spies(), {}, { [WATCHED_KEY as symbol]: isWatched });
+    expect(watched.get("[data-badge='watched']").classes()).toContain("text-blue-ink");
+    expect(pillsOf(watched)).toEqual([
+      ["running", "Running"],
+      ["watched", ""],
+    ]);
+    watched.unmount();
+
+    const other = mountRow(byPort(5173), spies(), {}, { [WATCHED_KEY as symbol]: isWatched });
+    expect(other.find("[data-badge='watched']").exists()).toBe(false);
+    other.unmount();
   });
 });

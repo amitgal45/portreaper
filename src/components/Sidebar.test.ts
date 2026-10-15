@@ -21,6 +21,10 @@ describe("Sidebar update banner", () => {
     const wrapper = await mountSidebar({ phase: "idle" });
     expect(banner(wrapper).exists()).toBe(false);
     expect(wrapper.get("[data-nav='taskline']").text()).toContain("Taskline");
+    // Needs attention: the two alarms and, since WP-18, the watched ports that are free.
+    const watching = wrapper.get("[data-nav='watching']");
+    expect(watching.text()).toContain("Watching");
+    expect(watching.get("span:last-child").text()).toBe("0");
   });
 
   it("ready: names the version on the brand tint, and Update asks to install", async () => {
@@ -34,7 +38,7 @@ describe("Sidebar update banner", () => {
     const button = ready.get("button");
     expect(button.text()).toBe("Update");
     expect(button.attributes("data-action")).toBe("update");
-    expect(button.classes()).toEqual(expect.arrayContaining(["bg-brand", "text-white"]));
+    expect(button.classes()).toEqual(expect.arrayContaining(["bg-brand-ink", "text-surface"]));
     await button.trigger("click");
     expect(wrapper.emitted("install")).toEqual([[]]);
   });

@@ -20,6 +20,7 @@
 
 mod classify;
 mod commands;
+mod docker;
 mod kill;
 mod model;
 mod ports;
@@ -31,6 +32,7 @@ mod shortcuts;
 mod taskline;
 mod tray;
 mod update;
+mod watch;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -51,9 +53,15 @@ pub fn run() {
         // The update the last check found, for the banner's Update and Retry.
         .manage(update::UpdateState::default())
         .setup(|app| {
-            tray::setup(app.handle())?;
-            shortcuts::setup(app.handle())?;
+            // The watches load before the tray: its refresh thread observes them from its first snapshot.
+            watch::setup(app.handle());
             settings::enable_autostart_on_first_run(app.handle());
+            // The Dock policy and the shortcuts come from the settings, and the tray's labels
+            // read the registered shortcuts: settings first, shortcuts second, the tray after.
+            let settings = settings::load(app.handle());
+            settings::apply_dock_icon(app.handle(), settings.dock_icon);
+            shortcuts::register_all(app.handle(), &settings);
+            tray::setup(app.handle())?;
             quick::precreate(app.handle());
             update::setup(app.handle());
             Ok(())
@@ -70,7 +78,12 @@ pub fn run() {
             commands::clear_taskline,
             commands::relaunch,
             commands::check_for_updates,
-            commands::install_update
+            commands::install_update,
+            commands::get_settings,
+            commands::set_settings,
+            commands::watched_ports,
+            commands::watch_port,
+            commands::unwatch_port
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

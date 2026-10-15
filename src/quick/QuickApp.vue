@@ -29,7 +29,7 @@ const optionId = (key: string) => `quick-option-${key}`;
 const portCount = computed(() => `${entries.value.length} ${entries.value.length === 1 ? "port" : "ports"}`);
 
 /**
- * The status pill at the right of a row: one at most, a solid colour with white text. Protected
+ * The status pill at the right of a row: one at most, a tint with its ink (the Board idiom). Protected
  * first, since it is what makes Enter ask twice; then the lost terminal (what the strip is for);
  * then the network exposure; then a local model with the memory it holds, the one thing to know
  * before killing it. A plain running dev server has none.
@@ -41,10 +41,10 @@ interface StatusPill {
   title: string;
 }
 const PILL_CLASS: Record<Status, string> = {
-  protected: "bg-blue",
-  zombie: "bg-orange",
-  public: "bg-red",
-  ai: "bg-purple",
+  protected: "bg-blue-tint text-blue-ink",
+  zombie: "bg-orange-tint text-orange-ink",
+  public: "bg-red-tint text-red-ink",
+  ai: "bg-purple-tint text-purple-ink",
 };
 function statusOf(e: PortEntry): StatusPill | null {
   if (e.protected) return { kind: "protected", text: "Protected", title: "protected — asks twice" };
@@ -162,7 +162,7 @@ onUnmounted(() => quick.stop());
               {{ armed.text }}
               <span class="inline-block whitespace-nowrap text-ink-2">{{ armed.hint }}</span>
             </span>
-            <span class="shrink-0 text-[11px] text-ink-3">↩ kill</span>
+            <span class="shrink-0 text-[11px] text-ink-2">↩ kill</span>
           </template>
 
           <template v-else>
@@ -196,7 +196,7 @@ onUnmounted(() => quick.stop());
               v-if="status"
               :data-status="status.kind"
               :title="status.title"
-              class="inline-flex h-5 shrink-0 items-center rounded-full px-2 text-[11px] font-medium whitespace-nowrap text-white"
+              class="inline-flex h-5 shrink-0 items-center rounded-full px-2 text-[11px] font-medium whitespace-nowrap"
               :class="PILL_CLASS[status.kind]"
             >{{ status.text }}</span>
             <template v-if="selectedId === key">

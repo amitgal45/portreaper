@@ -54,7 +54,7 @@ describe("QuickApp", () => {
     expect(options[1]?.classes()).not.toContain("bg-sel");
     expect(options[1]?.classes()).not.toContain("shadow-[inset_3px_0_0_var(--brand)]");
     expect(options[4]?.find("[data-status]").text()).toBe("Public");
-    expect(wrapper.find("header").text()).toBe("PortReaper · 11 ports · ⌘⇧K");
+    expect(wrapper.find("header").text()).toBe("PortReaper · 12 ports · ⌘⇧K");
     expect(wrapper.find("footer").text()).toBe("↑↓ choose · ↩ free · ⌥↩ force · esc close");
     expect(document.activeElement).toBe(wrapper.find("input").element);
   });
@@ -68,19 +68,19 @@ describe("QuickApp", () => {
     expect(option(5173).find("[aria-label='lost terminal']").exists()).toBe(false);
     expect(status(5174).text()).toBe("Zombie");
     expect(status(5174).attributes("data-status")).toBe("zombie");
-    expect(status(5174).classes()).toContain("bg-orange");
+    expect(status(5174).classes()).toEqual(expect.arrayContaining(["bg-orange-tint", "text-orange-ink"]));
     expect(status(4000).text()).toBe("Zombie");
     // A plain running dev server has no pill; the one bound to 0.0.0.0 is Public.
     expect(status(3000).exists()).toBe(false);
     expect(status(5173).exists()).toBe(false);
     expect(status(8080).text()).toBe("Public");
-    expect(status(8080).classes()).toContain("bg-red");
+    expect(status(8080).classes()).toEqual(expect.arrayContaining(["bg-red-tint", "text-red-ink"]));
     expect(status(9335).exists()).toBe(false);
 
     await wrapper.find("input").setValue("5432");
     expect(status(5432).text()).toBe("Protected");
     expect(status(5432).attributes("data-status")).toBe("protected");
-    expect(status(5432).classes()).toContain("bg-blue");
+    expect(status(5432).classes()).toEqual(expect.arrayContaining(["bg-blue-tint", "text-blue-ink"]));
   });
 
   it("shows a brand mark for a known stack, a soft text pill for a named unknown one, nothing otherwise", async () => {
@@ -111,9 +111,11 @@ describe("QuickApp", () => {
     expect(ollama.text()).toContain("ollama");
     expect(ollama.find("[data-status]").text()).toBe("AI · 4.9 GB");
     expect(ollama.find("[data-status]").attributes("data-status")).toBe("ai");
-    expect(ollama.find("[data-status]").classes()).toContain("bg-purple");
+    expect(ollama.find("[data-status]").classes()).toEqual(
+      expect.arrayContaining(["bg-purple-tint", "text-purple-ink"]),
+    );
     expect(ollama.find("[data-testid='framework-icon']").attributes("data-brand")).toBe("Ollama");
-    expect(wrapper.find("header").text()).toBe("PortReaper · 11 ports · ⌘⇧K");
+    expect(wrapper.find("header").text()).toBe("PortReaper · 12 ports · ⌘⇧K");
   });
 
   it("a refusal shows in the row and stays; the row is whole again afterwards", async () => {

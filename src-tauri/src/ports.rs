@@ -14,6 +14,9 @@
 //! WP-10 adds the taxonomy (`crate::classify`, per entry, since the port is part of the
 //! evidence), `protected` widened to every `Db` and `System` entry, the process's argv kept
 //! apart from the joined command (relaunch needs the arguments as they were), and [`tree`].
+//!
+//! WP-20 names the container behind a port Docker's backend holds ([`attach_containers`], from
+//! one `crate::docker::containers()` per listing that has a Docker process, cached there).
 
 use std::collections::HashMap;
 use std::net::IpAddr;
@@ -24,7 +27,8 @@ use listeners::{Listener, SocketState};
 use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System, Uid, UpdateKind, Users};
 use thiserror::Error;
 
-use crate::model::{BindScope, Category, PortEntry, ProcessNode, ProjectInfo, Protocol};
+use crate::docker::Container;
+use crate::model::{BindScope, Category, PortEntry, ProcessNode, ProjectInfo, ProjectKind, Protocol};
 
 /// Executables under these roots belong to macOS, not to the user: never an orphan, always protected.
 pub const SYSTEM_PREFIXES: &[&str] =
@@ -40,6 +44,9 @@ pub const PROTECTED_NAMES: &[&str] = &[
     "mongod",
     "redis-server",
     "com.docker.backend",
+    "com.docker.vpnkit",
+    "vpnkit",
+    "docker-proxy",
     "docker",
     "dockerd",
     "containerd",
@@ -54,6 +61,11 @@ pub const PROTECTED_NAMES: &[&str] = &[
     "sshd",
     "cupsd",
 ];
+
+/// The processes that hold a container's published port on the host: Docker Desktop's backend
+/// and its forwarders, and a Linux-style daemon's proxy. A port one of these holds is looked up
+/// in `docker ps` (WP-20). Matched like [`PROTECTED_NAMES`]; every one of them is in that list.
+pub const DOCKER_NAMES: &[&str] = &["com.docker.backend", "com.docker.vpnkit", "vpnkit", "docker-proxy", "dockerd", "docker"];
 
 /// How many parents [`tree`] follows at most. A real chain on macOS is under ten links; a longer
 /// one is a loop in what sysinfo reported, and the walk must end either way.
@@ -96,7 +108,7 @@ pub(crate) fn listing() -> Result<Listing, PortsError> {
     let current_user = user_name(users, unsafe { libc::getuid() });
 
     let mut details: HashMap<u32, ProcessDetails> = HashMap::new();
-    let entries = sockets
+    let mut entries: Vec<PortEntry> = sockets
         .into_iter()
         .map(|socket| {
             let d = details
@@ -126,11 +138,48 @@ pub(crate) fn listing() -> Result<Listing, PortsError> {
                 protected: d.protected || matches!(category, Category::Db | Category::System),
                 category,
                 framework,
+                container: None,
             }
         })
         .collect();
+    // One `docker ps` (cached 5 s in `docker`) when Docker holds a port; none at all otherwise.
+    if entries.iter().any(|e| is_docker_process(&e.process_name, e.exe.as_deref())) {
+        attach_containers(&mut entries, &crate::docker::containers());
+    }
     let argv = details.into_iter().filter(|(_, d)| !d.argv.is_empty()).map(|(pid, d)| (pid, d.argv)).collect();
     Ok(Listing { entries, argv })
+}
+
+/// Names the container behind every entry a Docker process holds whose `(port, protocol)` a
+/// container publishes: `container`, the framework and category from the image
+/// (`classify::classify_container`), the image as the entry's project (the port belongs to the
+/// container, not to wherever the backend was started), and `protected` kept. Entries of other
+/// processes, and Docker's ports no container publishes, are left as they are.
+pub(crate) fn attach_containers(entries: &mut [PortEntry], containers: &[Container]) {
+    for entry in entries.iter_mut().filter(|e| is_docker_process(&e.process_name, e.exe.as_deref())) {
+        let Some(container) = containers.iter().find(|c| c.ports.contains(&(entry.port, entry.protocol))) else {
+            continue;
+        };
+        let (category, framework) = crate::classify::classify_container(entry.port, entry.protocol, &container.image);
+        entry.container = Some(container.name.clone());
+        entry.category = category;
+        entry.framework = Some(framework);
+        entry.project = Some(ProjectInfo {
+            name: container.image.clone(),
+            root: String::new(),
+            kind: ProjectKind::Unknown,
+            branch: None,
+            tool: Some("docker".into()),
+        });
+        // Kill stops the container, never the backend; it still asks twice.
+        entry.protected = true;
+    }
+}
+
+/// Whether this is one of the processes that hold a container's port on the host
+/// ([`DOCKER_NAMES`]), by its name or its executable's file name.
+pub fn is_docker_process(process_name: &str, exe: Option<&str>) -> bool {
+    named_any(process_name, exe, DOCKER_NAMES)
 }
 
 /// The ancestry of `pid`, launchd (pid 1) first and `pid` itself last, through sysinfo's parent
@@ -295,9 +344,14 @@ pub fn is_protected(process_name: &str, exe: Option<&str>, user: Option<&str>, c
     if exe.is_some_and(is_system_path) {
         return true;
     }
+    named_any(process_name, exe, PROTECTED_NAMES)
+}
+
+/// Whether the lowercased process name or the executable's file name is one of `names`.
+fn named_any(process_name: &str, exe: Option<&str>, names: &[&str]) -> bool {
     let name = process_name.to_lowercase();
     let file_name = exe.and_then(|e| Path::new(e).file_name()).map(|f| f.to_string_lossy().to_lowercase());
-    PROTECTED_NAMES.iter().any(|p| *p == name || file_name.as_deref() == Some(*p))
+    names.iter().any(|p| *p == name || file_name.as_deref() == Some(*p))
 }
 
 fn is_system_path(exe: &str) -> bool {
@@ -505,6 +559,120 @@ mod tests {
         assert!(!is_protected("node", Some("/usr/binx/node"), me, me));
         // a user-space look-alike name is still protected: better to ask twice than kill a database
         assert!(is_protected("redis-server", Some("/Users/amit/.local/bin/redis-server"), me, me));
+    }
+
+    #[test]
+    fn docker_process_table() {
+        assert!(is_docker_process("com.docker.backend", Some("/Applications/Docker.app/Contents/MacOS/com.docker.backend")));
+        assert!(is_docker_process("", Some("/Applications/Docker.app/Contents/MacOS/com.docker.backend")));
+        assert!(is_docker_process("vpnkit", None));
+        assert!(is_docker_process("com.docker.vpnkit", None));
+        assert!(is_docker_process("docker-proxy", Some("/usr/bin/docker-proxy")));
+        assert!(!is_docker_process("postgres", Some("/opt/homebrew/bin/postgres")));
+        assert!(!is_docker_process("node", None));
+        // Every Docker name is protected too: the kill path's gate stays in force.
+        let me = Some("amit");
+        for name in DOCKER_NAMES {
+            assert!(PROTECTED_NAMES.contains(name), "{name}");
+            assert!(is_protected(name, None, me, me), "{name}");
+        }
+    }
+
+    fn docker_entry(port: u16, protocol: Protocol) -> PortEntry {
+        let exe = "/Applications/Docker.app/Contents/MacOS/com.docker.backend";
+        let (category, framework) =
+            crate::classify::classify(port, protocol, Some("docker"), "com.docker.backend", Some(exe), exe);
+        PortEntry {
+            port,
+            protocol,
+            bind: BindScope::Any,
+            address: "*".into(),
+            pid: 11710,
+            process_name: "com.docker.backend".into(),
+            command: exe.into(),
+            cwd: Some("/".into()),
+            exe: Some(exe.into()),
+            user: Some("amit".into()),
+            memory_bytes: 1 << 30,
+            started_at: Some(1_700_000_000),
+            parent_pid: Some(1),
+            orphan: false,
+            project: None,
+            protected: true,
+            category,
+            framework,
+            container: None,
+        }
+    }
+
+    fn container(name: &str, image: &str, ports: &[(u16, Protocol)]) -> Container {
+        Container { name: name.into(), image: image.into(), ports: ports.to_vec() }
+    }
+
+    #[test]
+    fn a_docker_port_a_container_publishes_gets_the_container_and_its_image() {
+        let mut entries = vec![
+            docker_entry(5432, Protocol::Tcp),
+            docker_entry(6379, Protocol::Tcp),
+            docker_entry(8080, Protocol::Tcp),
+            docker_entry(53, Protocol::Udp),
+            // The same port held by somebody else is not Docker's business.
+            PortEntry { process_name: "node".into(), exe: Some("/opt/homebrew/bin/node".into()), pid: 4242, ..docker_entry(5432, Protocol::Tcp) },
+        ];
+        let containers = [
+            container("shop-db", "postgres:16", &[(5432, Protocol::Tcp)]),
+            container("api", "ghcr.io/acme/shop-api:latest", &[(8080, Protocol::Tcp)]),
+            container("dns", "coredns/coredns:1.11", &[(53, Protocol::Udp), (53, Protocol::Tcp)]),
+            container("idle", "busybox", &[]),
+        ];
+        attach_containers(&mut entries, &containers);
+
+        let db = &entries[0];
+        assert_eq!(db.container.as_deref(), Some("shop-db"));
+        assert_eq!((db.category, db.framework.as_deref()), (Category::Db, Some("PostgreSQL")));
+        assert_eq!(db.project.as_ref().map(|p| (p.name.as_str(), p.root.as_str(), p.tool.as_deref())), Some(("postgres:16", "", Some("docker"))));
+        assert!(db.protected);
+
+        // Docker's port that no container publishes: as before.
+        let cache = &entries[1];
+        assert_eq!(cache.container, None);
+        assert_eq!((cache.category, cache.framework.as_deref()), (Category::Db, Some("Redis")), "the port rule, as today");
+        assert_eq!(cache.project, None);
+        assert!(cache.protected);
+
+        let api = &entries[2];
+        assert_eq!(api.container.as_deref(), Some("api"));
+        assert_eq!((api.category, api.framework.as_deref()), (Category::Api, Some("ghcr.io/acme/shop-api")));
+
+        let dns = &entries[3];
+        assert_eq!(dns.container.as_deref(), Some("dns"), "udp matches udp");
+        assert_eq!((dns.category, dns.framework.as_deref()), (Category::System, Some("coredns/coredns")));
+
+        let node = &entries[4];
+        assert_eq!(node.container, None, "not a Docker process");
+        assert_eq!(node.project, None);
+    }
+
+    #[test]
+    fn without_docker_running_nothing_is_attached_and_the_listing_still_succeeds() {
+        // The CLI's absence, as `docker::fetch_with_path` sees it with an empty PATH, is an
+        // empty list; against it every entry keeps `None`.
+        let none = crate::docker::fetch_with_path(&std::ffi::OsString::new());
+        assert!(none.is_empty());
+        let mut entries = vec![docker_entry(5432, Protocol::Tcp)];
+        attach_containers(&mut entries, &none);
+        assert_eq!(entries[0].container, None);
+        assert_eq!(entries[0].project, None);
+        assert!(entries[0].protected, "Docker stays protected either way");
+
+        // And the real listing, on a machine where Docker may or may not answer, still lists
+        // our own socket, which no container publishes.
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let pid = std::process::id();
+        let entries = list().unwrap();
+        let ours = entries.iter().find(|e| e.port == port && e.pid == pid).expect("our listener");
+        assert_eq!(ours.container, None);
     }
 
     #[test]

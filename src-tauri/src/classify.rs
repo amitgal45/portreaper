@@ -127,6 +127,57 @@ fn decide(
     (Category::Other, None)
 }
 
+/// Images whose repository names a product (WP-20). Keyed by the repository with the registry,
+/// the `library/` prefix and the tag stripped, or by its last path segment, so `postgres:16`,
+/// `docker.io/library/postgres` and `bitnami/postgresql` all read as PostgreSQL. The category
+/// is the product's where it is a store or a model server; anything else keeps the port rule.
+const BY_IMAGE: &[(&str, Option<Category>, &str)] = &[
+    ("postgres", Some(Category::Db), "PostgreSQL"),
+    ("postgresql", Some(Category::Db), "PostgreSQL"),
+    ("redis", Some(Category::Db), "Redis"),
+    ("valkey", Some(Category::Db), "Valkey"),
+    ("mongo", Some(Category::Db), "MongoDB"),
+    ("mongodb", Some(Category::Db), "MongoDB"),
+    ("mysql", Some(Category::Db), "MySQL"),
+    ("mariadb", Some(Category::Db), "MariaDB"),
+    ("rabbitmq", Some(Category::Db), "RabbitMQ"),
+    ("elasticsearch", Some(Category::Db), "Elasticsearch"),
+    ("clickhouse", Some(Category::Db), "ClickHouse"),
+    ("clickhouse-server", Some(Category::Db), "ClickHouse"),
+    ("nginx", None, "nginx"),
+    ("ollama/ollama", Some(Category::Ai), "Ollama"),
+    ("ollama", Some(Category::Ai), "Ollama"),
+];
+
+/// The category and framework of a port published by a container running `image` (WP-20). A
+/// known repository names the product and, for a store or a model server, its category; an
+/// unknown one is named as it is, without the tag, and the port decides the category as it
+/// does for any other process.
+pub fn classify_container(port: u16, protocol: Protocol, image: &str) -> (Category, String) {
+    let repository = image_repository(image);
+    let short = repository.strip_prefix("docker.io/").unwrap_or(&repository);
+    let short = short.strip_prefix("library/").unwrap_or(short);
+    let last = short.rsplit('/').next().unwrap_or(short);
+    let hit = BY_IMAGE.iter().find(|(key, _, _)| *key == short).or_else(|| BY_IMAGE.iter().find(|(key, _, _)| *key == last));
+    let by_port = by_port(port, protocol).map_or(Category::Other, |(category, _)| category);
+    match hit {
+        Some((_, category, framework)) => (category.unwrap_or(by_port), (*framework).to_string()),
+        None => (by_port, repository),
+    }
+}
+
+/// `postgres:16` → `postgres`; `ghcr.io/acme/api:1.2` → `ghcr.io/acme/api`; a digest
+/// (`redis@sha256:…`) goes too. A `:` before the last `/` is a registry port, not a tag.
+fn image_repository(image: &str) -> String {
+    let image = image.trim();
+    let without_digest = image.split_once('@').map_or(image, |(repo, _)| repo);
+    let last_slash = without_digest.rfind('/').map_or(0, |i| i + 1);
+    match without_digest[last_slash..].rfind(':') {
+        Some(colon) => without_digest[..last_slash + colon].to_string(),
+        None => without_digest.to_string(),
+    }
+}
+
 /// `subject` is `needle`, or starts with it and goes on with something that is not part of a
 /// name: `redis-server` is `redis`, `postgres_exporter` is not `postgres`.
 fn named(subject: &str, needle: &str) -> bool {
@@ -301,6 +352,58 @@ mod tests {
             let (category, _) = classify(port, Protocol::Tcp, None, "", None, "");
             assert_eq!(category, Db, "port {port}");
         }
+    }
+
+    #[test]
+    fn image_table() {
+        let cases: &[(u16, &str, (Category, &str))] = &[
+            // the stores: the product names the framework and the category, wherever the port
+            (5432, "postgres:16", (Db, "PostgreSQL")),
+            (5433, "postgres", (Db, "PostgreSQL")),
+            (15432, "docker.io/library/postgres:16-alpine", (Db, "PostgreSQL")),
+            (5432, "bitnami/postgresql:16", (Db, "PostgreSQL")),
+            (5432, "postgres@sha256:0123abcd", (Db, "PostgreSQL")),
+            (6380, "redis:7", (Db, "Redis")),
+            (27018, "mongo:7", (Db, "MongoDB")),
+            (3307, "mysql:8", (Db, "MySQL")),
+            (3306, "mariadb:11", (Db, "MariaDB")),
+            (5672, "rabbitmq:3-management", (Db, "RabbitMQ")),
+            (9200, "elasticsearch:8.12.0", (Db, "Elasticsearch")),
+            (9200, "docker.elastic.co/elasticsearch/elasticsearch:8.12.0", (Db, "Elasticsearch")),
+            (8123, "clickhouse/clickhouse-server:24", (Db, "ClickHouse")),
+            // model servers
+            (11434, "ollama/ollama", (Ai, "Ollama")),
+            (11435, "ollama/ollama:0.3", (Ai, "Ollama")),
+            // named, but the port decides the category
+            (8080, "nginx:1.25", (Api, "nginx")),
+            (80, "nginx", (Other, "nginx")),
+            // unknown: the repository as is, without the tag or digest, and the port rule
+            (8080, "ghcr.io/acme/shop-api:latest", (Api, "ghcr.io/acme/shop-api")),
+            (3000, "acme/shop-web:1.2.3", (Web, "acme/shop-web")),
+            (5432, "timescale/timescaledb-ha:pg16", (Db, "timescale/timescaledb-ha")),
+            (49200, "busybox", (Other, "busybox")),
+            (49200, "localhost:5000/acme/tool:dev", (Other, "localhost:5000/acme/tool")),
+            (49200, "localhost:5000/acme/tool", (Other, "localhost:5000/acme/tool")),
+        ];
+        for (port, image, expected) in cases {
+            let (category, framework) = classify_container(*port, Protocol::Tcp, image);
+            assert_eq!((category, framework.as_str()), *expected, "port {port} image {image:?}");
+        }
+        // UDP keeps the port rule's silence outside the system ports.
+        assert_eq!(classify_container(3000, Protocol::Udp, "acme/app"), (Other, "acme/app".into()));
+        assert_eq!(classify_container(53, Protocol::Udp, "coredns/coredns:1.11"), (System, "coredns/coredns".into()));
+    }
+
+    #[test]
+    fn image_repository_strips_the_tag_and_the_digest_but_not_a_registry_port() {
+        assert_eq!(image_repository("postgres:16"), "postgres");
+        assert_eq!(image_repository("postgres"), "postgres");
+        assert_eq!(image_repository("ghcr.io/acme/api:1.2"), "ghcr.io/acme/api");
+        assert_eq!(image_repository("redis@sha256:abc"), "redis");
+        assert_eq!(image_repository("redis:7@sha256:abc"), "redis");
+        assert_eq!(image_repository("localhost:5000/acme/tool"), "localhost:5000/acme/tool");
+        assert_eq!(image_repository("localhost:5000/acme/tool:dev"), "localhost:5000/acme/tool");
+        assert_eq!(image_repository("  nginx:latest  "), "nginx");
     }
 
     #[test]

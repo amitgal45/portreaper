@@ -2,13 +2,13 @@
 // The 200 px column at the left of the Board: a row for the traffic lights, the brand below it, the
 // category filters with their counts ("Ports"), the two alarms ("Needs attention"), and at the
 // bottom the update banner when a newer release is known (WP-16), the Taskline and Settings. One
-// item is on: a category while the Studio shows, the Taskline while the feed shows. Clicking a
-// category from the Taskline goes back to the Studio.
-import { Clock, Database, Globe, LayoutGrid, Settings, Sparkles, Terminal, Zap } from "lucide-vue-next";
+// item is on: a category while the Studio shows, the Taskline while the feed shows, Settings
+// while Preferences shows (WP-17b). Clicking a category from either goes back to the Studio.
+import { Clock, Database, Eye, Globe, LayoutGrid, Settings, Sparkles, Terminal, Zap } from "lucide-vue-next";
 import type { CategoryCounts, CategoryFilter } from "../composables/usePorts";
 import { bannerText, percentOf, type UpdateState } from "../composables/useUpdate";
 
-export type View = "studio" | "taskline";
+export type View = "studio" | "taskline" | "settings";
 
 const props = defineProps<{
   view: View;
@@ -45,6 +45,7 @@ const PORTS: Item[] = [
 const ATTENTION: Item[] = [
   { key: "zombie", label: "Zombies", icon: Zap, tone: "warn" },
   { key: "public", label: "Public on LAN", icon: Globe, tone: "danger" },
+  { key: "watching", label: "Watching", icon: Eye },
 ];
 
 const item =
@@ -53,7 +54,7 @@ const on = "bg-brand-tint font-semibold text-brand-ink hover:bg-brand-tint";
 const badge = "ml-auto rounded-full px-1.5 py-px font-mono text-[11px] font-medium leading-4 tabular-nums";
 const section = "px-2 pt-3.5 pb-1.5 text-[11px] font-semibold uppercase tracking-wide text-ink-3";
 const updateButton =
-  "h-6 rounded-md bg-brand px-2 text-[12px] font-semibold text-white outline-none hover:opacity-90 focus-visible:ring-2 focus-visible:ring-brand/40";
+  "h-6 rounded-md bg-brand-ink px-2 text-[12px] font-semibold text-surface outline-none hover:opacity-90 focus-visible:ring-2 focus-visible:ring-brand/40";
 
 /** The progress bar's fill: the known percent, full once installed, empty while the size is unknown. */
 function downloadedWidth(state: UpdateState): string {
@@ -75,11 +76,11 @@ function iconClass(it: Item, active: boolean): string {
 
 /** An alarm's badge keeps its colour while it counts something; at zero it goes quiet. */
 function badgeClass(it: Item, active: boolean): string {
-  if (active) return "bg-brand text-white";
-  if (props.counts[it.key] === 0) return "bg-line text-ink-3";
+  if (active) return "bg-brand-ink text-surface";
+  if (props.counts[it.key] === 0) return "bg-line text-ink-2";
   if (it.tone === "warn") return "bg-orange-tint text-orange-ink";
   if (it.tone === "danger") return "bg-red-tint text-red-ink";
-  return "bg-line text-ink-3";
+  return "bg-line text-ink-2";
 }
 
 function pick(key: CategoryFilter) {
@@ -173,13 +174,20 @@ function pick(key: CategoryFilter) {
         <span
           v-if="tasklineCount > 0"
           data-badge="taskline-count"
-          :class="[badge, view === 'taskline' ? 'bg-brand text-white' : 'bg-line text-ink-3']"
+          :class="[badge, view === 'taskline' ? 'bg-brand-ink text-surface' : 'bg-line text-ink-2']"
         >
           {{ tasklineCount }}
         </span>
       </button>
-      <button type="button" data-nav="settings" :class="[item, 'disabled:opacity-50']" disabled title="Coming in a later release">
-        <Settings :size="14" :stroke-width="2" class="text-ink-3" aria-hidden="true" />
+      <button
+        type="button"
+        data-nav="settings"
+        :aria-current="view === 'settings' ? 'true' : undefined"
+        :class="[item, view === 'settings' && on]"
+        title="Preferences (⌘,)"
+        @click="emit('update:view', 'settings')"
+      >
+        <Settings :size="14" :stroke-width="2" :class="view === 'settings' ? 'text-brand-ink' : 'text-ink-3'" aria-hidden="true" />
         <span class="truncate">Settings</span>
       </button>
     </div>
