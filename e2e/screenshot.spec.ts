@@ -21,8 +21,10 @@ for (const { scheme, path } of shots) {
   });
 }
 
-// The Quick strip (WP-8b) at its window size, 480×320: the recents on an empty query, the first
-// row selected so the "↩ free" hint is in the picture.
+// The Quick strip (WP-8b, WP-12) at its window size, 480×320: the pre-selection on an empty
+// query with the lost-terminal zombie first and selected, so the ⚡ and the "↩ free" hint are
+// in the picture, and `?fixture=ai` for an Ollama row with its memory chip. v0.2 is dark only:
+// both schemes render the same; both files stay so links to either keep working.
 test.describe("quick", () => {
   test.use({ viewport: { width: 480, height: 320 } });
 
@@ -34,10 +36,11 @@ test.describe("quick", () => {
   for (const { scheme, path } of quickShots) {
     test(`${scheme} → ${path}`, async ({ page }) => {
       await page.emulateMedia({ colorScheme: scheme });
-      await page.goto("/quick.html");
+      await page.goto("/quick.html?fixture=ai");
       const options = page.getByRole("option");
-      await expect(options).toHaveCount(5);
+      await expect(options.first()).toHaveAttribute("data-port", "5174");
       await expect(options.first()).toHaveAttribute("aria-selected", "true");
+      await expect(page.locator('[role="option"][data-port="11434"]')).toBeVisible();
       await page.screenshot({ path });
     });
   }

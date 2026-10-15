@@ -1,14 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { nextTick } from "vue";
 import { createMockApi, MOCK_ENTRIES } from "../api/mock";
-import type { PortApi, PortEntry } from "../types";
-import { useQuick } from "./useQuick";
+import type { PortApi, PortEntry, TasklineEvent } from "../types";
+import { QUICK_CACHE_KEY, type QuickCache, useQuick } from "./useQuick";
 
 const { hideCurrentWindow } = vi.hoisted(() => ({ hideCurrentWindow: vi.fn(async () => false) }));
 vi.mock("../api/window", () => ({ hideCurrentWindow }));
 
 const key = (k: string, init: KeyboardEventInit = {}) =>
   new KeyboardEvent("keydown", { key: k, cancelable: true, ...init });
+
+/** What an empty query shows on the mock: the lost-terminal :5174 first, then newest first, nothing protected. */
+const PRESELECTED = [5174, 5173, 3000, 8080, 9335];
 
 /** A strip that has loaded once and is not polling. */
 async function loaded(api: PortApi = createMockApi()) {
@@ -17,8 +20,24 @@ async function loaded(api: PortApi = createMockApi()) {
   return quick;
 }
 
+const collision = (port: number, agoMs: number): TasklineEvent => ({
+  id: port,
+  atMs: Date.now() - agoMs,
+  kind: "collisionResolved",
+  port,
+  protocol: "tcp",
+  pid: 1,
+  processName: "node",
+  project: null,
+  memoryBytes: 0,
+  durationMs: 0,
+  message: "",
+  relaunchable: false,
+});
+
 beforeEach(() => {
   vi.useFakeTimers();
+  sessionStorage.clear();
 });
 afterEach(() => {
   vi.useRealTimers();
@@ -26,12 +45,12 @@ afterEach(() => {
 });
 
 describe("useQuick: matching and selection", () => {
-  it("shows the recents, newest first and nothing protected, when the query is empty", async () => {
+  it("shows the pre-selection when the query is empty: the zombie first, then newest first, nothing protected", async () => {
     const quick = await loaded();
     expect(quick.loaded.value).toBe(true);
-    expect(quick.matches.value.map((e) => e.port)).toEqual([5173, 3000, 8080, 5174, 9335]);
+    expect(quick.matches.value.map((e) => e.port)).toEqual(PRESELECTED);
     expect(quick.matches.value.some((e) => e.protected)).toBe(false);
-    expect(quick.selected.value?.port).toBe(5173);
+    expect(quick.selected.value?.port).toBe(5174);
   });
 
   it("ranks an exact port before a prefix before a name, and selects the first match", async () => {
@@ -47,10 +66,10 @@ describe("useQuick: matching and selection", () => {
   it("↓ and ↑ move the selection and clamp at the ends", async () => {
     const quick = await loaded();
     quick.handleKey(key("ArrowDown"));
-    expect(quick.selected.value?.port).toBe(3000);
-    quick.handleKey(key("ArrowUp"));
-    quick.handleKey(key("ArrowUp"));
     expect(quick.selected.value?.port).toBe(5173);
+    quick.handleKey(key("ArrowUp"));
+    quick.handleKey(key("ArrowUp"));
+    expect(quick.selected.value?.port).toBe(5174);
     for (let i = 0; i < 9; i++) quick.handleKey(key("ArrowDown"));
     expect(quick.selected.value?.port).toBe(9335);
   });
@@ -69,8 +88,48 @@ describe("useQuick: matching and selection", () => {
   });
 });
 
+describe("useQuick: pre-selection from the Taskline", () => {
+  it("a port a collisionResolved event named in the last minute goes after the zombies, before the rest", async () => {
+    const api = createMockApi();
+    vi.spyOn(api, "tasklineEvents").mockResolvedValue([collision(8080, 30_000), collision(3000, 61_000)]);
+    const quick = useQuick(api, { isVisible: () => false });
+    quick.start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(quick.matches.value.map((e) => e.port)).toEqual([5174, 8080, 5173, 3000, 9335]);
+    expect(quick.selected.value?.port).toBe(5174);
+    quick.stop();
+  });
+
+  it("asks the Taskline once per show: on start and on focus, never on a poll", async () => {
+    const api = createMockApi();
+    const tasklineEvents = vi.spyOn(api, "tasklineEvents");
+    const quick = useQuick(api, { isVisible: () => true });
+    quick.start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(tasklineEvents).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(6000);
+    expect(tasklineEvents).toHaveBeenCalledTimes(1);
+    window.dispatchEvent(new Event("focus"));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(tasklineEvents).toHaveBeenCalledTimes(2);
+    quick.stop();
+  });
+
+  it("falls back to zombies, then newest, when the Taskline rejects", async () => {
+    const api = createMockApi();
+    vi.spyOn(api, "tasklineEvents").mockRejectedValue(new Error("no taskline"));
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const quick = useQuick(api, { isVisible: () => false });
+    quick.start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(quick.matches.value.map((e) => e.port)).toEqual(PRESELECTED);
+    expect(quick.error.value).toBeNull();
+    quick.stop();
+  });
+});
+
 describe("useQuick: Enter", () => {
-  it("frees the selected port gracefully, shows the result, then clears and hides", async () => {
+  it("frees the selected port gracefully, shows the result for 180 ms, then clears and hides", async () => {
     const api = createMockApi();
     const freePort = vi.spyOn(api, "freePort");
     const quick = await loaded(api);
@@ -88,7 +147,9 @@ describe("useQuick: Enter", () => {
     expect(quick.query.value).toBe("3000");
     expect(hideCurrentWindow).not.toHaveBeenCalled();
 
-    await vi.advanceTimersByTimeAsync(1200);
+    await vi.advanceTimersByTimeAsync(179);
+    expect(quick.result.value).not.toBeNull();
+    await vi.advanceTimersByTimeAsync(1);
     expect(quick.result.value).toBeNull();
     expect(quick.query.value).toBe("");
     expect(hideCurrentWindow).toHaveBeenCalledTimes(1);
@@ -133,7 +194,7 @@ describe("useQuick: Enter", () => {
     expect(quick.result.value?.ok).toBe(true);
   });
 
-  it("shows a refusal, then still clears and hides after 1.2 s", async () => {
+  it("shows a refusal for 2 s; the query and the strip stay, nothing hides", async () => {
     const api = createMockApi();
     vi.spyOn(api, "freePort").mockResolvedValue([
       { status: "refused", pid: 48213, reason: "permission denied" },
@@ -148,11 +209,40 @@ describe("useQuick: Enter", () => {
       text: "Did not kill node (48213): permission denied",
       ok: false,
     });
-    await vi.advanceTimersByTimeAsync(1200);
-    expect(quick.query.value).toBe("");
-    expect(hideCurrentWindow).toHaveBeenCalledTimes(1);
-    // Not killed: the row is still there for the next query.
+    await vi.advanceTimersByTimeAsync(1999);
+    expect(quick.result.value).not.toBeNull();
+    expect(hideCurrentWindow).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(quick.result.value).toBeNull();
+    expect(quick.query.value).toBe("3000");
+    expect(hideCurrentWindow).not.toHaveBeenCalled();
+    // Not killed: the row is still there, ⌥Enter can try again.
     expect(quick.entries.value.some((e) => e.port === 3000)).toBe(true);
+    expect(quick.selected.value?.port).toBe(3000);
+  });
+
+  it("a failure stays 2 s too, and the pids that did die leave the list when it clears", async () => {
+    const api = createMockApi();
+    vi.spyOn(api, "freePort").mockResolvedValue([
+      { status: "killed", pid: 48213, graceful: true, waitedMs: 0 },
+      { status: "failed", pid: 51022, error: "EPERM" },
+    ]);
+    const quick = await loaded(api);
+    quick.query.value = "3000";
+    await nextTick();
+    quick.handleKey(key("Enter"));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(quick.result.value).toEqual({
+      key: "48213:3000:tcp",
+      text: "Could not kill node (51022): EPERM",
+      ok: false,
+    });
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(quick.result.value).toBeNull();
+    expect(quick.query.value).toBe("3000");
+    expect(hideCurrentWindow).not.toHaveBeenCalled();
+    expect(quick.entries.value.some((e) => e.pid === 48213)).toBe(false);
+    expect(quick.entries.value.some((e) => e.pid === 51022)).toBe(true);
   });
 
   it("says when the core cannot be reached, for 2 s, and hides nothing", async () => {
@@ -189,7 +279,7 @@ describe("useQuick: Enter", () => {
     quick.handleKey(key("Enter"));
     await vi.advanceTimersByTimeAsync(0);
     expect(quick.result.value?.text).toBe("Freed :3000 · node (48213), node (51022)");
-    await vi.advanceTimersByTimeAsync(1200);
+    await vi.advanceTimersByTimeAsync(180);
 
     quick.query.value = "8080";
     await nextTick();
@@ -354,7 +444,7 @@ describe("useQuick: refresh", () => {
     // The poll that answers next was built before the kill: it still lists pid 48213.
     vi.spyOn(api, "listPorts").mockResolvedValueOnce(MOCK_ENTRIES.map((e) => ({ ...e })));
     quick.handleKey(key("Enter"));
-    await vi.advanceTimersByTimeAsync(1200);
+    await vi.advanceTimersByTimeAsync(180);
     await quick.refresh();
     expect(quick.entries.value.some((e) => e.pid === 48213)).toBe(false);
   });
@@ -369,7 +459,56 @@ describe("useQuick: refresh", () => {
     window.dispatchEvent(event);
     expect(event.defaultPrevented).toBe(true);
     await vi.advanceTimersByTimeAsync(0);
-    expect(freePort).toHaveBeenCalledWith(5173, false);
+    expect(freePort).toHaveBeenCalledWith(5174, false);
     quick.stop();
+  });
+});
+
+describe("useQuick: the cached list", () => {
+  it("paints the cached list before the first poll answers; the poll replaces it and refills the cache", async () => {
+    const api = createMockApi();
+    const write = vi.fn();
+    const cache: QuickCache = { read: () => MOCK_ENTRIES.slice(0, 2).map((e) => ({ ...e })), write };
+    const quick = useQuick(api, { isVisible: () => false, cache });
+    expect(quick.loaded.value).toBe(true);
+    expect(quick.matches.value.map((e) => e.port)).toEqual([5173, 3000]);
+    expect(quick.selected.value?.port).toBe(5173);
+    await quick.refresh();
+    expect(quick.matches.value.map((e) => e.port)).toEqual(PRESELECTED);
+    expect(write).toHaveBeenCalledTimes(1);
+    expect(write.mock.calls[0]?.[0]).toHaveLength(MOCK_ENTRIES.length);
+  });
+
+  it("by default the cache is sessionStorage: the next strip in the session paints from it, and a bad one is ignored", async () => {
+    const first = await loaded();
+    expect(sessionStorage.getItem(QUICK_CACHE_KEY)).not.toBeNull();
+    expect(first.entries.value).toHaveLength(MOCK_ENTRIES.length);
+
+    const second = useQuick(createMockApi([]), { isVisible: () => false });
+    expect(second.loaded.value).toBe(true);
+    expect(second.matches.value.map((e) => e.port)).toEqual(PRESELECTED);
+    await second.refresh();
+    expect(second.matches.value).toEqual([]);
+    expect(second.emptyText.value).toBe("No listening ports.");
+
+    sessionStorage.setItem(QUICK_CACHE_KEY, "{not json");
+    const third = useQuick(createMockApi(), { isVisible: () => false });
+    expect(third.loaded.value).toBe(false);
+    expect(third.entries.value).toEqual([]);
+
+    sessionStorage.setItem(QUICK_CACHE_KEY, JSON.stringify({ a: 1 }));
+    const fourth = useQuick(createMockApi(), { isVisible: () => false });
+    expect(fourth.loaded.value).toBe(false);
+  });
+
+  it("a cached row is never resurrected after its kill", async () => {
+    const api = createMockApi();
+    const quick = await loaded(api);
+    quick.query.value = "3000";
+    await nextTick();
+    quick.handleKey(key("Enter"));
+    await vi.advanceTimersByTimeAsync(180);
+    const cached = JSON.parse(sessionStorage.getItem(QUICK_CACHE_KEY) ?? "[]") as PortEntry[];
+    expect(cached.some((e) => e.pid === 48213)).toBe(false);
   });
 });

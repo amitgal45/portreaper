@@ -2,19 +2,30 @@ import { computed, getCurrentScope, onScopeDispose, ref, watch } from "vue";
 import { hideCurrentWindow } from "../api/window";
 import { guessCurrentUser, protectionReason } from "../lib/protection";
 import type { KillOutcome, PortApi, PortEntry } from "../types";
-import { isNumericQuery, normalizeQuery, QUICK_LIMIT, quickKey, rankMatches } from "./match";
+import {
+  COLLISION_WINDOW_MS,
+  collisionPorts,
+  isNumericQuery,
+  normalizeQuery,
+  preselect,
+  QUICK_LIMIT,
+  quickKey,
+  rankMatches,
+} from "./match";
 
 export interface UseQuickOptions {
   /** Poll interval while visible. */
   intervalMs?: number;
   /** How long a protected row stays armed after the first Enter. */
   armMs?: number;
-  /** How long the result line shows before the strip clears and hides. */
+  /** How long a successful result shows before the strip clears and hides. */
   resultMs?: number;
-  /** How long "Could not reach the core" shows. Nothing is hidden afterwards. */
-  transportMs?: number;
+  /** How long a refusal, a failure or "Could not reach the core" shows. Nothing is hidden afterwards. */
+  failureMs?: number;
   /** How long a killed pid stays hidden even if a stale poll still lists it. */
   tombstoneMs?: number;
+  /** How long after a `collisionResolved` event its port is still pre-selected. */
+  collisionWindowMs?: number;
   limit?: number;
   /** Polls only while this is true. Defaults to `document.visibilityState === "visible"`. */
   isVisible?: () => boolean;
@@ -22,6 +33,48 @@ export interface UseQuickOptions {
   target?: Pick<Window, "addEventListener" | "removeEventListener">;
   /** Called on every window focus, after the refresh: the page puts the caret in the input. */
   onFocus?: () => void;
+  /** Where the last list is kept between loads. Defaults to `sessionStorage`; `null` disables it. */
+  cache?: QuickCache | null;
+}
+
+/**
+ * The last list, so a freshly loaded strip paints rows before its first poll answers and
+ * refreshes behind them. Rows can be a few seconds stale for that moment; the first poll
+ * replaces them, and a kill rewrites the cache so a dead row never comes back.
+ */
+export interface QuickCache {
+  read(): PortEntry[] | null;
+  write(entries: PortEntry[]): void;
+}
+
+export const QUICK_CACHE_KEY = "portreaper.quick.entries";
+
+/**
+ * The default cache: `sessionStorage`, which lives as long as the window and dies with the
+ * app, so a previous session's processes (and their command lines) are never shown or kept on
+ * disk. Anything that goes wrong (no storage, quota, a bad value) reads as "no cache".
+ */
+function storageCache(): QuickCache | null {
+  if (typeof sessionStorage === "undefined") return null;
+  return {
+    read() {
+      try {
+        const raw = sessionStorage.getItem(QUICK_CACHE_KEY);
+        if (!raw) return null;
+        const parsed: unknown = JSON.parse(raw);
+        return Array.isArray(parsed) ? (parsed as PortEntry[]) : null;
+      } catch {
+        return null;
+      }
+    },
+    write(entries) {
+      try {
+        sessionStorage.setItem(QUICK_CACHE_KEY, JSON.stringify(entries));
+      } catch {
+        // Nothing to do: the next load polls as if there were no cache.
+      }
+    },
+  };
 }
 
 /**
@@ -72,21 +125,29 @@ export function describeOutcomes(
 
 /**
  * Everything behind the Quick strip: the list and its polling, the query and the ranked
- * matches, the selection, the two-step Enter on a protected row, and what happens after a kill.
- * No DOM of its own beyond the window listeners; `QuickApp.vue` renders it, tests drive it
- * through `handleKey()` with `createMockApi()`. Call `start()` on mount and `stop()` on unmount.
+ * matches, the pre-selection on an empty query, the selection, the two-step Enter on a
+ * protected row, and what happens after a kill. No DOM of its own beyond the window listeners;
+ * `QuickApp.vue` renders it, tests drive it through `handleKey()` with `createMockApi()`. Call
+ * `start()` on mount and `stop()` on unmount.
+ *
+ * Timing: the cached list paints at once; the first poll replaces it. After a successful kill
+ * the result row shows for `resultMs` (180 ms), then the strip clears and hides, which is what
+ * gives the terminal its focus back. A refusal or failure stays `failureMs` (2 s) and hides
+ * nothing, so the user can read it and try ⌥Enter.
  */
 export function useQuick(api: PortApi, options: UseQuickOptions = {}) {
   const intervalMs = options.intervalMs ?? 2000;
   const armMs = options.armMs ?? 5000;
-  const resultMs = options.resultMs ?? 1200;
-  const transportMs = options.transportMs ?? 2000;
+  const resultMs = options.resultMs ?? 180;
+  const failureMs = options.failureMs ?? 2000;
   const tombstoneMs = options.tombstoneMs ?? 3000;
+  const collisionWindowMs = options.collisionWindowMs ?? COLLISION_WINDOW_MS;
   const limit = options.limit ?? QUICK_LIMIT;
   const isVisible =
     options.isVisible ??
     (() => (typeof document === "undefined" ? true : document.visibilityState === "visible"));
   const target = options.target ?? (typeof window === "undefined" ? null : window);
+  const cache = options.cache === undefined ? storageCache() : options.cache;
 
   const entries = ref<PortEntry[]>([]);
   const query = ref("");
@@ -97,10 +158,29 @@ export function useQuick(api: PortApi, options: UseQuickOptions = {}) {
   const result = ref<QuickResult | null>(null);
   /** A `freePort` call is in flight: Enter and the polls wait. */
   const busy = ref(false);
+  /** Ports a `collisionResolved` event named recently, read from the Taskline once per show. */
+  const collisions = ref<ReadonlySet<number>>(new Set());
   /** pid → when it was reported killed; a poll started before that may still list it. */
   const tombstones = new Map<number, number>();
 
-  const matches = computed(() => rankMatches(entries.value, query.value, limit));
+  /** Every change to the list goes through here, so the cache never lags behind the screen. */
+  function setEntries(list: PortEntry[]) {
+    entries.value = list;
+    cache?.write(list);
+  }
+
+  // The last list paints before the first poll answers.
+  const cached = cache?.read();
+  if (cached) {
+    entries.value = cached;
+    loaded.value = true;
+  }
+
+  const matches = computed(() =>
+    normalizeQuery(query.value)
+      ? rankMatches(entries.value, query.value, limit)
+      : preselect(entries.value, collisions.value, limit),
+  );
   /** The selected row, else the first match: Enter always has a target when there is one. */
   const selected = computed(
     () => matches.value.find((e) => quickKey(e) === selectedKey.value) ?? matches.value[0] ?? null,
@@ -127,7 +207,7 @@ export function useQuick(api: PortApi, options: UseQuickOptions = {}) {
       const list = await api.listPorts();
       const now = Date.now();
       for (const [pid, at] of tombstones) if (now - at > tombstoneMs) tombstones.delete(pid);
-      entries.value = tombstones.size ? list.filter((e) => !tombstones.has(e.pid)) : list;
+      setEntries(tombstones.size ? list.filter((e) => !tombstones.has(e.pid)) : list);
       error.value = null;
     } catch (err) {
       error.value = err instanceof Error ? err.message : String(err);
@@ -135,6 +215,21 @@ export function useQuick(api: PortApi, options: UseQuickOptions = {}) {
     } finally {
       inFlight = false;
       loaded.value = true;
+    }
+  }
+
+  /**
+   * Once per show: which ports PortReaper freed lately that something else took. When the
+   * Taskline cannot be read the pre-selection falls back to zombies, then newest; the strip
+   * itself is not in error.
+   */
+  async function refreshCollisions(): Promise<void> {
+    try {
+      const events = await api.tasklineEvents();
+      collisions.value = collisionPorts(events, Date.now(), collisionWindowMs);
+    } catch (err) {
+      collisions.value = new Set();
+      console.error("tasklineEvents failed", err);
     }
   }
 
@@ -160,8 +255,11 @@ export function useQuick(api: PortApi, options: UseQuickOptions = {}) {
     }
   }
 
+  // Rust shows and focuses the window together, so a focus is a show: the list and the
+  // Taskline refresh behind the rows already on screen.
   function onFocus() {
     void refresh();
+    void refreshCollisions();
     options.onFocus?.();
   }
 
@@ -241,22 +339,33 @@ export function useQuick(api: PortApi, options: UseQuickOptions = {}) {
       resultTimer = setTimeout(() => {
         resultTimer = null;
         result.value = null;
-      }, transportMs);
+      }, failureMs);
       return;
     }
     const killed = outcomes.filter((o) => o.status === "killed").map((o) => o.pid);
     const now = Date.now();
     for (const pid of killed) tombstones.set(pid, now);
-    result.value = {
-      key,
-      text: describeOutcomes(entry.port, entries.value, outcomes),
-      ok: killed.length === outcomes.length,
+    const ok = killed.length === outcomes.length;
+    result.value = { key, text: describeOutcomes(entry.port, entries.value, outcomes), ok };
+    const dropKilled = () => {
+      if (killed.length) setEntries(entries.value.filter((e) => !killed.includes(e.pid)));
     };
-    // The row shows the result in place for a moment; then the strip is done: clear, hide.
+    if (!ok) {
+      // A refusal or a failure stays long enough to read; the strip and the query stay too, so
+      // ⌥Enter is one key away. Whatever did die leaves the list when the line clears.
+      resultTimer = setTimeout(() => {
+        resultTimer = null;
+        result.value = null;
+        dropKilled();
+      }, failureMs);
+      return;
+    }
+    // The row is the answer for an instant; then the strip is done: clear, hide, and the
+    // terminal has its focus back.
     resultTimer = setTimeout(() => {
       resultTimer = null;
       result.value = null;
-      if (killed.length) entries.value = entries.value.filter((e) => !killed.includes(e.pid));
+      dropKilled();
       query.value = "";
       selectedKey.value = null;
       void hideCurrentWindow();
@@ -324,6 +433,7 @@ export function useQuick(api: PortApi, options: UseQuickOptions = {}) {
     if (started) return;
     started = true;
     void refresh();
+    void refreshCollisions();
     target?.addEventListener("keydown", keyListener);
     target?.addEventListener("focus", onFocus);
     if (typeof document !== "undefined") document.addEventListener("visibilitychange", onVisibility);
@@ -358,10 +468,12 @@ export function useQuick(api: PortApi, options: UseQuickOptions = {}) {
     armed,
     result,
     busy,
+    collisions,
     // lifecycle
     start,
     stop,
     refresh,
+    refreshCollisions,
     // keys
     handleKey,
     enter,
