@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { nextTick } from "vue";
+import { nextTick, ref } from "vue";
 import { createMockApi, MOCK_ENTRIES } from "../api/mock";
 import type { KillOutcome, PortApi, PortEntry } from "../types";
 import { entryKey, groupEntries, matchesCategory, memoryOf, usePorts } from "./usePorts";
@@ -60,6 +60,34 @@ describe("usePorts: loading and polling", () => {
 
     store.stop();
     await vi.advanceTimersByTimeAsync(4000);
+    expect(listPorts).toHaveBeenCalledTimes(4);
+  });
+
+  it("re-arms the timer when the interval changes, and leaves a stopped poller alone", async () => {
+    const api = createMockApi();
+    const listPorts = vi.spyOn(api, "listPorts");
+    const intervalMs = ref(2000);
+    const store = usePorts(api, { storage: null, intervalMs, isVisible: () => true });
+    store.start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(listPorts).toHaveBeenCalledTimes(1);
+
+    intervalMs.value = 500;
+    await nextTick();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(listPorts).toHaveBeenCalledTimes(3);
+
+    intervalMs.value = 5000;
+    await nextTick();
+    await vi.advanceTimersByTimeAsync(4000);
+    expect(listPorts).toHaveBeenCalledTimes(3);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(listPorts).toHaveBeenCalledTimes(4);
+
+    store.stop();
+    intervalMs.value = 100;
+    await nextTick();
+    await vi.advanceTimersByTimeAsync(1000);
     expect(listPorts).toHaveBeenCalledTimes(4);
   });
 

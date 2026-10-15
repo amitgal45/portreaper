@@ -18,6 +18,7 @@ function handlers() {
     escape: vi.fn<() => void>(),
     focusSearch: vi.fn<() => void>(),
     refresh: vi.fn<() => void>(),
+    preferences: vi.fn<() => void>(),
     digit: vi.fn<(digit: string) => void>(),
   } satisfies KeyboardHandlers;
 }
@@ -53,6 +54,19 @@ describe("useKeyboard", () => {
     expect(h.focusSearch).toHaveBeenCalledTimes(1);
     expect(h.refresh).toHaveBeenCalledTimes(1);
     expect(h.forceKill).toHaveBeenCalledTimes(1);
+  });
+
+  it("⌘, opens Preferences, from the search input too; a bare comma does not", () => {
+    const comma = press(",", { metaKey: true });
+    expect(h.preferences).toHaveBeenCalledTimes(1);
+    expect(comma.defaultPrevented).toBe(true);
+    const input = document.createElement("input");
+    document.body.appendChild(input);
+    press(",", { metaKey: true }, input);
+    expect(h.preferences).toHaveBeenCalledTimes(2);
+    press(",");
+    press(",", { metaKey: true, shiftKey: true });
+    expect(h.preferences).toHaveBeenCalledTimes(2);
   });
 
   it("sends a digit typed outside an input to the search, not one typed inside", () => {
@@ -128,6 +142,7 @@ describe("useKeyboard with usePorts", () => {
       escape: () => {},
       focusSearch: () => {},
       refresh: () => {},
+      preferences: () => {},
       digit: () => {},
     });
     keyboard.start();

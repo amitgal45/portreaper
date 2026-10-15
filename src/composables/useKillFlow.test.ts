@@ -192,3 +192,20 @@ describe("useKillFlow: reap and restart (v0.2)", () => {
     expect((await noTaskline.restart(byPort(5173))).status).toBe("failed");
   });
 });
+
+describe("useKillFlow: the force base", () => {
+  it("forceFor: graceful by default, ⌥ forces; with the preference on, ⌥ makes it graceful", async () => {
+    const api = createMockApi();
+    const ports = usePorts(api, { storage: null });
+    await ports.refresh();
+    let defaultForce = false;
+    const flow = useKillFlow(ports, useToasts(), undefined, { defaultForce: () => defaultForce });
+    expect(flow.forceFor(false)).toBe(false);
+    expect(flow.forceFor(true)).toBe(true);
+    defaultForce = true;
+    expect(flow.forceFor(false)).toBe(true);
+    expect(flow.forceFor(true)).toBe(false);
+    // Without the option the base is graceful, as before the preference existed.
+    expect(useKillFlow(ports, useToasts()).forceFor(false)).toBe(false);
+  });
+});

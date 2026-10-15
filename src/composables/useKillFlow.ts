@@ -67,15 +67,31 @@ export function needsConfirm(target: KillTarget): boolean {
   }
 }
 
+export interface UseKillFlowOptions {
+  /** The "Kill sends SIGKILL at once" preference: what Kill and ↩ do with no ⌥ held. Default: graceful. */
+  defaultForce?: () => boolean;
+}
+
 /**
  * The one verb. A protected target goes through `confirm` (the dialog) and dies only on
  * `confirmed()`; anything else dies at once. Every outcome becomes a toast. With a Taskline,
  * `restart()` is a graceful kill followed by the core's relaunch of what it just recorded.
  */
-export function useKillFlow(ports: PortsStore, toasts: Toasts, taskline?: Taskline) {
+export function useKillFlow(
+  ports: PortsStore,
+  toasts: Toasts,
+  taskline?: Taskline,
+  options: UseKillFlowOptions = {},
+) {
   const confirm = ref<KillTarget | null>(null);
   const confirming = computed(() => confirm.value !== null);
   const restarting = ref<RestartState | null>(null);
+  const defaultForce = options.defaultForce ?? (() => false);
+
+  /** The `force` of a kill from a Kill button or ↩: the preference is the base, ⌥ flips it either way. */
+  function forceFor(alt: boolean): boolean {
+    return alt !== defaultForce();
+  }
 
   function report(r: KillReport) {
     const { message, kind } = killMessage(r);
@@ -171,7 +187,19 @@ export function useKillFlow(ports: PortsStore, toasts: Toasts, taskline?: Taskli
     restarting.value = null;
   }
 
-  return { confirm, confirming, request, ask, confirmed, cancel, reap, restarting, restart, clearRestart };
+  return {
+    confirm,
+    confirming,
+    request,
+    ask,
+    confirmed,
+    cancel,
+    reap,
+    restarting,
+    restart,
+    clearRestart,
+    forceFor,
+  };
 }
 
 function relaunchFailure(outcome: { status: "notFound" } | { status: "failed"; error: string }): string {
