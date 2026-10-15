@@ -19,7 +19,7 @@ export function quickKey(e: PortEntry): string {
   return `${e.pid}:${e.port}:${e.protocol}`;
 }
 
-/** How many rows the strip shows at most. 6 × 34 px under the 22 px header and 44 px input, over the 24 px footer. */
+/** How many rows the strip shows at most. 6 × 36 px on the card under the 24 px header and 44 px input, over the 24 px footer. */
 export const QUICK_LIMIT = 6;
 
 /** How long after a `collisionResolved` event its port still counts as contested. */
