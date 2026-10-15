@@ -13,6 +13,8 @@ const props = defineProps<{
   selectedKey: string | null;
   pending: ReadonlySet<number>;
   reasonFor: (entry: PortEntry) => string;
+  /** Ports a `collisionResolved` named in the last minute. */
+  collisions: ReadonlySet<number>;
 }>();
 
 const actions = useActions();
@@ -24,7 +26,7 @@ const count = computed(
 <template>
   <section :data-group="group.key">
     <div
-      class="group/header sticky top-0 z-10 flex h-8 items-center gap-2 border-b border-neutral-200 bg-neutral-50 px-3 text-[12px] dark:border-neutral-800 dark:bg-neutral-800"
+      class="group/header sticky top-0 z-10 flex h-7 items-center gap-2 border-b border-edge bg-obsidian px-3 text-[11px]"
     >
       <button
         type="button"
@@ -32,16 +34,15 @@ const count = computed(
         :aria-expanded="!collapsed"
         @click="actions.toggleGroup(group.key)"
       >
-        <ChevronRight :size="12" :stroke-width="2" class="shrink-0 text-neutral-400 transition-transform" :class="!collapsed && 'rotate-90'" />
-        <span class="truncate font-medium text-neutral-800 dark:text-neutral-200">{{ group.name }}</span>
-        <span v-if="group.branch" class="truncate font-mono text-neutral-500 dark:text-neutral-400">{{ group.branch }}</span>
-        <span v-if="group.tool" class="inline-flex h-4 shrink-0 items-center rounded bg-neutral-500/10 px-1 text-[11px] text-neutral-500 dark:text-neutral-400">{{ group.tool }}</span>
-        <Lock v-if="group.protected" :size="11" :stroke-width="2" class="shrink-0 text-neutral-400" />
+        <ChevronRight :size="12" :stroke-width="2" class="shrink-0 text-ink-muted transition-transform" :class="!collapsed && 'rotate-90'" />
+        <span class="truncate font-semibold text-ink">{{ group.name }}</span>
+        <span v-if="group.branch" class="truncate rounded border border-edge bg-steel px-1 font-mono text-[10px] text-ink-muted">{{ group.branch }}</span>
+        <Lock v-if="group.protected" :size="10" :stroke-width="2" class="shrink-0 text-azure" aria-label="protected" />
       </button>
-      <span class="shrink-0 text-neutral-400 tabular-nums">{{ count }}</span>
+      <span class="shrink-0 font-mono text-ink-muted tabular-nums">{{ count }}</span>
       <button
         type="button"
-        class="h-6 shrink-0 rounded px-2 text-[12px] text-neutral-600 opacity-0 outline-none hover:bg-neutral-200 hover:text-neutral-900 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-blue-500/50 group-hover/header:opacity-100 dark:text-neutral-300 dark:hover:bg-neutral-700 dark:hover:text-neutral-100"
+        class="h-5 shrink-0 rounded px-1.5 text-[11px] text-ink-muted opacity-0 outline-none hover:bg-steel hover:text-coral focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-coral/40 group-hover/header:opacity-100"
         :title="group.protected ? 'Kill every process in this group (asks first)' : 'Kill every process in this group · ⌥ to force'"
         @click.stop="actions.killGroup(group, $event.altKey)"
       >
@@ -56,8 +57,8 @@ const count = computed(
         :selected="entryKey(entry) === selectedKey"
         :pending="pending.has(entry.pid)"
         :show-branch="group.branch === null"
-        :show-tool="group.tool === null"
         :reason="entry.protected ? reasonFor(entry) : null"
+        :collision="collisions.has(entry.port)"
       />
     </TransitionGroup>
   </section>

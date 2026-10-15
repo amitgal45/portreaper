@@ -1,16 +1,19 @@
 <script setup lang="ts">
-// "9 ports · 7 projects · last refresh 1 s ago · v0.1.0", and the poll error when there is one.
-// While a search narrows the list: "2 of 9 ports · …".
+// "11 ports · 7 projects · scan 3 ms · last refresh 1 s ago · v0.2.0", and the poll error when
+// there is one. While a search or a pill narrows the list: "2 of 11 ports · …". The dot is the
+// poller: emerald while it answers, coral while it does not.
 import { computed, onMounted, onUnmounted, ref } from "vue";
 
 const props = defineProps<{
-  /** Rows that match the search. */
+  /** Rows that match the search and the pill. */
   shown: number;
   /** Rows the core reported. */
   total: number;
   projects: number;
   /** ms epoch of the last successful poll. */
   lastRefresh: number | null;
+  /** Round-trip of the last `listPorts()`, in ms. */
+  scanMs: number | null;
   version: string;
   error: string | null;
 }>();
@@ -40,17 +43,18 @@ const text = computed(() => {
     props.shown < props.total
       ? `${props.shown} of ${plural(props.total, "port")}`
       : plural(props.total, "port");
-  const parts = [ports, plural(props.projects, "project"), `last refresh ${ago.value}`];
+  const parts = [ports, plural(props.projects, "project")];
+  if (props.scanMs !== null) parts.push(`scan ${props.scanMs} ms`);
+  parts.push(`last refresh ${ago.value}`);
   if (props.version) parts.push(/^\d/.test(props.version) ? `v${props.version}` : props.version);
   return parts.join(" · ");
 });
 </script>
 
 <template>
-  <footer
-    class="flex h-6 shrink-0 items-center gap-2 border-t border-neutral-200 px-3 text-[11px] text-neutral-500 dark:border-neutral-800 dark:text-neutral-400"
-  >
+  <footer class="flex h-6 shrink-0 items-center gap-2 border-t border-edge bg-obsidian px-3 font-mono text-[10px] text-ink-muted">
+    <span class="h-1.5 w-1.5 shrink-0 rounded-full" :class="error ? 'bg-coral' : 'bg-emerald-signal'" aria-hidden="true" />
     <span class="shrink-0 tabular-nums">{{ text }}</span>
-    <span v-if="error" class="min-w-0 truncate text-red-600 dark:text-red-400" :title="error">· could not refresh: {{ error }}</span>
+    <span v-if="error" class="min-w-0 truncate text-coral" :title="error">· could not refresh: {{ error }}</span>
   </footer>
 </template>

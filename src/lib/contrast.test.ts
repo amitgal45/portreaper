@@ -1,61 +1,28 @@
 /// <reference types="node" />
-import { readFileSync } from "node:fs";
-import { createRequire } from "node:module";
+import { readdirSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 /**
- * WCAG contrast of the token pairs the rows and group headers use for secondary text (pid, memory,
- * uptime, branch, tool chip). Tailwind 4 defines its palette in oklch; the values are read from the
- * installed theme so a palette change shows up here. AA for small text is 4.5:1.
+ * WCAG contrast of the Cyber Scythe token pairs (src/style.css, dark only) that the rows, the
+ * tiles, the drawer and the feed use for text. AA for small text is 4.5:1. The tokens are read
+ * from the stylesheet so a palette change shows up here.
  */
 
 // Vitest runs from the project root; import.meta.url is rewritten under happy-dom, so anchor on cwd.
 const root = process.cwd();
-const theme = readFileSync(
-  createRequire(resolve(root, "package.json")).resolve("tailwindcss/theme.css"),
-  "utf8",
-);
-const component = (name: string) => readFileSync(resolve(root, "src/components", name), "utf8");
+const stylesheet = readFileSync(resolve(root, "src/style.css"), "utf8");
+const componentsDir = resolve(root, "src/components");
+const component = (name: string) => readFileSync(resolve(componentsDir, name), "utf8");
 
 type Rgb = [number, number, number];
 
-/** `--color-neutral-400` as 8-bit sRGB. */
+/** `--color-ink-muted` as 8-bit sRGB. */
 function token(name: string): Rgb {
-  const match = theme.match(new RegExp(`--color-${name}:\\s*([^;]+);`));
-  if (!match?.[1]) throw new Error(`no token --color-${name} in tailwindcss/theme.css`);
-  return parse(match[1].trim());
-}
-
-function parse(value: string): Rgb {
-  const hex = value.match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i);
-  if (hex?.[1]) {
-    const h = hex[1].length === 3 ? [...hex[1]].map((c) => c + c).join("") : hex[1];
-    return [0, 2, 4].map((i) => Number.parseInt(h.slice(i, i + 2), 16)) as Rgb;
-  }
-  const oklch = value.match(/^oklch\(\s*([\d.]+)(%?)\s+([\d.]+)\s+([\d.]+|none)\s*\)$/);
-  if (!oklch) throw new Error(`cannot parse colour ${value}`);
-  const L = Number(oklch[1]) / (oklch[2] ? 100 : 1);
-  const C = Number(oklch[3]);
-  const h = oklch[4] === "none" ? 0 : (Number(oklch[4]) * Math.PI) / 180;
-  return oklabToRgb(L, C * Math.cos(h), C * Math.sin(h));
-}
-
-/** Oklab → linear sRGB → 8-bit sRGB (Björn Ottosson's matrices). */
-function oklabToRgb(L: number, a: number, b: number): Rgb {
-  const l = (L + 0.3963377774 * a + 0.2158037573 * b) ** 3;
-  const m = (L - 0.1055613458 * a - 0.0638541728 * b) ** 3;
-  const s = (L - 0.0894841775 * a - 1.291485548 * b) ** 3;
-  const linear = [
-    4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s,
-    -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,
-    -0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s,
-  ];
-  return linear.map((c) => {
-    const clamped = Math.min(1, Math.max(0, c));
-    const gamma = clamped <= 0.0031308 ? 12.92 * clamped : 1.055 * clamped ** (1 / 2.4) - 0.055;
-    return Math.round(gamma * 255);
-  }) as Rgb;
+  const match = stylesheet.match(new RegExp(`--color-${name}:\\s*(#[0-9a-f]{6})\\b`, "i"));
+  if (!match?.[1]) throw new Error(`no hex token --color-${name} in src/style.css`);
+  const hex = match[1].slice(1);
+  return [0, 2, 4].map((i) => Number.parseInt(hex.slice(i, i + 2), 16)) as Rgb;
 }
 
 function luminance([r, g, b]: Rgb): number {
@@ -71,40 +38,83 @@ function contrast(a: Rgb, b: Rgb): number {
   return (hi + 0.05) / (lo + 0.05);
 }
 
+/** `top` at `alpha` over an opaque `bottom`: a tinted badge background. */
+function over(top: Rgb, alpha: number, bottom: Rgb): Rgb {
+  return top.map((t, i) => Math.round(alpha * t + (1 - alpha) * (bottom[i] as number))) as Rgb;
+}
+
 const AA = 4.5;
 
-describe("secondary text contrast", () => {
-  const white = token("white");
-  const n50 = token("neutral-50");
-  const n400 = token("neutral-400");
-  const n500 = token("neutral-500");
-  const n800 = token("neutral-800");
-  const n900 = token("neutral-900");
+describe("Cyber Scythe text contrast", () => {
+  const void_ = token("void");
+  const obsidian = token("obsidian");
+  const steel = token("steel");
+  const ink = token("ink");
+  const inkMuted = token("ink-muted");
+  const inkFaint = token("ink-faint");
+  const signals = {
+    coral: token("coral"),
+    "amber-neon": token("amber-neon"),
+    "emerald-signal": token("emerald-signal"),
+    azure: token("azure"),
+    violet: token("violet"),
+  };
 
-  it("reads the palette as sRGB", () => {
-    expect(n400).toEqual([161, 161, 161]);
-    expect(n900).toEqual([23, 23, 23]);
-    expect(white).toEqual([255, 255, 255]);
+  it("reads the tokens as sRGB", () => {
+    expect(void_).toEqual([10, 11, 14]);
+    expect(inkMuted).toEqual([163, 167, 176]);
   });
 
-  it("dark: neutral-400 on the row surface (neutral-900) and on the group band (neutral-800)", () => {
-    expect(contrast(n400, n900)).toBeGreaterThanOrEqual(AA);
-    expect(contrast(n400, n800)).toBeGreaterThanOrEqual(AA);
-    // The pair WP-3 shipped, which WP-7 measured below AA: the reason for the change.
-    expect(contrast(n500, n900)).toBeLessThan(AA);
+  it("ink and ink-muted clear AA on every surface: the rows, the tiles, the group band, the drawer", () => {
+    for (const surface of [void_, obsidian, steel]) {
+      expect(contrast(ink, surface)).toBeGreaterThanOrEqual(AA);
+      expect(contrast(inkMuted, surface)).toBeGreaterThanOrEqual(AA);
+    }
   });
 
-  it("light: neutral-500 on white rows and on the neutral-50 group band", () => {
-    expect(contrast(n500, white)).toBeGreaterThanOrEqual(AA);
-    expect(contrast(n500, n50)).toBeGreaterThanOrEqual(AA);
+  it("every signal clears AA as text on its tinted badge and on the plain surfaces", () => {
+    // Where a badge sits: the window ground, a panel, and a selected row (steel at 60 % over void).
+    const selectedRow = over(steel, 0.6, void_);
+    for (const [name, colour] of Object.entries(signals)) {
+      for (const surface of [void_, obsidian, steel]) {
+        expect(contrast(colour, surface), `${name} on surface`).toBeGreaterThanOrEqual(AA);
+      }
+      // The badges: the signal tinted over the surface, the signal as text. Coral is the darkest
+      // signal, so its badges are tinted at 10 %; the others at 15 %.
+      const tint = name === "coral" ? 0.1 : 0.15;
+      for (const surface of [void_, obsidian, selectedRow]) {
+        expect(contrast(colour, over(colour, tint, surface)), `${name} on its badge`).toBeGreaterThanOrEqual(
+          AA,
+        );
+      }
+    }
+    // Void ink on a coral fill: the Kill button when hovered, the brand mark, the confirm's action.
+    expect(contrast(void_, signals.coral)).toBeGreaterThanOrEqual(AA);
   });
 
-  it("every text-neutral-500 in the row and the group header has its dark twin", () => {
-    for (const file of ["PortRow.vue", "ProjectGroup.vue"]) {
-      const source = component(file);
-      // Inside one quoted class string, text-neutral-500 must be followed by dark:text-neutral-400.
-      const orphan = /text-neutral-500(?![^"'`]*dark:text-neutral-400)/;
-      expect(source, `${file}: text-neutral-500 without dark:text-neutral-400`).not.toMatch(orphan);
+  it("ink-faint does not clear AA on the surfaces, so no row, tile or feed text uses it", () => {
+    expect(contrast(inkFaint, void_)).toBeLessThan(AA);
+    for (const file of [
+      "PortRow.vue",
+      "ProjectGroup.vue",
+      "StatsBar.vue",
+      "TasklineView.vue",
+      "ProcessDrawer.vue",
+    ]) {
+      expect(component(file), `${file} uses text-ink-faint`).not.toMatch(/text-ink-faint/);
+    }
+  });
+
+  it("the components use tokens only: no hex, no Tailwind palette, no light-mode twins", () => {
+    const files = readdirSync(componentsDir).filter((f) => f.endsWith(".vue"));
+    files.push("../App.vue");
+    for (const file of files) {
+      const source = readFileSync(resolve(componentsDir, file), "utf8");
+      expect(source, `${file} has a hex colour`).not.toMatch(/#[0-9a-f]{3,8}\b/i);
+      expect(source, `${file} uses the Tailwind palette`).not.toMatch(
+        /\b(?:bg|text|border|ring|from|to|shadow)-(?:neutral|gray|zinc|slate|stone|red|rose|orange|amber|yellow|green|emerald|blue|cyan|purple|violet|indigo|white|black)-\d/,
+      );
+      expect(source, `${file} has a dark: variant`).not.toMatch(/\bdark:/);
     }
   });
 });

@@ -142,3 +142,11 @@ export function formatPorts(ports: number[]): string {
   const head = ports.slice(0, -1).join(", ");
   return `Ports ${head} and ${ports[ports.length - 1]}`;
 }
+
+/** Unix milliseconds → local `HH:MM:SS`, for the Taskline. */
+export function formatTime(ms: number): string {
+  if (!Number.isFinite(ms)) return "—";
+  const d = new Date(ms);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}

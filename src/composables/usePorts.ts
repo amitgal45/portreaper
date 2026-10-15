@@ -2,6 +2,61 @@ import { computed, getCurrentScope, onScopeDispose, reactive, ref, watch } from 
 import { guessCurrentUser, protectionReason } from "../lib/protection";
 import type { KillOutcome, PortApi, PortEntry } from "../types";
 
+/**
+ * The pills (v0.2). `dev` is web + api; `zombie` is an orphan that is not protected; `public` is
+ * anything bound to every interface that is not a system daemon.
+ */
+export type CategoryFilter = "all" | "dev" | "ai" | "db" | "zombie" | "public";
+
+export const CATEGORY_FILTERS: readonly CategoryFilter[] = ["all", "dev", "ai", "db", "zombie", "public"];
+
+export function isZombie(e: PortEntry): boolean {
+  return e.orphan && !e.protected;
+}
+
+export function isPublic(e: PortEntry): boolean {
+  return e.bind === "any" && e.category !== "system";
+}
+
+export function matchesCategory(e: PortEntry, filter: CategoryFilter): boolean {
+  switch (filter) {
+    case "all":
+      return true;
+    case "dev":
+      return e.category === "web" || e.category === "api";
+    case "ai":
+      return e.category === "ai";
+    case "db":
+      return e.category === "db";
+    case "zombie":
+      return isZombie(e);
+    case "public":
+      return isPublic(e);
+  }
+}
+
+export type CategoryCounts = Record<CategoryFilter, number>;
+
+/** Memory held by the distinct pids that match; a pid on two ports counts once. */
+export function memoryOf(entries: PortEntry[], match: (e: PortEntry) => boolean): number {
+  const seen = new Map<number, number>();
+  for (const e of entries) if (match(e) && !seen.has(e.pid)) seen.set(e.pid, e.memoryBytes);
+  let sum = 0;
+  for (const bytes of seen.values()) sum += bytes;
+  return sum;
+}
+
+/** What `reapZombies()` did, for the summary toast. */
+export interface ReapReport {
+  outcomes: KillOutcome[];
+  /** Pids reported `killed`. */
+  freed: number;
+  /** Pids the core refused, failed on or could not find. */
+  refused: number;
+  /** Memory the freed pids held. */
+  memoryBytes: number;
+}
+
 /** One row of the table is identified by pid + port + protocol (a pid can hold several ports). */
 export function entryKey(e: PortEntry): string {
   return `${e.pid}:${e.port}:${e.protocol}`;
@@ -47,6 +102,11 @@ export interface UsePortsOptions {
 }
 
 const COLLAPSED_KEY = "portreaper.collapsed";
+
+/** Milliseconds, sub-millisecond where the platform offers it. */
+function clock(): number {
+  return typeof performance !== "undefined" ? performance.now() : Date.now();
+}
 
 function uniform<T>(values: T[]): T | null {
   const first = values[0];
@@ -114,8 +174,8 @@ function writeCollapsed(storage: Storage | null, keys: Iterable<string>) {
 }
 
 /**
- * All the state behind the table: polling, search, grouping, selection, and killing with
- * optimistic removal. No DOM: components render it, tests drive it with `createMockApi()`.
+ * All the state behind the table: polling, search, the category pills, grouping, selection, and
+ * killing with optimistic removal. No DOM: components render it, tests drive it with `createMockApi()`.
  * Call `start()` on mount and `stop()` on unmount.
  */
 export function usePorts(api: PortApi, options: UsePortsOptions = {}) {
@@ -133,6 +193,9 @@ export function usePorts(api: PortApi, options: UsePortsOptions = {}) {
 
   const entries = ref<PortEntry[]>([]);
   const query = ref("");
+  const category = ref<CategoryFilter>("all");
+  /** The round-trip of the last `listPorts()`, for the status line. Null until the first answered. */
+  const scanMs = ref<number | null>(null);
   const selectedKey = ref<string | null>(null);
   const error = ref<string | null>(null);
   const lastRefresh = ref<number | null>(null);
@@ -147,7 +210,9 @@ export function usePorts(api: PortApi, options: UsePortsOptions = {}) {
   const normalizedQuery = computed(() => query.value.trim().toLowerCase());
   const filtered = computed(() => {
     const q = normalizedQuery.value;
-    return q ? entries.value.filter((e) => matches(e, q)) : entries.value;
+    const c = category.value;
+    if (!q && c === "all") return entries.value;
+    return entries.value.filter((e) => (!q || matches(e, q)) && matchesCategory(e, c));
   });
   const groups = computed(() => groupEntries(filtered.value));
   /** The rows on screen, top to bottom, skipping collapsed groups. Selection moves through this. */
@@ -160,6 +225,18 @@ export function usePorts(api: PortApi, options: UsePortsOptions = {}) {
     () => new Set(entries.value.flatMap((e) => (e.project ? [e.project.name] : []))).size,
   );
   const currentUser = computed(() => guessCurrentUser(entries.value));
+  /** Rows per pill, over the whole list (a pill's count does not shrink with the search). */
+  const counts = computed<CategoryCounts>(() => {
+    const c: CategoryCounts = { all: 0, dev: 0, ai: 0, db: 0, zombie: 0, public: 0 };
+    for (const e of entries.value) for (const f of CATEGORY_FILTERS) if (matchesCategory(e, f)) c[f]++;
+    return c;
+  });
+  /** Memory held by the dev servers (web, api and ai), once per pid. */
+  const devMemoryBytes = computed(() =>
+    memoryOf(entries.value, (e) => e.category === "web" || e.category === "api" || e.category === "ai"),
+  );
+  /** What reaping the zombies would give back. */
+  const zombieMemoryBytes = computed(() => memoryOf(entries.value, isZombie));
 
   // Polling
   let timer: ReturnType<typeof setInterval> | null = null;
@@ -170,7 +247,9 @@ export function usePorts(api: PortApi, options: UsePortsOptions = {}) {
     if (inFlight) return;
     inFlight = true;
     try {
+      const t0 = clock();
       const list = await api.listPorts();
+      scanMs.value = Math.max(0, Math.round(clock() - t0));
       const now = Date.now();
       for (const [pid, at] of tombstones) if (now - at > tombstoneMs) tombstones.delete(pid);
       entries.value = tombstones.size ? list.filter((e) => !tombstones.has(e.pid)) : list;
@@ -276,6 +355,15 @@ export function usePorts(api: PortApi, options: UsePortsOptions = {}) {
     query.value = "";
   }
 
+  /** The pill: the same one again goes back to "all". */
+  function setCategory(filter: CategoryFilter) {
+    category.value = filter;
+  }
+
+  function toggleCategory(filter: CategoryFilter) {
+    category.value = category.value === filter ? "all" : filter;
+  }
+
   function clearSelection() {
     select(null);
   }
@@ -342,10 +430,47 @@ export function usePorts(api: PortApi, options: UsePortsOptions = {}) {
     return reports;
   }
 
+  /**
+   * Kills every lost-terminal process through the core. The killed pids leave the list at once,
+   * tombstoned like a single kill; the rest stay. The core records each as `zombieReaped`.
+   */
+  async function reapZombies(): Promise<ReapReport> {
+    const zombies = entries.value.filter(isZombie);
+    for (const z of zombies) pending.add(z.pid);
+    let outcomes: KillOutcome[];
+    try {
+      outcomes = await api.reapZombies();
+    } catch (err) {
+      console.error("reapZombies failed", err);
+      outcomes = zombies.map((z) => ({
+        status: "failed",
+        pid: z.pid,
+        error: err instanceof Error ? err.message : String(err),
+      }));
+    } finally {
+      for (const z of zombies) pending.delete(z.pid);
+    }
+    const killed = new Set(outcomes.filter((o) => o.status === "killed").map((o) => o.pid));
+    const now = Date.now();
+    for (const pid of killed) tombstones.set(pid, now);
+    if (killed.size) entries.value = entries.value.filter((e) => !killed.has(e.pid));
+    return {
+      outcomes,
+      freed: killed.size,
+      refused: outcomes.length - killed.size,
+      memoryBytes: memoryOf(zombies, (z) => killed.has(z.pid)),
+    };
+  }
+
   return {
     // state
     entries,
     query,
+    category,
+    counts,
+    devMemoryBytes,
+    zombieMemoryBytes,
+    scanMs,
     groups,
     visibleEntries,
     selectedKey,
@@ -369,10 +494,13 @@ export function usePorts(api: PortApi, options: UsePortsOptions = {}) {
     selectPrev,
     clearSelection,
     clearSearch,
+    setCategory,
+    toggleCategory,
     toggleGroup,
     // kill
     kill,
     killGroup,
+    reapZombies,
     portsOf,
     reasonFor,
   };

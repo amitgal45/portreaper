@@ -3,13 +3,19 @@ import type { PortEntry } from "../types";
 import type { PortGroup } from "./usePorts";
 
 /**
- * What a row or a group header can ask for. `App.vue` provides the real thing; a test provides
- * spies. Rows never reach the api or the store themselves.
+ * What a row, a group header or the drawer can ask for. `App.vue` provides the real thing; a
+ * test provides spies. Components never reach the api or the store themselves.
  */
 export interface UiActions {
   select(entry: PortEntry): void;
+  /** Select the row and open the drawer on it. */
+  inspect(entry: PortEntry): void;
   kill(entry: PortEntry, force: boolean): void;
   killGroup(group: PortGroup, force: boolean): void;
+  /** Graceful kill, then relaunch (the drawer's Restart). */
+  restart(entry: PortEntry): void;
+  /** Kill every lost-terminal process (the filter strip's Reap). */
+  reap(): void;
   toggleGroup(key: string): void;
   openInBrowser(entry: PortEntry): void;
   copyKill(entry: PortEntry): void;

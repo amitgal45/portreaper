@@ -1,25 +1,28 @@
 import { expect, test } from "@playwright/test";
-import { open, rows } from "./helpers";
+import { drawer, open, row, rows } from "./helpers";
 
 /**
  * Not part of `pnpm e2e`: only the `screenshot` project runs this file (`pnpm screenshot`), on
- * WebKit at 2×, which is what the Tauri window is on a retina Mac. Mock data, 760×540.
+ * WebKit at 2×, which is what the Tauri window is on a retina Mac. Mock data, 760×540. The app
+ * is dark only since v0.2: `screenshot.png` is the Studio with a row selected,
+ * `screenshot-dark.png` the same window with the drawer open.
  */
-const shots = [
-  { scheme: "light", path: "docs/screenshot.png" },
-  { scheme: "dark", path: "docs/screenshot-dark.png" },
-] as const;
+test("the Studio → docs/screenshot.png", async ({ page }) => {
+  await page.emulateMedia({ colorScheme: "dark" });
+  await open(page);
+  // One row selected, so the selection ring and the kill affordance are in the picture.
+  await page.keyboard.press("ArrowDown");
+  await expect(rows(page).first()).toHaveAttribute("aria-selected", "true");
+  await page.screenshot({ path: "docs/screenshot.png" });
+});
 
-for (const { scheme, path } of shots) {
-  test(`${scheme} → ${path}`, async ({ page }) => {
-    await page.emulateMedia({ colorScheme: scheme });
-    await open(page);
-    // One row selected, so the kill affordance is in the picture.
-    await page.keyboard.press("ArrowDown");
-    await expect(rows(page).first()).toHaveAttribute("aria-selected", "true");
-    await page.screenshot({ path });
-  });
-}
+test("the drawer → docs/screenshot-dark.png", async ({ page }) => {
+  await page.emulateMedia({ colorScheme: "dark" });
+  await open(page);
+  await row(page, 3000).click();
+  await expect(drawer(page)).toContainText("[LISTENING ON :3000]");
+  await page.screenshot({ path: "docs/screenshot-dark.png" });
+});
 
 // The Quick strip (WP-8b, WP-12) at its window size, 480×320: the pre-selection on an empty
 // query with the lost-terminal zombie first and selected, so the ⚡ and the "↩ free" hint are

@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { nextTick } from "vue";
 import { createMockApi, MOCK_ENTRIES } from "../api/mock";
 import type { KillOutcome, PortApi, PortEntry } from "../types";
-import { entryKey, groupEntries, usePorts } from "./usePorts";
+import { entryKey, groupEntries, matchesCategory, memoryOf, usePorts } from "./usePorts";
 
 const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
@@ -134,12 +134,14 @@ describe("usePorts: grouping and order", () => {
       "@specmate/api",
       "chrome-helper",
       "mDNSResponder",
+      "legacy-docs",
       "postgres:16",
       "redis:7",
       "ControlCenter",
+      "ollama",
     ]);
     const protectedFlags = store.groups.value.map((g) => g.protected);
-    expect(protectedFlags).toEqual([false, false, false, false, false, true, true, true, true]);
+    expect(protectedFlags).toEqual([false, false, false, false, false, true, true, true, true, true, true]);
   });
 
   it("sorts inside a group by port and lists distinct pids", () => {
@@ -308,5 +310,98 @@ describe("usePorts: kill", () => {
     expect(store.reasonFor(byPort(5432))).toBe("Docker");
     expect(store.reasonFor(byPort(7000))).toBe("a system process");
     expect(store.currentUser.value).toBe("amit");
+  });
+});
+
+describe("usePorts: categories (v0.2)", () => {
+  it("counts the pills over the whole list and sums memory once per pid", async () => {
+    const store = await loadedStore();
+    expect(store.counts.value).toEqual({ all: 11, dev: 5, ai: 1, db: 2, zombie: 1, public: 3 });
+    // web + api + ai: 412 + 180 + 220 + 610 + 420 MB and Ollama's 4.85 GB.
+    expect(Math.round(store.devMemoryBytes.value / (1024 * 1024))).toBe(1842 + Math.round(4.85 * 1024));
+    expect(store.zombieMemoryBytes.value).toBe(220 * 1024 * 1024);
+    expect(store.projectCount.value).toBe(7);
+    // The docker pid holds two ports: it counts once for memory, twice for the db pill.
+    const docker = store.entries.value.filter((e) => e.pid === 11710);
+    expect(docker).toHaveLength(2);
+    expect(memoryOf(docker, () => true)).toBe(1200 * 1024 * 1024);
+  });
+
+  it("filters the list by pill, on top of the search, and keeps the order", async () => {
+    const store = await loadedStore();
+    const ports = () => store.visibleEntries.value.map((e) => e.port);
+    store.setCategory("zombie");
+    await nextTick();
+    expect(ports()).toEqual([5174]);
+    store.setCategory("public");
+    await nextTick();
+    expect(ports()).toEqual([8080, 5432, 6379]);
+    store.setCategory("ai");
+    await nextTick();
+    expect(ports()).toEqual([11434]);
+    store.setCategory("db");
+    await nextTick();
+    expect(ports()).toEqual([5432, 6379]);
+    store.setCategory("dev");
+    await nextTick();
+    // Group order as today: the user's projects first, the protected Jekyll last.
+    expect(ports()).toEqual([3000, 5173, 5174, 8080, 4000]);
+    store.query.value = "vite";
+    await nextTick();
+    expect(ports()).toEqual([5173, 5174]);
+    expect(store.counts.value.dev).toBe(5);
+    store.toggleCategory("dev");
+    await nextTick();
+    expect(store.category.value).toBe("all");
+    store.toggleCategory("db");
+    expect(store.category.value).toBe("db");
+  });
+
+  it("names the categories from the data", () => {
+    const base = MOCK_ENTRIES[0] as PortEntry;
+    const e = (over: Partial<PortEntry>): PortEntry => ({ ...base, ...over });
+    expect(matchesCategory(e({ category: "api" }), "dev")).toBe(true);
+    expect(matchesCategory(e({ category: "other" }), "dev")).toBe(false);
+    expect(matchesCategory(e({ orphan: true, protected: true }), "zombie")).toBe(false);
+    expect(matchesCategory(e({ bind: "any", category: "system" }), "public")).toBe(false);
+    expect(matchesCategory(e({ bind: "any", category: "db" }), "public")).toBe(true);
+    expect(matchesCategory(e({ bind: "other" }), "public")).toBe(false);
+  });
+
+  it("reaps the zombies, removes them at once, and reports what came back", async () => {
+    const api = createMockApi();
+    const reapZombies = vi.spyOn(api, "reapZombies");
+    const store = await loadedStore(api);
+    const report = await store.reapZombies();
+    expect(reapZombies).toHaveBeenCalledTimes(1);
+    expect(report.freed).toBe(1);
+    expect(report.refused).toBe(0);
+    expect(report.memoryBytes).toBe(220 * 1024 * 1024);
+    expect(store.entries.value.some((e) => e.orphan && !e.protected)).toBe(false);
+    expect(store.counts.value.zombie).toBe(0);
+    await store.refresh();
+    expect(store.entries.value).toHaveLength(10);
+  });
+
+  it("counts a refusal and keeps that row", async () => {
+    const api = createMockApi();
+    vi.spyOn(api, "reapZombies").mockResolvedValueOnce([
+      { status: "killed", pid: 39871, graceful: true, waitedMs: 10 },
+      { status: "refused", pid: 18402, reason: "EPERM" },
+    ]);
+    const store = await loadedStore(api);
+    const report = await store.reapZombies();
+    expect(report).toMatchObject({ freed: 1, refused: 1, memoryBytes: 220 * 1024 * 1024 });
+    expect(store.entries.value.some((e) => e.pid === 18402)).toBe(true);
+    expect(store.entries.value.some((e) => e.pid === 39871)).toBe(false);
+    expect(store.pending.size).toBe(0);
+  });
+
+  it("measures the round-trip of the last scan", async () => {
+    const store = usePorts(createMockApi(), { storage: null });
+    expect(store.scanMs.value).toBeNull();
+    await store.refresh();
+    expect(store.scanMs.value).toBeGreaterThanOrEqual(0);
+    expect(store.scanMs.value).toBeLessThan(1000);
   });
 });
