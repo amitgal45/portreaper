@@ -34,7 +34,7 @@ describe("Sidebar update banner", () => {
     const button = ready.get("button");
     expect(button.text()).toBe("Update");
     expect(button.attributes("data-action")).toBe("update");
-    expect(button.classes()).toEqual(expect.arrayContaining(["bg-brand", "text-white"]));
+    expect(button.classes()).toEqual(expect.arrayContaining(["bg-brand-ink", "text-surface"]));
     await button.trigger("click");
     expect(wrapper.emitted("install")).toEqual([[]]);
   });

@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, type Locator, test } from "@playwright/test";
 import {
   confirmDialog,
   contrast,
@@ -179,6 +179,60 @@ test.describe("the tokens", () => {
           contrast(label, itemSurface),
           `All ports is ${label.css} on ${itemSurface.css}`,
         ).toBeGreaterThanOrEqual(4.5);
+      });
+
+      test("the pills, the filled Kill, the sidebar's badges and the tertiary labels clear AA (4.5:1)", async ({
+        page,
+      }) => {
+        await open(page);
+        /** The painted text over the painted background of one element. */
+        const own = async (locator: Locator, what: string) => {
+          const [text, fill] = await Promise.all([
+            paintedColor(locator, "color"),
+            paintedColor(locator, "backgroundColor"),
+          ]);
+          expect(fill.a, `${what} paints an opaque background (${fill.css})`).toBe(1);
+          expect(contrast(text, fill), `${what} is ${text.css} on ${fill.css}`).toBeGreaterThanOrEqual(4.5);
+        };
+
+        // The five status pills: a tint with its ink, 12 px semibold (WP-19).
+        for (const [port, badge] of [
+          [3000, "running"],
+          [4000, "zombie"],
+          [8080, "public"],
+          [5432, "protected"],
+          [11434, "ai"],
+        ] as const) {
+          await own(row(page, port).locator(`[data-badge="${badge}"]`), `${badge} pill on :${port}`);
+        }
+
+        // The sidebar: the quiet counts on `line`, the alarms on their tints, the section headings on the canvas.
+        for (const key of ["dev", "zombie", "public"] as const) {
+          await own(navItem(page, key).locator("span").last(), `${key} count`);
+        }
+        const sidebar = await paintedColor(
+          page.getByRole("navigation", { name: "Views" }),
+          "backgroundColor",
+        );
+        const heading = await paintedColor(page.getByText("Needs attention", { exact: true }), "color");
+        expect(
+          contrast(heading, sidebar),
+          `heading is ${heading.css} on ${sidebar.css}`,
+        ).toBeGreaterThanOrEqual(4.5);
+
+        // The status line's tertiary text on the surface.
+        const footer = await paintedColor(statusLine(page), "backgroundColor");
+        const status = await paintedColor(statusLine(page).locator("span").nth(1), "color");
+        expect(contrast(status, footer), `status is ${status.css} on ${footer.css}`).toBeGreaterThanOrEqual(
+          4.5,
+        );
+
+        // The selected row: the filled Kill and the active badge are the surface on an ink.
+        await row(page, 3000).click();
+        await expect(row(page, 3000)).toHaveAttribute("aria-selected", "true");
+        await own(killButton(row(page, 3000)), "the selected row's Kill");
+        await own(navItem(page, "all").locator("span").last(), "the active count");
+        await own(killButton(inspector(page)), "the inspector's Kill");
       });
     });
   }

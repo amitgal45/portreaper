@@ -101,7 +101,7 @@ function onOpenChange(open: boolean) {
                the dialog by clearing the target. -->
           <button
             type="button"
-            class="h-7 rounded-md bg-red px-3 font-semibold text-white outline-none hover:brightness-95 focus-visible:ring-2 focus-visible:ring-brand/40"
+            class="h-7 rounded-md bg-red-ink px-3 font-semibold text-surface outline-none hover:brightness-95 focus-visible:ring-2 focus-visible:ring-brand/40"
             @click="emit('confirm')"
           >
             {{ action }}

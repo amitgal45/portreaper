@@ -7,7 +7,8 @@ import { describe, expect, it } from "vitest";
  * WCAG contrast of the Board's token pairs (src/style.css), in the light scheme and in the dark
  * one. AA for small text is 4.5:1. The tokens are read from the two `:root` blocks of the
  * stylesheet, so a palette change shows up here. Also: the components use the tokens' utilities
- * and nothing else (no hex, no Tailwind palette, no `dark:` twins: the scheme is the OS's).
+ * and nothing else (no hex, no Tailwind palette, no `dark:` twins: the scheme is the OS's), and
+ * they paint text on a solid colour only in the one pairing these numbers prove.
  */
 
 // Vitest runs from the project root; import.meta.url is rewritten under happy-dom, so anchor on cwd.
@@ -66,45 +67,70 @@ describe.each<Scheme>(["light", "dark"])("Board text contrast (%s)", (scheme) =>
     }
   });
 
-  it("ink-3 is the tertiary: labels and hints, never data", () => {
-    // 11 px uppercase headings, placeholders, counts: 3:1 is what it reaches on the surface.
-    expect(contrast(t("ink-3"), t("surface"))).toBeGreaterThanOrEqual(3);
+  it("ink-3, the tertiary, clears AA too: the section headings, the hints, the status line, the strip's chrome", () => {
+    // 11–12 px labels on the canvas (sidebar), the surface (status line, inspector) and a
+    // selected row (the strip's "↩ free"). Not on `line`: the quiet counts use ink-2 there.
+    for (const surface of ["canvas", "surface", "sel", "hover"]) {
+      expect(contrast(t("ink-3"), t(surface)), `ink-3 on ${surface}`).toBeGreaterThanOrEqual(AA);
+    }
+    expect(contrast(t("ink-2"), t("line")), "ink-2 on line (the quiet counts)").toBeGreaterThanOrEqual(AA);
+    expect(
+      contrast(t("ink-2"), t("orange-tint")),
+      "ink-2 on orange-tint (the armed hint)",
+    ).toBeGreaterThanOrEqual(AA);
   });
 
-  it("every <c>-ink clears AA on its <c>-tint: the cards, the badges, the sidebar alarms, Reap", () => {
+  it("every <c>-ink clears AA on its <c>-tint: the pills, the cards, the badges, the sidebar alarms, Reap", () => {
     for (const c of COLOURS) {
-      // The foundation's light orange-ink (#B5731A on #FFF4E3) is 3.55:1; see the test below.
-      if (scheme === "light" && c === "orange") continue;
       expect(contrast(t(`${c}-ink`), t(`${c}-tint`)), `${c}-ink on ${c}-tint`).toBeGreaterThanOrEqual(AA);
     }
   });
 
-  it("every <c>-ink clears AA on the surface: Kill, the inspector's red address, the tree's leaf", () => {
+  it("every <c>-ink clears AA on the surface and the canvas: Kill, the inspector's red address, the tree's leaf", () => {
     for (const c of COLOURS) {
-      // Light orange-ink is 3.87:1 on white: see the known gaps below. It carries only the
-      // 15 px semibold port number after a collision, nothing smaller.
-      if (scheme === "light" && c === "orange") continue;
       expect(contrast(t(`${c}-ink`), t("surface")), `${c}-ink on surface`).toBeGreaterThanOrEqual(AA);
       expect(contrast(t(`${c}-ink`), t("canvas")), `${c}-ink on canvas`).toBeGreaterThanOrEqual(AA);
     }
   });
 
-  it("white on the brand clears 3:1: the sidebar badge, 11 px bold on the selected item", () => {
+  it("the surface on every <c>-ink clears AA: the filled Kill, Kill anyway, Update, the active badge", () => {
+    // The one way to put text on a solid colour. In the light scheme the surface is white on a
+    // dark ink; in the dark one it is the dark surface on a light ink. White itself is 1.4–2.3:1
+    // on the dark inks, which is why the components say `text-surface`, never `text-white`.
+    for (const c of COLOURS) {
+      expect(contrast(t("surface"), t(`${c}-ink`)), `surface on ${c}-ink`).toBeGreaterThanOrEqual(AA);
+    }
+  });
+
+  it("white on the brand clears 3:1: the brand mark (not text) and the selection bar", () => {
     expect(contrast(WHITE, t("brand"))).toBeGreaterThanOrEqual(3);
   });
 });
 
-describe("known gaps in the foundation's tokens (WP-15), kept visible here", () => {
-  // Both flip to a plain `it` the day the tokens change: an `it.fails` that passes fails the run.
-  it.fails("light orange-ink clears AA on orange-tint and on the surface (3.55:1 and 3.87:1; #9A6012 would)", () => {
+describe("the gaps WP-15 left, closed by WP-19", () => {
+  it("light orange-ink clears AA on orange-tint and on the surface (#9A6012: 4.76:1 and 5.18:1)", () => {
     expect(contrast(token("orange-ink", "light"), token("orange-tint", "light"))).toBeGreaterThanOrEqual(AA);
     expect(contrast(token("orange-ink", "light"), token("surface", "light"))).toBeGreaterThanOrEqual(AA);
   });
 
-  it.fails("white on the five solid pill colours clears AA (1.9–4.1:1 light, 1.7–3.3:1 dark)", () => {
+  it("light ink-3 clears AA on the surface and the canvas (#667085: 4.97:1 and 4.60:1); dark too (#9096A0: 5.26:1 and 5.71:1)", () => {
+    for (const scheme of ["light", "dark"] as const) {
+      expect(
+        contrast(token("ink-3", scheme), token("surface", scheme)),
+        `${scheme} surface`,
+      ).toBeGreaterThanOrEqual(AA);
+      expect(
+        contrast(token("ink-3", scheme), token("canvas", scheme)),
+        `${scheme} canvas`,
+      ).toBeGreaterThanOrEqual(AA);
+    }
+  });
+
+  it("white on the five solid pill colours still does not clear AA (1.9–4.1:1 light, 1.9–3.2:1 dark): the pills are tint + ink", () => {
+    // The tokens did not move; the pills did. The rule below keeps white off the solids.
     for (const scheme of ["light", "dark"] as const) {
       for (const c of ["green", "orange", "red", "blue", "purple"] as const) {
-        expect(contrast(WHITE, token(c, scheme)), `white on ${c} (${scheme})`).toBeGreaterThanOrEqual(AA);
+        expect(contrast(WHITE, token(c, scheme)), `white on ${c} (${scheme})`).toBeLessThan(AA);
       }
     }
   });
@@ -114,7 +140,7 @@ describe("the components", () => {
   const files = readdirSync(componentsDir)
     .filter((f) => f.endsWith(".vue"))
     .map((f) => resolve(componentsDir, f));
-  files.push(resolve(root, "src/App.vue"));
+  files.push(resolve(root, "src/App.vue"), resolve(root, "src/quick/QuickApp.vue"));
 
   it("use tokens only: no hex, no Tailwind palette, no light-mode twins", () => {
     for (const file of files) {
@@ -126,6 +152,33 @@ describe("the components", () => {
         /\b(?:bg|text|border|ring|from|to|shadow)-(?:neutral|gray|zinc|slate|stone|red|rose|orange|amber|yellow|green|emerald|blue|cyan|purple|violet|indigo|white|black)-\d/,
       );
       expect(source, `${file} has a dark: variant`).not.toMatch(/\bdark:/);
+    }
+  });
+
+  it("paint white only on the brand mark; text on a solid colour is the surface on a <c>-ink", () => {
+    // `text-white` is the logo's glyph and nothing else: an aria-hidden element on `bg-brand`.
+    // Every other filled control says `text-surface`, and only on a `bg-<c>-ink` (the pairing the
+    // token tests prove in both schemes); the five solid colours carry no text at all.
+    const mark = /<[a-z][^>]*\baria-hidden="true"[^>]*>/gi;
+    const quoted = /"([^"]*)"|'([^']*)'/g;
+    for (const file of files) {
+      const source = readFileSync(file, "utf8");
+      const withoutMarks = source.replace(mark, (tag) => (/\bbg-brand\b/.test(tag) ? "" : tag));
+      expect(withoutMarks, `${file} paints text-white outside the brand mark`).not.toMatch(/\btext-white\b/);
+      for (const m of source.matchAll(quoted)) {
+        const classes = m[1] ?? m[2] ?? "";
+        if (/(?:^|[\s:])text-surface\b/.test(classes)) {
+          expect(classes, `${file}: "${classes}" has text-surface without a bg-<c>-ink`).toMatch(
+            /\bbg-(?:green|orange|red|blue|purple|brand)-ink\b/,
+          );
+        }
+        // An unprefixed fill only: `before:bg-red` is the toast's 3 px bar, `hover:bg-red-ink` a fill with its ink.
+        if (/(?<![\w:-])bg-(?:green|orange|red|blue|purple)(?![-\w])/.test(classes)) {
+          expect(classes, `${file}: "${classes}" puts text on a solid colour`).not.toMatch(
+            /\btext-(?:white|black|surface|canvas|ink(?:-\d)?|(?:green|orange|red|blue|purple|brand)(?:-ink|-tint)?)\b/,
+          );
+        }
+      }
     }
   });
 

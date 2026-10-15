@@ -57,7 +57,7 @@ const pills = computed<Pill[]>(() => {
     out.push({
       key: "zombie",
       label: "Zombie",
-      tone: "bg-orange",
+      tone: "bg-orange-tint text-orange-ink",
       hint: isZombie(e)
         ? "its terminal is gone; a dev server nobody is using"
         : "its terminal is gone, but it is protected: Reap leaves it alone",
@@ -67,7 +67,7 @@ const pills = computed<Pill[]>(() => {
     out.push({
       key: "public",
       label: "Public",
-      tone: "bg-red",
+      tone: "bg-red-tint text-red-ink",
       hint: "bound to every interface: reachable from your network",
     });
   }
@@ -75,7 +75,7 @@ const pills = computed<Pill[]>(() => {
     out.push({
       key: "protected",
       label: "Protected",
-      tone: "bg-blue",
+      tone: "bg-blue-tint text-blue-ink",
       hint: `${props.reason ?? "protected"} — asks before killing`,
     });
   }
@@ -83,16 +83,17 @@ const pills = computed<Pill[]>(() => {
     out.push({
       key: "ai",
       label: `AI · ${memory.value}`,
-      tone: "bg-purple",
+      tone: "bg-purple-tint text-purple-ink",
       hint: "a local model server; this is the memory it holds",
     });
   }
-  if (out.length === 0) out.push({ key: "running", label: "Running", tone: "bg-green", hint: "" });
+  if (out.length === 0)
+    out.push({ key: "running", label: "Running", tone: "bg-green-tint text-green-ink", hint: "" });
   return out;
 });
 
 const pill =
-  "inline-flex h-[22px] shrink-0 items-center whitespace-nowrap rounded-full px-2.5 text-[12px] font-semibold text-white";
+  "inline-flex h-[22px] shrink-0 items-center whitespace-nowrap rounded-full px-2.5 text-[12px] font-semibold";
 const soft =
   "inline-flex h-[22px] shrink-0 items-center whitespace-nowrap rounded-full border border-line bg-canvas px-2.5 text-[12px] font-medium text-ink-2";
 const num = "whitespace-nowrap text-right font-mono text-[12px] text-ink-2 tabular-nums";
@@ -162,8 +163,8 @@ watch(
           class="h-[26px] rounded-md border px-2.5 text-[12px] font-medium outline-none focus-visible:ring-2 focus-visible:ring-brand/40"
           :class="
             selected
-              ? 'border-red bg-red text-white hover:brightness-95'
-              : 'border-line-strong bg-surface text-red-ink hover:border-red hover:bg-red hover:text-white'
+              ? 'border-red-ink bg-red-ink text-surface hover:brightness-95'
+              : 'border-line-strong bg-surface text-red-ink hover:border-red-ink hover:bg-red-ink hover:text-surface'
           "
           :title="entry.protected ? 'Kill (asks first)' : 'Kill · ⌥ to force'"
           aria-label="Kill"

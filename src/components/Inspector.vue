@@ -207,7 +207,7 @@ const ghost =
         </button>
         <button
           type="button"
-          class="flex h-8 flex-1 items-center justify-center gap-1.5 rounded-lg border border-red bg-red text-[13px] font-semibold text-white outline-none transition-colors hover:brightness-95 focus-visible:ring-2 focus-visible:ring-brand/40"
+          class="flex h-8 flex-1 items-center justify-center gap-1.5 rounded-lg border border-red-ink bg-red-ink text-[13px] font-semibold text-surface outline-none transition-colors hover:brightness-95 focus-visible:ring-2 focus-visible:ring-brand/40"
           :title="entry.protected ? 'Kill (asks first)' : 'Kill · ⌥ to force'"
           @click="actions.kill(entry, $event.altKey)"
         >
