@@ -27,10 +27,10 @@ test("the sidebar filters the list; the cards do too; Esc goes back to All ports
   await open(page);
 
   await navItem(page, "db").click();
-  await expect.poll(() => shownPorts(page)).toEqual([5432, 6379]);
+  await expect.poll(() => shownPorts(page)).toEqual([5432, 5433, 6379]);
   await expect(navItem(page, "db")).toHaveAttribute("aria-current", "true");
   await expect(navItem(page, "all")).not.toHaveAttribute("aria-current", "true");
-  await expect(statusLine(page)).toContainText(`2 of ${MOCK_PORT_COUNT} ports`);
+  await expect(statusLine(page)).toContainText(`3 of ${MOCK_PORT_COUNT} ports`);
 
   await navItem(page, "ai").click();
   await expect.poll(() => shownPorts(page)).toEqual([11434]);
@@ -211,10 +211,11 @@ test("Kill from the inspector goes through the gate; the column moves on once th
   await dialog.getByRole("button", { name: "Kill anyway" }).click();
   await expect(rows(page)).toHaveCount(MOCK_PORT_COUNT - 2);
   await expect(toasts(page)).toContainText("Ports 5432 and 6379 are free.");
-  // The selection slid to the neighbour, and the column with it.
-  await expect(panel).not.toContainText("com.docker.backend");
-  await expect(panel).toContainText("ControlCenter");
-  await expect(row(page, 7000)).toHaveAttribute("aria-selected", "true");
+  // The selection slid to the neighbour, and the column with it: the shop-db container row that
+  // follows :5432 in the postgres:16 group (WP-20), held by another pid and so still there.
+  await expect(panel).toContainText("PID 11712");
+  await expect(panel.locator("[data-section='container']")).toContainText("shop-db");
+  await expect(row(page, 5433)).toHaveAttribute("aria-selected", "true");
 });
 
 test("the row menu: Inspect, Open localhost, the copies, Reveal folder, Force kill", async ({ page }) => {

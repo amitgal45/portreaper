@@ -222,6 +222,7 @@ fn distinct_ports(entries: &[PortEntry]) -> Vec<MenuEntry> {
         protocol: Protocol,
         project: Option<&'a str>,
         process: &'a str,
+        container: Option<&'a str>,
         protected: bool,
     }
 
@@ -234,12 +235,16 @@ fn distinct_ports(entries: &[PortEntry]) -> Vec<MenuEntry> {
                 if line.project.is_none() {
                     line.project = project;
                 }
+                if line.container.is_none() {
+                    line.container = entry.container.as_deref();
+                }
             }
             None => lines.push(Line {
                 port: entry.port,
                 protocol: entry.protocol,
                 project,
                 process: &entry.process_name,
+                container: entry.container.as_deref(),
                 protected: entry.protected,
             }),
         }
@@ -248,8 +253,12 @@ fn distinct_ports(entries: &[PortEntry]) -> Vec<MenuEntry> {
     lines
         .into_iter()
         .map(|l| {
-            let name = l.project.unwrap_or(l.process);
-            let suffix = if l.protected { " (protected)" } else { "" };
+            // A container's port names the container and says so in place of "(protected)"
+            // (WP-20): the item still shows the window, where Kill stops the container.
+            let (name, suffix) = match l.container {
+                Some(container) => (container, " (container)"),
+                None => (l.project.unwrap_or(l.process), if l.protected { " (protected)" } else { "" }),
+            };
             MenuEntry {
                 port: l.port,
                 protocol: l.protocol,
@@ -912,6 +921,25 @@ mod tests {
         assert_eq!(labels(&model), ["Free :3000 · node", "Free :5432 · shop-db (protected)"]);
         assert!(!model[0].protected);
         assert!(model[1].protected);
+    }
+
+    #[test]
+    fn a_container_port_names_the_container_and_stays_protected() {
+        let mut shop_db = protected(with_project(entry(5432, Protocol::Tcp, "*", 11710, "com.docker.backend"), "postgres:16"));
+        shop_db.container = Some("shop-db".into());
+        let entries = vec![
+            shop_db,
+            // Docker's port no container publishes reads as before.
+            protected(with_project(entry(6379, Protocol::Tcp, "*", 11710, "com.docker.backend"), "redis:7")),
+            entry(3000, Protocol::Tcp, "127.0.0.1", 2, "node"),
+        ];
+        let model = menu_model(&entries, 12);
+        assert_eq!(
+            labels(&model),
+            ["Free :3000 · node", "Free :5432 · shop-db (container)", "Free :6379 · redis:7 (protected)"]
+        );
+        assert!(model[1].protected, "the tray cannot ask twice: the item shows the window");
+        assert_eq!(tray_title(&entries), "1", "a container port is not freeable from the tray");
     }
 
     #[test]

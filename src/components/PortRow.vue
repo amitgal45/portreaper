@@ -140,9 +140,19 @@ watch(
       {{ entry.port }}<span v-if="entry.protocol === 'udp'" class="ml-1 text-[10px] font-normal text-ink-3">udp</span>
     </span>
 
-    <span class="flex min-w-0 items-baseline gap-1.5 overflow-hidden whitespace-nowrap">
-      <span class="truncate font-semibold text-ink">{{ entry.processName }}</span>
-      <span class="shrink-0 font-mono text-[12px] text-ink-2 tabular-nums">{{ entry.pid }}</span>
+    <!-- A container's port names the container, and says so where the pid would be (WP-20). -->
+    <span
+      class="flex min-w-0 items-baseline gap-1.5 overflow-hidden whitespace-nowrap"
+      :data-cell="entry.container ? 'container' : undefined"
+    >
+      <template v-if="entry.container">
+        <span class="truncate font-semibold text-ink">{{ entry.container }}</span>
+        <span class="shrink-0 font-mono text-[12px] text-ink-2">container</span>
+      </template>
+      <template v-else>
+        <span class="truncate font-semibold text-ink">{{ entry.processName }}</span>
+        <span class="shrink-0 font-mono text-[12px] text-ink-2 tabular-nums">{{ entry.pid }}</span>
+      </template>
     </span>
 
     <span class="flex min-w-0 items-center gap-1.5 overflow-hidden">

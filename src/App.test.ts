@@ -105,7 +105,7 @@ describe("App", () => {
     expect(rowsOf(wrapper)).toHaveLength(N);
 
     await nav(wrapper, "db").trigger("click");
-    expect(portsOf(wrapper)).toEqual([5432, 6379]);
+    expect(portsOf(wrapper)).toEqual([5432, 5433, 6379]);
     expect(nav(wrapper, "db").attributes("aria-current")).toBe("true");
     press("Escape");
     await flushPromises();
@@ -237,9 +237,11 @@ describe("App", () => {
       ?.click();
     await flushPromises();
     expect(killProcess).toHaveBeenCalledWith({ pid: 11710, force: false });
-    // The selection slid to the neighbour (ControlCenter), and the column shows it.
-    expect(inspector()?.textContent).not.toContain("com.docker.backend");
-    expect(inspector()?.textContent).toContain("ControlCenter");
+    // The selection slid to the neighbour, and the column shows it: the shop-db container row
+    // that follows :5432 in the postgres:16 group (WP-20), held by another pid and so still there.
+    expect(inspector()?.textContent).toContain("PID 11712");
+    expect(inspector()?.textContent).toContain("Containershop-db");
+    expect(inspector()?.textContent).not.toContain("PID 11710");
   });
 
   it("says when an inspector action is not available in the browser", async () => {

@@ -53,6 +53,10 @@ const framework = computed(() => {
 });
 const uptime = computed(() => formatUptime(props.entry.startedAt));
 const memory = computed(() => formatBytes(props.entry.memoryBytes));
+/** The image a container runs, which the core hands over as the entry's project (WP-20). */
+const image = computed(() => (props.entry.project?.tool === "docker" ? props.entry.project.name : null));
+/** The Container card's mark is Docker's whatever the header's framework icon says. */
+const DOCKER_MARK = { framework: "Docker", processName: "docker" } as const;
 const isPublic = computed(() => props.entry.bind === "any");
 const bindNote = computed(() => {
   if (props.entry.bind === "any") return "reachable from your network";
@@ -145,6 +149,16 @@ const ghost =
           <div class="font-mono text-[13px] font-semibold text-ink tabular-nums">{{ memory }}</div>
           <p class="text-[12px] leading-snug text-ink-2">running {{ uptime }}</p>
         </div>
+      </div>
+
+      <div v-if="entry.container" data-section="container" :class="section">
+        <div :class="heading">Container</div>
+        <div class="flex min-w-0 items-center gap-1.5">
+          <FrameworkIcon :entry="DOCKER_MARK" :size="14" />
+          <span class="truncate font-semibold text-ink">{{ entry.container }}</span>
+        </div>
+        <p v-if="image" class="truncate font-mono text-[12px] text-ink-2" :title="image">image {{ image }}</p>
+        <p class="text-[12px] leading-snug text-ink-2">Kill stops the container; Docker stays up.</p>
       </div>
 
       <div data-section="project" :class="section">

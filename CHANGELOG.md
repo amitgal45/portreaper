@@ -19,7 +19,9 @@ app shows it in its update dialog. Add a section for every release before taggin
   "Watching" counts the watched ports that are free and lists them with "Stop watching". Watches
   survive a restart.
 - WP-19: Every small text clears WCAG AA: the status pills are a tint with their ink, the filled buttons and badges use the ink shades, the tertiary grey is darker. The window opens at 1040×660 with a 340 px inspector.
-- WP-20: Docker containers by name; Kill stops the container.
+- Docker containers by name: a port a container publishes shows the container instead of
+  `com.docker.backend`, its image names the stack (PostgreSQL, Redis, Ollama…), and Kill stops
+  the container (`docker stop`; ⌥ for `docker kill`) instead of taking Docker Desktop down.
 
 ## 0.2.1
 

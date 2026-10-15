@@ -24,6 +24,20 @@ describe("brandIcon", () => {
     expect(brandIcon(entry)?.title).toBe(title);
   });
 
+  it.each([
+    [{ framework: "ghcr.io/acme/shop-api", processName: "com.docker.backend", container: "api" }, "Docker"],
+    [{ framework: null, processName: "vpnkit", container: "api" }, "Docker"],
+    [{ framework: "busybox", processName: "docker-proxy", container: "idle" }, "Docker"],
+  ])("picks Docker for a container entry without a framework icon: %o → %s", (entry, title) => {
+    expect(brandIcon(entry)?.title).toBe(title);
+  });
+
+  it("lets a known framework win over a container's Docker mark", () => {
+    const entry = { framework: "PostgreSQL 16", processName: "com.docker.backend", container: "shop-db" };
+    expect(brandIcon(entry)?.title).toBe("PostgreSQL");
+    expect(brandIcon({ ...entry, container: null })?.title).toBe("PostgreSQL");
+  });
+
   it("is null for an unknown stack, so the row shows a text pill", () => {
     expect(brandIcon({ framework: null, processName: "mDNSResponder" })).toBeNull();
     expect(brandIcon({ framework: "Something New", processName: "chrome-helper" })).toBeNull();
