@@ -5,7 +5,7 @@
 import { Copy, ExternalLink, Eye, FolderOpen, GitBranch, LoaderCircle, RotateCw, X } from "lucide-vue-next";
 import { computed, ref, watch } from "vue";
 import { useApi } from "../api";
-import { useActions } from "../composables/useActions";
+import { killLabels, useActions } from "../composables/useActions";
 import type { RestartState } from "../composables/useKillFlow";
 import { useWatched } from "../composables/useWatch";
 import { formatBytes, formatUptime } from "../lib/format";
@@ -24,6 +24,7 @@ const emit = defineEmits<{ close: [] }>();
 
 const api = useApi();
 const actions = useActions();
+const labels = computed(() => killLabels(actions.defaultForce?.() ?? false));
 const isWatched = useWatched();
 
 /** The port is watched (WP-18): the eye in the header is on, and the Network card says so. */
@@ -240,7 +241,7 @@ const ghost =
         <button
           type="button"
           class="flex h-8 flex-1 items-center justify-center gap-1.5 rounded-lg border border-red-ink bg-red-ink text-[13px] font-semibold text-surface outline-none transition-colors hover:brightness-95 focus-visible:ring-2 focus-visible:ring-brand/40"
-          :title="entry.protected ? 'Kill (asks first)' : 'Kill · ⌥ to force'"
+          :title="entry.protected ? 'Kill (asks first)' : labels.title"
           @click="actions.kill(entry, $event.altKey)"
         >
           <X :size="13" :stroke-width="2.5" aria-hidden="true" />

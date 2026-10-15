@@ -12,7 +12,7 @@ import {
   DropdownMenuTrigger,
 } from "reka-ui";
 import { computed, ref, watch } from "vue";
-import { useActions } from "../composables/useActions";
+import { killLabels, useActions } from "../composables/useActions";
 import { isPublic, isZombie } from "../composables/usePorts";
 import { useWatched } from "../composables/useWatch";
 import { formatBytes, formatUptime } from "../lib/format";
@@ -33,6 +33,7 @@ const props = defineProps<{
 }>();
 
 const actions = useActions();
+const labels = computed(() => killLabels(actions.defaultForce?.() ?? false));
 const isWatched = useWatched();
 const el = ref<HTMLElement | null>(null);
 
@@ -189,7 +190,7 @@ watch(
               ? 'border-red-ink bg-red-ink text-surface hover:brightness-95'
               : 'border-line-strong bg-surface text-red-ink hover:border-red-ink hover:bg-red-ink hover:text-surface'
           "
-          :title="entry.protected ? 'Kill (asks first)' : 'Kill · ⌥ to force'"
+          :title="entry.protected ? 'Kill (asks first)' : labels.title"
           aria-label="Kill"
           @click.stop="actions.kill(entry, $event.altKey)"
         >
@@ -231,7 +232,7 @@ watch(
               </DropdownMenuItem>
               <DropdownMenuSeparator class="my-1 h-px bg-line" />
               <DropdownMenuItem :class="[menuItem, 'text-red-ink']" @select="actions.kill(entry, true)">
-                Force kill<span class="ml-auto font-mono text-[11px] text-ink-3">⌥↩</span>
+                {{ labels.alt }}<span class="ml-auto font-mono text-[11px] text-ink-3">⌥↩</span>
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenuPortal>

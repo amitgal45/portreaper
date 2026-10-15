@@ -59,7 +59,7 @@ const thumb =
       <button
         type="button"
         data-action="got-it"
-        class="mt-0.5 h-7 shrink-0 rounded-md bg-brand px-3 text-[12px] font-semibold text-white outline-none hover:opacity-90 focus-visible:ring-2 focus-visible:ring-brand/40"
+        class="mt-0.5 h-7 shrink-0 rounded-md bg-brand-ink px-3 text-[12px] font-semibold text-surface outline-none hover:opacity-90 focus-visible:ring-2 focus-visible:ring-brand/40"
         @click="emit('done')"
       >
         Got it
