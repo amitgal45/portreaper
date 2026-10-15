@@ -70,6 +70,16 @@ pub fn show_quick(app: &AppHandle) {
     }
 }
 
+/// Builds the window hidden at startup, so the first ⌘⇧K pays no page load: `show_quick` then
+/// only places, shows and focuses. Failure is logged and the window is created on first use instead.
+pub fn precreate(app: &AppHandle) {
+    if app.get_webview_window(QUICK_WINDOW).is_none() {
+        if let Err(e) = create(app) {
+            warn(format_args!("could not pre-create the quick window: {e}"));
+        }
+    }
+}
+
 /// Hides the Quick window if it exists; there is nothing to do before its first use.
 pub fn hide_quick(app: &AppHandle) {
     if let Some(window) = app.get_webview_window(QUICK_WINDOW) {

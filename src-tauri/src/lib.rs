@@ -46,6 +46,7 @@ pub fn run() {
             tray::setup(app.handle())?;
             shortcuts::setup(app.handle())?;
             settings::enable_autostart_on_first_run(app.handle());
+            quick::precreate(app.handle());
             Ok(())
         })
         .on_window_event(tray::on_window_event)
