@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// The 200 px column at the left of the Board: the brand mark under the traffic lights, the
+// The 200 px column at the left of the Board: a row for the traffic lights, the brand below it, the
 // category filters with their counts ("Ports"), the two alarms ("Needs attention"), and at the
 // bottom the Taskline and Settings. One item is on: a category while the Studio shows, the
 // Taskline while the feed shows. Clicking a category from the Taskline goes back to the Studio.
@@ -72,8 +72,10 @@ function pick(key: CategoryFilter) {
 
 <template>
   <nav aria-label="Views" class="flex h-full min-h-0 flex-col border-r border-line bg-canvas px-2.5 pb-2.5">
-    <!-- 52 px, the left 72 px empty: macOS draws the traffic lights there. -->
-    <div data-tauri-drag-region class="flex h-[52px] shrink-0 items-center gap-2 pr-1.5 pl-[62px]">
+    <!-- 52 px for the traffic lights alone: macOS draws them at the top left, and nothing sits
+         beside them. The brand gets its own row below, the way Slack places the workspace name. -->
+    <div data-tauri-drag-region class="h-[52px] shrink-0"></div>
+    <div class="flex h-9 shrink-0 items-center gap-2 px-2 pb-1">
       <span class="flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-md bg-brand text-white" aria-hidden="true">
         <!-- The socket glyph of design/icon.svg, cut by the scythe. -->
         <svg width="14" height="12" viewBox="152 198 720 628" fill="currentColor" fill-rule="evenodd">
