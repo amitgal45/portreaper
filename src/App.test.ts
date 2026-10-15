@@ -260,3 +260,94 @@ describe("App", () => {
     expect(wrapper.get("[data-action='reap']").attributes("disabled")).toBeDefined();
   });
 });
+
+describe("App: preferences (WP-17b)", () => {
+  afterEach(() => {
+    mounted?.unmount();
+    mounted = null;
+    document.body.innerHTML = "";
+  });
+
+  it("shows no first-run card once dismissed; with the flag off it shows, and Got it stores the flag", async () => {
+    const { wrapper } = await mountApp();
+    expect(wrapper.find("[data-onboarding]").exists()).toBe(false);
+    mounted?.unmount();
+    mounted = null;
+    document.body.innerHTML = "";
+
+    const api = createMockApi();
+    await api.setSettings({ ...(await api.getSettings()), onboardingDone: false });
+    const setSettings = vi.spyOn(api, "setSettings");
+    const { wrapper: fresh } = await mountApp(api);
+    const card = fresh.get("[data-onboarding]");
+    expect(card.text()).toContain("PortReaper is in your menu bar");
+    expect(card.text()).toContain("Start at login is on");
+    await card.get("[data-pref='startAtLogin']").trigger("click");
+    await flushPromises();
+    expect(setSettings).toHaveBeenLastCalledWith(
+      expect.objectContaining({ startAtLogin: false, onboardingDone: false }),
+    );
+    expect(fresh.get("[data-onboarding]").text()).toContain("Start at login is off");
+
+    await fresh.get("[data-action='got-it']").trigger("click");
+    await flushPromises();
+    expect(setSettings).toHaveBeenLastCalledWith(expect.objectContaining({ onboardingDone: true }));
+    expect(fresh.find("[data-onboarding]").exists()).toBe(false);
+    expect((await api.getSettings()).onboardingDone).toBe(true);
+    // The card is the Studio's and it is gone for good: Preferences and back bring nothing.
+    await nav(fresh, "settings").trigger("click");
+    await flushPromises();
+    await nav(fresh, "all").trigger("click");
+    expect(fresh.find("[data-onboarding]").exists()).toBe(false);
+  });
+
+  it("⌘, opens Preferences with the item on and the toolbar out of the way; a change saves; Esc goes back", async () => {
+    const { wrapper, api } = await mountApp();
+    press(",", { metaKey: true });
+    await flushPromises();
+    expect(wrapper.find("[data-view='settings']").exists()).toBe(true);
+    expect(wrapper.get("[data-view='settings'] h1").text()).toBe("Preferences");
+    expect(nav(wrapper, "settings").attributes("aria-current")).toBe("true");
+    expect(nav(wrapper, "all").attributes("aria-current")).toBeUndefined();
+    expect(rowsOf(wrapper)).toHaveLength(0);
+    // The toolbar stays mounted but hidden: Preferences brings its own strip.
+    expect(wrapper.find("[data-tauri-drag-region][style*='display: none']").exists()).toBe(true);
+    expect(wrapper.find("[data-action='reap']").exists()).toBe(false);
+
+    await wrapper.get("[data-pref='notifications']").trigger("click");
+    await flushPromises();
+    expect((await api.getSettings()).notifications).toBe(false);
+    expect(wrapper.get("[data-pref='notifications']").attributes("aria-checked")).toBe("false");
+    expect(wrapper.get("[data-row='notifications'] .transition-opacity").classes()).toContain("opacity-100");
+    expect(wrapper.get("[data-row='dockIcon'] .transition-opacity").classes()).toContain("opacity-0");
+
+    press("Escape");
+    await flushPromises();
+    expect(wrapper.find("[data-view='settings']").exists()).toBe(false);
+    expect(rowsOf(wrapper)).toHaveLength(N);
+    expect(nav(wrapper, "all").attributes("aria-current")).toBe("true");
+
+    // The sidebar item opens it too, and the view re-reads what the core kept.
+    await nav(wrapper, "settings").trigger("click");
+    await flushPromises();
+    expect(wrapper.find("[data-view='settings']").exists()).toBe(true);
+    expect(wrapper.get("[data-pref='notifications']").attributes("aria-checked")).toBe("false");
+  });
+
+  it("Kill sends SIGKILL at once: ↩ forces the selection and ⌘⌫ is the graceful one", async () => {
+    const api = createMockApi();
+    await api.setSettings({ ...(await api.getSettings()), defaultForce: true });
+    const { wrapper, killProcess } = await mountApp(api);
+    press("ArrowDown");
+    await flushPromises();
+    press("Enter");
+    await flushPromises();
+    expect(killProcess).toHaveBeenCalledWith({ pid: 48213, force: true });
+    expect(wrapper.text()).toContain("Force-killed node (48213). Port 3000 is free.");
+    // The selection slid to the neighbour; ⌘⌫ flips the base back to graceful.
+    press("Backspace", { metaKey: true });
+    await flushPromises();
+    expect(killProcess).toHaveBeenCalledTimes(2);
+    expect(killProcess.mock.calls[1]?.[0]).toMatchObject({ force: false });
+  });
+});

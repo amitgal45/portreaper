@@ -1,4 +1,14 @@
-import { computed, getCurrentScope, onScopeDispose, type Ref, reactive, ref, watch } from "vue";
+import {
+  computed,
+  getCurrentScope,
+  type MaybeRefOrGetter,
+  onScopeDispose,
+  type Ref,
+  reactive,
+  ref,
+  toValue,
+  watch,
+} from "vue";
 import { guessCurrentUser, protectionReason } from "../lib/protection";
 import type { KillOutcome, PortApi, PortEntry, WatchedPort } from "../types";
 
@@ -118,7 +128,8 @@ export interface KillReport {
 }
 
 export interface UsePortsOptions {
-  intervalMs?: number;
+  /** How often to poll. A ref or a getter re-arms the timer when it changes (the Refresh every preference). */
+  intervalMs?: MaybeRefOrGetter<number>;
   /** Polls only while this is true. Defaults to `document.visibilityState === "visible"`. */
   isVisible?: () => boolean;
   /** Where collapsed groups are remembered. `null` forgets them. Defaults to `localStorage`. */
@@ -207,7 +218,7 @@ function writeCollapsed(storage: Storage | null, keys: Iterable<string>) {
  * Call `start()` on mount and `stop()` on unmount.
  */
 export function usePorts(api: PortApi, options: UsePortsOptions = {}) {
-  const intervalMs = options.intervalMs ?? 2000;
+  const intervalMs = computed(() => toValue(options.intervalMs ?? 2000));
   const tombstoneMs = options.tombstoneMs ?? 3000;
   const watches = options.watches ?? ref<WatchedPort[]>([]);
   const isVisible =
@@ -313,7 +324,7 @@ export function usePorts(api: PortApi, options: UsePortsOptions = {}) {
     if (timer !== null) return;
     timer = setInterval(() => {
       if (isVisible()) void refresh();
-    }, intervalMs);
+    }, intervalMs.value);
   }
 
   function stopTimer() {
@@ -321,6 +332,13 @@ export function usePorts(api: PortApi, options: UsePortsOptions = {}) {
     clearInterval(timer);
     timer = null;
   }
+
+  // A new interval takes effect at once while polling; a stopped or hidden poller stays stopped.
+  watch(intervalMs, () => {
+    if (timer === null) return;
+    stopTimer();
+    startTimer();
+  });
 
   function onVisibility() {
     if (isVisible()) {

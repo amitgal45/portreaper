@@ -2,13 +2,13 @@
 // The 200 px column at the left of the Board: a row for the traffic lights, the brand below it, the
 // category filters with their counts ("Ports"), the two alarms ("Needs attention"), and at the
 // bottom the update banner when a newer release is known (WP-16), the Taskline and Settings. One
-// item is on: a category while the Studio shows, the Taskline while the feed shows. Clicking a
-// category from the Taskline goes back to the Studio.
+// item is on: a category while the Studio shows, the Taskline while the feed shows, Settings
+// while Preferences shows (WP-17b). Clicking a category from either goes back to the Studio.
 import { Clock, Database, Eye, Globe, LayoutGrid, Settings, Sparkles, Terminal, Zap } from "lucide-vue-next";
 import type { CategoryCounts, CategoryFilter } from "../composables/usePorts";
 import { bannerText, percentOf, type UpdateState } from "../composables/useUpdate";
 
-export type View = "studio" | "taskline";
+export type View = "studio" | "taskline" | "settings";
 
 const props = defineProps<{
   view: View;
@@ -179,8 +179,15 @@ function pick(key: CategoryFilter) {
           {{ tasklineCount }}
         </span>
       </button>
-      <button type="button" data-nav="settings" :class="[item, 'disabled:opacity-50']" disabled title="Coming in a later release">
-        <Settings :size="14" :stroke-width="2" class="text-ink-3" aria-hidden="true" />
+      <button
+        type="button"
+        data-nav="settings"
+        :aria-current="view === 'settings' ? 'true' : undefined"
+        :class="[item, view === 'settings' && on]"
+        title="Preferences (⌘,)"
+        @click="emit('update:view', 'settings')"
+      >
+        <Settings :size="14" :stroke-width="2" :class="view === 'settings' ? 'text-brand-ink' : 'text-ink-3'" aria-hidden="true" />
         <span class="truncate">Settings</span>
       </button>
     </div>
