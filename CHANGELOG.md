@@ -7,7 +7,11 @@ app shows it in its update dialog. Add a section for every release before taggin
 
 ## 0.3.0
 
-- WP-17a: Preferences in the core: Dock icon, start at login, shortcuts, refresh rate, notifications; one universal build for Intel and Apple Silicon.
+- Preferences that take effect the moment they change: the Dock icon (or menu bar only), start
+  at login, the two global shortcuts, the refresh rate, the kill default and notifications are
+  stored, applied by the core and shared by the window and the menu bar. "Preferences…" in the
+  menu-bar menu; "Start at login" there and in the window are one switch.
+- One universal build: the same `.dmg` runs on Intel and Apple Silicon Macs.
 - WP-17b: The Preferences view (⌘,) and a first-run card.
 - WP-18: Watch a port: a notification when it frees up or gets taken.
 - WP-19: Text contrast at AA everywhere; a wider default window.
