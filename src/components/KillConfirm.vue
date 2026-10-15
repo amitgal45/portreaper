@@ -82,17 +82,17 @@ function onOpenChange(open: boolean) {
 <template>
   <AlertDialogRoot :open="target !== null" @update:open="onOpenChange">
     <AlertDialogPortal>
-      <AlertDialogOverlay class="fixed inset-0 z-40 bg-void/60" />
+      <AlertDialogOverlay class="fixed inset-0 z-40 bg-ink/30" />
       <AlertDialogContent
-        class="fixed top-1/2 left-1/2 z-50 w-88 max-w-[calc(100vw-2rem)] -translate-x-1/2 -translate-y-1/2 rounded-lg border border-edge bg-obsidian p-4 text-[13px] text-ink outline-none"
+        class="fixed top-1/2 left-1/2 z-50 w-88 max-w-[calc(100vw-2rem)] -translate-x-1/2 -translate-y-1/2 rounded-lg border border-line-strong bg-surface p-4 text-[13px] text-ink outline-none"
       >
         <AlertDialogTitle class="font-semibold">{{ title }}</AlertDialogTitle>
-        <AlertDialogDescription class="mt-1.5 leading-relaxed text-ink-muted">
+        <AlertDialogDescription class="mt-1.5 leading-relaxed text-ink-2">
           {{ description }}
         </AlertDialogDescription>
         <div class="mt-4 flex justify-end gap-2">
           <AlertDialogCancel
-            class="h-7 rounded-md border border-edge bg-steel px-3 outline-none hover:text-ink focus-visible:ring-2 focus-visible:ring-coral/40"
+            class="h-7 rounded-md border border-line-strong bg-surface px-3 outline-none hover:bg-hover focus-visible:ring-2 focus-visible:ring-brand/40"
           >
             Cancel
           </AlertDialogCancel>
@@ -101,7 +101,7 @@ function onOpenChange(open: boolean) {
                the dialog by clearing the target. -->
           <button
             type="button"
-            class="h-7 rounded-md bg-coral px-3 font-semibold text-void outline-none hover:bg-coral/90 focus-visible:ring-2 focus-visible:ring-coral/40"
+            class="h-7 rounded-md bg-red px-3 font-semibold text-white outline-none hover:brightness-95 focus-visible:ring-2 focus-visible:ring-brand/40"
             @click="emit('confirm')"
           >
             {{ action }}
