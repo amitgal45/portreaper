@@ -10,7 +10,7 @@ app shows it in its update dialog. Add a section for every release before taggin
 - WP-17a: Preferences in the core: Dock icon, start at login, shortcuts, refresh rate, notifications; one universal build for Intel and Apple Silicon.
 - WP-17b: The Preferences view (⌘,) and a first-run card.
 - WP-18: Watch a port: a notification when it frees up or gets taken.
-- WP-19: Text contrast at AA everywhere; a wider default window.
+- WP-19: Every small text clears WCAG AA: the status pills are a tint with their ink, the filled buttons and badges use the ink shades, the tertiary grey is darker. The window opens at 1040×660 with a 340 px inspector.
 - WP-20: Docker containers by name; Kill stops the container.
 
 ## 0.2.1
