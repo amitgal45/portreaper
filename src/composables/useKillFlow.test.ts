@@ -122,7 +122,7 @@ describe("useKillFlow: reap and restart (v0.2)", () => {
     expect(reapZombies).toHaveBeenCalledTimes(1);
     expect(flow.confirm.value).toBeNull();
     expect(ports.counts.value.zombie).toBe(0);
-    expect(toasts.toasts.value[0]?.message).toBe("Reaped 1 zombie, 220 MB back.");
+    expect(toasts.toasts.value[0]?.message).toBe("Reaped 2 zombies, 640 MB back.");
   });
 
   it("asks once above three zombies", async () => {
@@ -132,7 +132,12 @@ describe("useKillFlow: reap and restart (v0.2)", () => {
     const reapZombies = vi.spyOn(api, "reapZombies");
     await flow.reap();
     expect(reapZombies).not.toHaveBeenCalled();
-    expect(flow.confirm.value).toEqual({ kind: "zombies", count: 5, memoryBytes: 220 * 5 * 1024 * 1024 });
+    // The mock's two (220 + 420 MB) and four copies of tinyrecipe-lp (220 MB each).
+    expect(flow.confirm.value).toEqual({
+      kind: "zombies",
+      count: 6,
+      memoryBytes: (640 + 220 * 4) * 1024 * 1024,
+    });
     await flow.confirmed();
     expect(reapZombies).toHaveBeenCalledTimes(1);
   });

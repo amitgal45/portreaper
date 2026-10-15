@@ -74,7 +74,7 @@ test("three toasts stacked leave the last row's ✕ clickable", async ({ page })
   await expect(stack.getByRole("button")).toHaveCount(3);
 
   // The last row and the toasts never share a pixel: the toasts are a band below the list.
-  const last = row(page, 11434);
+  const last = row(page, 7000);
   await last.scrollIntoViewIfNeeded();
   const [rowBox, stackBox] = await Promise.all([last.boundingBox(), stack.boundingBox()]);
   expect(rowBox, "last row has a box").not.toBeNull();
@@ -87,7 +87,7 @@ test("three toasts stacked leave the last row's ✕ clickable", async ({ page })
   await expect(stack.getByRole("button")).toHaveCount(3);
   await killButton(last).click();
   const dialog = confirmDialog(page);
-  await expect(dialog).toContainText("Kill ollama (32014)?");
+  await expect(dialog).toContainText("Kill ControlCenter (635)?");
   await dialog.getByRole("button", { name: "Cancel" }).click();
   await expect(dialog).toHaveCount(0);
 

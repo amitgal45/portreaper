@@ -72,11 +72,17 @@ describe("mock api v0.2", () => {
   });
 
   it("reaps the unprotected orphans and nothing else", async () => {
-    const api = createMockApi();
+    // The mock's two zombies, plus a protected orphan that Reap must leave alone.
+    const jekyll = MOCK_ENTRIES.find((e) => e.port === 4000);
+    if (!jekyll) throw new Error("mock changed");
+    const guarded = { ...jekyll, port: 4001, pid: 18403, protected: true };
+    const api = createMockApi([...MOCK_ENTRIES, guarded]);
     const outcomes = await api.reapZombies();
-    expect(outcomes.map((o) => o.pid)).toEqual([39871]);
-    expect((await api.listPorts()).some((e) => e.orphan && !e.protected)).toBe(false);
-    expect((await api.listPorts()).some((e) => e.pid === 18402)).toBe(true);
-    expect((await api.tasklineEvents()).map((e) => e.kind)).toEqual(["zombieReaped"]);
+    expect(outcomes.map((o) => o.pid)).toEqual([39871, 18402]);
+    const left = await api.listPorts();
+    expect(left.some((e) => e.orphan && !e.protected)).toBe(false);
+    expect(left.some((e) => e.pid === 39871 || e.pid === 18402)).toBe(false);
+    expect(left.some((e) => e.pid === 18403)).toBe(true);
+    expect((await api.tasklineEvents()).map((e) => e.kind)).toEqual(["zombieReaped", "zombieReaped"]);
   });
 });

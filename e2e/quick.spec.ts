@@ -6,9 +6,11 @@ import { expect, type Locator, type Page, test } from "@playwright/test";
  * and is not here: in a browser `hideCurrentWindow()` is a no-op, so after a kill or Esc the
  * strip simply stays on screen.
  *
- * Row counts are never asserted: WP-11 may add entries to the mock. What is relied on: :3000
- * (a dev server), :5432 (protected, Docker, which also holds :6379), :5174 (the lost-terminal
- * zombie, so it heads an empty query), and the Ollama row `?fixture=ai` adds.
+ * The fixture is `MOCK_ENTRIES` in `src/api/mock.ts`: 11 entries, 7 of them unprotected; the strip
+ * shows six. Relied on: :3000 (a dev server), :5432 (protected, Docker, which also holds :6379),
+ * :5174 and :4000 (the lost-terminal zombies, newest first, so :5174 heads an empty query) and
+ * :11434 (Ollama, the `ai` row, 12 days old so a query has to ask for it). When the mock
+ * changes, the numbers here change with it, in the same commit.
  */
 test.use({ viewport: { width: 480, height: 320 } });
 test.describe.configure({ mode: "parallel" });
@@ -23,8 +25,8 @@ const shownPorts = (page: Page) =>
   options(page).evaluateAll((els) => els.map((el) => Number(el.getAttribute("data-port"))));
 
 /** Opens the strip and waits for the first list: the zombie heads it, the caret is in the input. */
-async function openQuick(page: Page, search = ""): Promise<void> {
-  await page.goto(`/quick.html${search}`);
+async function openQuick(page: Page): Promise<void> {
+  await page.goto("/quick.html");
   await expect(options(page).first()).toHaveAttribute("data-port", "5174");
   await expect(input(page)).toBeFocused();
 }
@@ -97,7 +99,7 @@ function freedResult(page: Page): Promise<Freed> {
   });
 }
 
-test("lists rows within 100 ms of load: the lost-terminal zombie first and selected, the header, the footer", async ({
+test("lists rows within 100 ms of load: the lost-terminal zombies first, the newer selected, the header, the footer", async ({
   page,
 }, testInfo) => {
   await markFirstRows(page);
@@ -118,9 +120,13 @@ test("lists rows within 100 ms of load: the lost-terminal zombie first and selec
   await expect(zombie).toContainText("tinyrecipe-lp");
   await expect(zombie).toContainText("↩ free");
   await expect(chip(zombie)).toHaveText("web");
+  // The older zombie is second; then the dev servers newest first; nothing protected.
+  expect(await shownPorts(page)).toEqual([5174, 4000, 5173, 3000, 8080, 9335]);
+  await expect(option(page, 4000).getByLabel("lost terminal")).toHaveText("⚡");
+  await expect(option(page, 4000)).toContainText("legacy-docs");
   await expect(option(page, 3000).getByLabel("lost terminal")).toHaveCount(0);
   await expect(option(page, 5432)).toHaveCount(0);
-  await expect(header(page)).toHaveText(/^PortReaper · \d+ ports · ⌘⇧K$/);
+  await expect(header(page)).toHaveText("PortReaper · 11 ports · ⌘⇧K");
   await expect(footer(page)).toHaveText("↑↓ choose · ↩ free · ⌥↩ force · esc close");
 
   // Warm: a reload paints the cached list before its first poll answers.
@@ -221,20 +227,23 @@ test("Esc clears a query; on an empty query it is a no-op in the browser and the
   await expect(input(page)).toBeFocused();
   await expect(options(page).first()).toHaveAttribute("data-port", "5174");
   await page.keyboard.press("ArrowDown");
-  await expect(option(page, 5173)).toHaveAttribute("aria-selected", "true");
+  await expect(option(page, 4000)).toHaveAttribute("aria-selected", "true");
   expect(thrown).toEqual([]);
 });
 
 test("an ai row's chip carries its memory", async ({ page }) => {
-  await openQuick(page, "?fixture=ai");
-  const ollama = option(page, 11434);
-  await expect(ollama).toHaveAttribute("data-category", "ai");
-  await expect(ollama).toContainText("ollama");
-  await expect(ollama).toContainText("7012");
-  await expect(chip(ollama)).toHaveText("AI · 4.9 GB");
-  await expect(ollama.getByLabel("lost terminal")).toHaveCount(0);
-
+  await openQuick(page);
+  // Seventh of seven unprotected entries: not in the pre-selection, one word away.
+  await expect(option(page, 11434)).toHaveCount(0);
   await page.keyboard.type("ollama");
   await expect.poll(() => shownPorts(page)).toEqual([11434]);
+
+  const ollama = option(page, 11434);
+  await expect(ollama).toHaveAttribute("data-category", "ai");
+  await expect(ollama).toHaveAttribute("aria-selected", "true");
+  await expect(ollama).toContainText("ollama");
+  await expect(ollama).toContainText("32014");
   await expect(chip(ollama)).toHaveText("AI · 4.9 GB");
+  await expect(ollama.getByLabel("lost terminal")).toHaveCount(0);
+  await expect(ollama.getByLabel("protected")).toHaveCount(0);
 });

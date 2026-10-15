@@ -39,7 +39,7 @@ test("the pills filter the list; the Zombies tile does too; Esc goes back to All
   await expect(tile(page, "public")).toHaveAttribute("aria-pressed", "true");
 
   await tile(page, "zombies").click();
-  await expect.poll(() => shownPorts(page)).toEqual([5174]);
+  await expect.poll(() => shownPorts(page)).toEqual([4000, 5174]);
   await expect(tile(page, "zombies")).toHaveAttribute("aria-pressed", "true");
   await expect(pill(page, "zombie")).toHaveAttribute("aria-pressed", "true");
 
@@ -57,20 +57,22 @@ test("Reap takes the zombies; the Taskline shows ZOMBIE REAPED; Relaunch brings 
   page,
 }) => {
   await open(page);
-  await expect(reapButton(page)).toContainText("Reap 1 zombie");
-  await expect(reapButton(page)).toContainText("220 MB");
+  await expect(reapButton(page)).toContainText("Reap 2 zombies");
+  await expect(reapButton(page)).toContainText("640 MB");
 
   await reapButton(page).click();
   await expect(row(page, 5174)).toHaveCount(0);
-  await expect(rows(page)).toHaveCount(MOCK_PORT_COUNT - 1);
-  await expect(toasts(page)).toContainText("Reaped 1 zombie, 220 MB back.");
+  await expect(row(page, 4000)).toHaveCount(0);
+  await expect(rows(page)).toHaveCount(MOCK_PORT_COUNT - 2);
+  await expect(toasts(page)).toContainText("Reaped 2 zombies, 640 MB back.");
   await expect(reapButton(page)).toBeDisabled();
   await expect(tile(page, "zombies")).toContainText("lost terminals");
 
-  await expect(tasklineBadge(page)).toHaveText("1");
+  await expect(tasklineBadge(page)).toHaveText("2");
   await tab(page, "Taskline").click();
-  await expect(events(page)).toHaveCount(1);
-  const reaped = eventOfKind(page, "zombieReaped");
+  await expect(events(page)).toHaveCount(2);
+  await expect(eventOfKind(page, "zombieReaped")).toHaveCount(2);
+  const reaped = eventOfKind(page, "zombieReaped").filter({ hasText: "port 5174" });
   await expect(reaped).toContainText("ZOMBIE REAPED");
   await expect(reaped).toContainText("Reaped node (39871), a lost-terminal server on port 5174.");
   await expect(reaped).toContainText("RAM: 220 MB · 180 ms · tinyrecipe-lp");
@@ -79,7 +81,7 @@ test("Reap takes the zombies; the Taskline shows ZOMBIE REAPED; Relaunch brings 
   await reaped.getByRole("button", { name: "Relaunch" }).click();
   await expect(eventOfKind(page, "relaunched")).toContainText("RELAUNCHED");
   await expect(reaped.getByRole("button", { name: "Relaunch" })).toHaveCount(0);
-  await expect(tasklineBadge(page)).toHaveText("2");
+  await expect(tasklineBadge(page)).toHaveText("3");
   await expect(toasts(page)).toContainText(/Relaunched node on port 5174 \(new pid \d+\)\./);
 
   await tab(page, "Studio").click();

@@ -188,11 +188,7 @@ export const MOCK_ENTRIES: PortEntry[] = [
     parentPid: 1,
     protected: true,
   }),
-  // v0.2 (WP-11): a local model server holding a few gigabytes, and a second lost-terminal server.
-  // Both are `protected` for one reason only: the Quick strip's tests (WP-12, src/quick and
-  // e2e/quick.spec.ts) pin its recents to the five unprotected entries above, and WP-11 may not
-  // touch them. Flip both to `protected: false` at WP-14, once quick.spec is rewritten; the
-  // Jekyll server then counts as a zombie and Reap takes it too.
+  // The v0.2 demo entries: a local model server, and a second lost-terminal server that Reap takes.
   entry({
     port: 11434,
     pid: 32014,
@@ -202,7 +198,7 @@ export const MOCK_ENTRIES: PortEntry[] = [
     exe: "/usr/local/bin/ollama",
     memoryBytes: Math.ceil(4.85 * 1024 * 1024 * 1024),
     startedAt: now - 12 * 24 * 3600,
-    protected: true,
+    protected: false,
   }),
   entry({
     port: 4000,
@@ -215,7 +211,7 @@ export const MOCK_ENTRIES: PortEntry[] = [
     startedAt: now - 10 * 24 * 3600,
     parentPid: 1,
     orphan: true,
-    protected: true,
+    protected: false,
     project: {
       name: "legacy-docs",
       root: "/Users/amit/work/legacy-docs",

@@ -30,7 +30,7 @@ test("loads the mock and groups it by project, dev servers first", async ({ page
   await expect(statusLine(page)).toContainText(/scan \d+ ms/);
   await expect(tile(page, "ports")).toContainText(`${MOCK_PROJECT_COUNT} projects`);
   await expect(tile(page, "memory")).toContainText("6.6 GB");
-  await expect(tile(page, "zombies")).toContainText("220 MB reclaimable");
+  await expect(tile(page, "zombies")).toContainText("640 MB reclaimable");
   await expect(tile(page, "public")).toContainText("on your network");
   // No scaffold leftovers: the page is titled like the app (only a browser tab shows it).
   await expect(page).toHaveTitle("PortReaper");
@@ -45,16 +45,16 @@ test("loads the mock and groups it by project, dev servers first", async ({ page
     )
     .toEqual([
       "p:shop-api",
+      "p:legacy-docs",
       "p:portreaper",
       "p:tinyrecipe-lp",
       "p:@specmate/api",
       "n:chrome-helper",
+      "n:ollama",
       "n:mDNSResponder",
-      "p:legacy-docs",
       "p:postgres:16",
       "p:redis:7",
       "n:ControlCenter",
-      "n:ollama",
     ]);
 });
 

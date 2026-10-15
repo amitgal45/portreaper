@@ -45,7 +45,7 @@ describe("App", () => {
     expect(wrapper.get("footer").text()).toMatch(/scan \d+ ms/);
     expect(wrapper.text()).toContain("v0.2.0-mock");
     // The tiles over the list.
-    expect(wrapper.get("[data-tile='zombies']").text()).toContain("220 MB reclaimable");
+    expect(wrapper.get("[data-tile='zombies']").text()).toContain("640 MB reclaimable");
     expect(wrapper.get("[data-tile='public']").text()).toContain("3");
   });
 
@@ -120,7 +120,7 @@ describe("App", () => {
   it("the pills and the tiles filter the list; the same tile again shows everything", async () => {
     const { wrapper } = await mountApp();
     await wrapper.get("[data-pill='zombie']").trigger("click");
-    expect(portsOf(wrapper)).toEqual([5174]);
+    expect(portsOf(wrapper)).toEqual([4000, 5174]);
     expect(wrapper.get("[data-pill='zombie']").attributes("aria-pressed")).toBe("true");
     await wrapper.get("[data-pill='ai']").trigger("click");
     expect(portsOf(wrapper)).toEqual([11434]);
@@ -138,26 +138,33 @@ describe("App", () => {
     await wrapper.get("[data-action='reap']").trigger("click");
     await flushPromises();
     expect(reapZombies).toHaveBeenCalledTimes(1);
-    expect(rowsOf(wrapper)).toHaveLength(N - 1);
-    expect(wrapper.text()).toContain("Reaped 1 zombie, 220 MB back.");
+    expect(rowsOf(wrapper)).toHaveLength(N - 2);
+    expect(wrapper.text()).toContain("Reaped 2 zombies, 640 MB back.");
     expect(wrapper.get("[data-action='reap']").attributes("disabled")).toBeDefined();
 
     await wrapper.get("[role='tab'][aria-selected='false']").trigger("click");
     const feed = wrapper.get("[role='feed']");
-    expect(feed.findAll("article")).toHaveLength(1);
+    expect(feed.findAll("article")).toHaveLength(2);
     expect(feed.text()).toContain("ZOMBIE REAPED");
     expect(feed.text()).toContain("Reaped node (39871), a lost-terminal server on port 5174.");
+    expect(feed.text()).toContain("Reaped ruby (18402), a lost-terminal server on port 4000.");
     expect(feed.text()).toMatch(/RAM: 220 MB · 180 ms · tinyrecipe-lp/);
+    expect(feed.text()).toMatch(/RAM: 420 MB · 180 ms · legacy-docs/);
 
-    // Relaunch brings it back: the feed records it, the badge counts three, the list has it again.
-    const relaunch = feed.get("[data-event][data-kind='zombieReaped'] button");
-    await relaunch.trigger("click");
+    // Relaunch brings tinyrecipe-lp back: the feed records it, the badge counts three, the list has it again.
+    const reaped = feed
+      .findAll("[data-event][data-kind='zombieReaped']")
+      .find((a) => a.text().includes("5174"));
+    if (!reaped) throw new Error("no ZOMBIE REAPED event for :5174");
+    await reaped.get("button").trigger("click");
     await flushPromises();
-    expect(feed.findAll("article")).toHaveLength(2);
+    expect(feed.findAll("article")).toHaveLength(3);
     expect(feed.text()).toContain("RELAUNCHED");
-    expect(wrapper.get("[data-badge='taskline-count']").text()).toBe("2");
+    expect(wrapper.get("[data-badge='taskline-count']").text()).toBe("3");
     await wrapper.get("[role='tab'][aria-selected='false']").trigger("click");
-    expect(rowsOf(wrapper)).toHaveLength(N);
+    expect(rowsOf(wrapper)).toHaveLength(N - 1);
+    expect(wrapper.find("[role='row'][data-port='5174']").exists()).toBe(true);
+    expect(wrapper.find("[role='row'][data-port='4000']").exists()).toBe(false);
 
     // Clear empties the feed.
     await wrapper.get("[role='tab'][aria-selected='false']").trigger("click");

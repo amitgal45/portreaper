@@ -10,8 +10,11 @@ vi.mock("../api/window", () => ({ hideCurrentWindow }));
 const key = (k: string, init: KeyboardEventInit = {}) =>
   new KeyboardEvent("keydown", { key: k, cancelable: true, ...init });
 
-/** What an empty query shows on the mock: the lost-terminal :5174 first, then newest first, nothing protected. */
-const PRESELECTED = [5174, 5173, 3000, 8080, 9335];
+/**
+ * What an empty query shows on the mock: the lost-terminal :5174 and :4000 first (newest first),
+ * then the rest newest first, nothing protected, six at most (the 12-day-old Ollama is seventh).
+ */
+const PRESELECTED = [5174, 4000, 5173, 3000, 8080, 9335];
 
 /** A strip that has loaded once and is not polling. */
 async function loaded(api: PortApi = createMockApi()) {
@@ -45,7 +48,7 @@ afterEach(() => {
 });
 
 describe("useQuick: matching and selection", () => {
-  it("shows the pre-selection when the query is empty: the zombie first, then newest first, nothing protected", async () => {
+  it("shows the pre-selection when the query is empty: the zombies first, then newest first, nothing protected", async () => {
     const quick = await loaded();
     expect(quick.loaded.value).toBe(true);
     expect(quick.matches.value.map((e) => e.port)).toEqual(PRESELECTED);
@@ -66,7 +69,7 @@ describe("useQuick: matching and selection", () => {
   it("↓ and ↑ move the selection and clamp at the ends", async () => {
     const quick = await loaded();
     quick.handleKey(key("ArrowDown"));
-    expect(quick.selected.value?.port).toBe(5173);
+    expect(quick.selected.value?.port).toBe(4000);
     quick.handleKey(key("ArrowUp"));
     quick.handleKey(key("ArrowUp"));
     expect(quick.selected.value?.port).toBe(5174);
@@ -95,7 +98,7 @@ describe("useQuick: pre-selection from the Taskline", () => {
     const quick = useQuick(api, { isVisible: () => false });
     quick.start();
     await vi.advanceTimersByTimeAsync(0);
-    expect(quick.matches.value.map((e) => e.port)).toEqual([5174, 8080, 5173, 3000, 9335]);
+    expect(quick.matches.value.map((e) => e.port)).toEqual([5174, 4000, 8080, 5173, 3000, 9335]);
     expect(quick.selected.value?.port).toBe(5174);
     quick.stop();
   });
@@ -430,7 +433,7 @@ describe("useQuick: refresh", () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
     await vi.advanceTimersByTimeAsync(2000);
     expect(quick.error.value).toBe("core went away");
-    expect(quick.matches.value).toHaveLength(5);
+    expect(quick.matches.value).toHaveLength(6);
     await vi.advanceTimersByTimeAsync(2000);
     expect(quick.error.value).toBeNull();
     quick.stop();
