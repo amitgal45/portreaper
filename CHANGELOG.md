@@ -11,7 +11,9 @@ app shows it in its update dialog. Add a section for every release before taggin
 - WP-17b: The Preferences view (⌘,) and a first-run card.
 - WP-18: Watch a port: a notification when it frees up or gets taken.
 - WP-19: Text contrast at AA everywhere; a wider default window.
-- WP-20: Docker containers by name; Kill stops the container.
+- Docker containers by name: a port a container publishes shows the container instead of
+  `com.docker.backend`, its image names the stack (PostgreSQL, Redis, Ollama…), and Kill stops
+  the container (`docker stop`; ⌥ for `docker kill`) instead of taking Docker Desktop down.
 
 ## 0.2.1
 
