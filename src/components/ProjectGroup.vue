@@ -1,9 +1,11 @@
 <script setup lang="ts">
-// A project (or a process without one) and its ports. The header sticks while its rows scroll.
-import { ChevronRight, Lock } from "lucide-vue-next";
+// A project (or a process without one) and its ports: a 32 px row with a colour bar, the name,
+// the branch in mono and the count. It sticks under the table header while its rows scroll.
+import { ChevronDown, Lock } from "lucide-vue-next";
 import { computed } from "vue";
 import { useActions } from "../composables/useActions";
 import { entryKey, type PortGroup } from "../composables/usePorts";
+import { groupColour } from "../lib/group-colour";
 import type { PortEntry } from "../types";
 import PortRow from "./PortRow.vue";
 
@@ -21,33 +23,39 @@ const actions = useActions();
 const count = computed(
   () => `${props.group.entries.length} ${props.group.entries.length === 1 ? "port" : "ports"}`,
 );
+const bar = computed(() => groupColour(props.group.name));
 </script>
 
 <template>
   <section :data-group="group.key">
-    <div
-      class="group/header sticky top-0 z-10 flex h-7 items-center gap-2 border-b border-edge bg-obsidian px-3 text-[11px]"
-    >
+    <div class="group/header sticky top-7 z-10 flex h-8 items-center gap-2 border-b border-line bg-surface px-4 text-[13px]">
+      <span class="h-4 w-1 shrink-0 rounded-sm" :class="bar" aria-hidden="true" />
       <button
         type="button"
-        class="flex h-full min-w-0 flex-1 items-center gap-1.5 text-left outline-none focus-visible:underline"
+        class="flex h-full min-w-0 flex-1 items-center gap-2 text-left outline-none focus-visible:underline"
         :aria-expanded="!collapsed"
         @click="actions.toggleGroup(group.key)"
       >
-        <ChevronRight :size="12" :stroke-width="2" class="shrink-0 text-ink-muted transition-transform" :class="!collapsed && 'rotate-90'" />
         <span class="truncate font-semibold text-ink">{{ group.name }}</span>
-        <span v-if="group.branch" class="truncate rounded border border-edge bg-steel px-1 font-mono text-[10px] text-ink-muted">{{ group.branch }}</span>
-        <Lock v-if="group.protected" :size="10" :stroke-width="2" class="shrink-0 text-azure" aria-label="protected" />
+        <span v-if="group.branch" class="truncate font-mono text-[12px] text-ink-2">{{ group.branch }}</span>
+        <Lock v-if="group.protected" :size="11" :stroke-width="2" class="shrink-0 text-blue-ink" aria-label="protected" />
       </button>
-      <span class="shrink-0 font-mono text-ink-muted tabular-nums">{{ count }}</span>
       <button
         type="button"
-        class="h-5 shrink-0 rounded px-1.5 text-[11px] text-ink-muted opacity-0 outline-none hover:bg-steel hover:text-coral focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-coral/40 group-hover/header:opacity-100"
+        class="h-6 shrink-0 rounded-md border border-line-strong bg-surface px-2 text-[12px] text-red-ink opacity-0 outline-none hover:bg-hover focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-brand/40 group-hover/header:opacity-100"
         :title="group.protected ? 'Kill every process in this group (asks first)' : 'Kill every process in this group · ⌥ to force'"
         @click.stop="actions.killGroup(group, $event.altKey)"
       >
         Kill all
       </button>
+      <span class="shrink-0 text-[12px] text-ink-3 tabular-nums">{{ count }}</span>
+      <ChevronDown
+        :size="12"
+        :stroke-width="2"
+        class="shrink-0 text-ink-3 transition-transform"
+        :class="collapsed && '-rotate-90'"
+        aria-hidden="true"
+      />
     </div>
     <TransitionGroup v-if="!collapsed" name="row" tag="div" role="rowgroup">
       <PortRow
@@ -56,7 +64,6 @@ const count = computed(
         :entry="entry"
         :selected="entryKey(entry) === selectedKey"
         :pending="pending.has(entry.pid)"
-        :show-branch="group.branch === null"
         :reason="entry.protected ? reasonFor(entry) : null"
         :collision="collisions.has(entry.port)"
       />

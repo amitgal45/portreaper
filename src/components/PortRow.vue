@@ -1,13 +1,23 @@
 <script setup lang="ts">
-// One listening port: 36 px, one line. The row opens the drawer; the eye does the same; Kill
-// kills (⌥ forces). The badges say what the taxonomy knows: scope, framework, zombie, protected,
-// local AI with its memory.
-import { Eye, GitBranch, LoaderCircle, Lock, Zap } from "lucide-vue-next";
+// One listening port: a 40 px row. Port · process (name, pid) · status pills and the brand mark
+// · memory · uptime · Kill and the row menu. The row opens the inspector; Kill kills (⌥ forces).
+// The command line is not here: it lives in the inspector.
+import { Ellipsis, LoaderCircle } from "lucide-vue-next";
+import {
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuPortal,
+  DropdownMenuRoot,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "reka-ui";
 import { computed, ref, watch } from "vue";
 import { useActions } from "../composables/useActions";
-import { isZombie } from "../composables/usePorts";
-import { executableDir, formatBytes, formatUptime, shortCommand } from "../lib/format";
+import { isPublic, isZombie } from "../composables/usePorts";
+import { formatBytes, formatUptime } from "../lib/format";
+import { TABLE_COLUMNS, WIDE_ONLY } from "../lib/table-columns";
 import type { PortEntry } from "../types";
+import FrameworkIcon from "./FrameworkIcon.vue";
 import HintTooltip from "./HintTooltip.vue";
 
 const props = defineProps<{
@@ -15,37 +25,79 @@ const props = defineProps<{
   selected: boolean;
   /** A kill is in flight: spinner, no clicks. */
   pending: boolean;
-  /** The group header already shows the branch; do not repeat it. */
-  showBranch: boolean;
   /** Why it is protected, when it is. */
   reason: string | null;
-  /** A `collisionResolved` named this port in the last minute: the number goes amber. */
+  /** A `collisionResolved` named this port in the last minute: the number goes orange. */
   collision: boolean;
 }>();
 
 const actions = useActions();
 const el = ref<HTMLElement | null>(null);
 
-const command = computed(() => shortCommand(props.entry.command));
-/** A command that is only the executable repeats the name (daemons, Docker): say where it lives instead. */
-const repeatsName = computed(
-  () => !command.value.text || command.value.text.toLowerCase() === props.entry.processName.toLowerCase(),
-);
-const location = computed(() =>
-  repeatsName.value ? executableDir(props.entry.exe, props.entry.command) : "",
-);
 const uptime = computed(() => formatUptime(props.entry.startedAt));
 const memory = computed(() => formatBytes(props.entry.memoryBytes));
-const zombie = computed(() => isZombie(props.entry));
-/** The framework chip adds nothing when it repeats the process name (mDNSResponder). */
+/** The framework name adds nothing when it repeats the process name (mDNSResponder). */
 const framework = computed(() => {
   const f = props.entry.framework;
   return f && f.toLowerCase() !== props.entry.processName.toLowerCase() ? f : null;
 });
 
-const chip = "inline-flex h-4 shrink-0 items-center gap-0.5 rounded px-1 text-[10px] font-medium";
-const iconButton =
-  "flex h-6 w-6 items-center justify-center rounded-md text-ink-muted outline-none hover:bg-steel hover:text-ink focus-visible:ring-2 focus-visible:ring-coral/40";
+interface Pill {
+  key: "zombie" | "public" | "protected" | "ai" | "running";
+  label: string;
+  tone: string;
+  hint: string;
+}
+
+/** What the taxonomy knows, worst first; `Running` only when nothing else applies. */
+const pills = computed<Pill[]>(() => {
+  const e = props.entry;
+  const out: Pill[] = [];
+  if (e.orphan) {
+    out.push({
+      key: "zombie",
+      label: "Zombie",
+      tone: "bg-orange",
+      hint: isZombie(e)
+        ? "its terminal is gone; a dev server nobody is using"
+        : "its terminal is gone, but it is protected: Reap leaves it alone",
+    });
+  }
+  if (isPublic(e)) {
+    out.push({
+      key: "public",
+      label: "Public",
+      tone: "bg-red",
+      hint: "bound to every interface: reachable from your network",
+    });
+  }
+  if (e.protected) {
+    out.push({
+      key: "protected",
+      label: "Protected",
+      tone: "bg-blue",
+      hint: `${props.reason ?? "protected"} — asks before killing`,
+    });
+  }
+  if (e.category === "ai") {
+    out.push({
+      key: "ai",
+      label: `AI · ${memory.value}`,
+      tone: "bg-purple",
+      hint: "a local model server; this is the memory it holds",
+    });
+  }
+  if (out.length === 0) out.push({ key: "running", label: "Running", tone: "bg-green", hint: "" });
+  return out;
+});
+
+const pill =
+  "inline-flex h-[22px] shrink-0 items-center whitespace-nowrap rounded-full px-2.5 text-[12px] font-semibold text-white";
+const soft =
+  "inline-flex h-[22px] shrink-0 items-center whitespace-nowrap rounded-full border border-line bg-canvas px-2.5 text-[12px] font-medium text-ink-2";
+const num = "whitespace-nowrap text-right font-mono text-[12px] text-ink-2 tabular-nums";
+const menuItem =
+  "flex h-7 cursor-default select-none items-center gap-2 rounded-md px-2 text-[13px] text-ink outline-none data-[disabled]:opacity-40 data-[highlighted]:bg-hover";
 
 watch(
   () => props.selected,
@@ -64,81 +116,99 @@ watch(
     :data-pid="entry.pid"
     :data-port="entry.port"
     :data-category="entry.category"
-    class="group/row flex h-9 items-center gap-2 border-b border-edge/60 px-3 scroll-mt-7"
     :class="[
-      selected ? 'bg-steel/60 ring-1 ring-coral/40 ring-inset' : 'hover:bg-steel/40',
+      TABLE_COLUMNS,
+      'relative h-10 border-b border-line scroll-mt-15',
+      selected
+        ? 'bg-sel before:absolute before:inset-y-0 before:left-0 before:w-[3px] before:bg-brand'
+        : 'hover:bg-hover',
       pending && 'pointer-events-none opacity-60',
     ]"
     @click="actions.inspect(entry)"
   >
     <span
-      class="w-14 shrink-0 font-mono text-[13px] font-bold tabular-nums"
-      :class="collision ? 'text-amber-neon' : 'text-ink'"
+      class="truncate font-mono text-[15px] font-semibold tracking-tight tabular-nums"
+      :class="collision ? 'text-orange-ink' : 'text-ink'"
       :title="collision ? 'A new process took this port right after PortReaper freed it' : undefined"
     >
-      :{{ entry.port }}<span v-if="entry.protocol === 'udp'" class="ml-1 text-[10px] font-normal text-ink-muted">udp</span>
+      {{ entry.port }}<span v-if="entry.protocol === 'udp'" class="ml-1 text-[10px] font-normal text-ink-3">udp</span>
     </span>
 
-    <span class="w-14 shrink-0 text-[10px]">
-      <HintTooltip v-if="entry.bind === 'any'" text="bound to every interface: reachable from your network">
-        <span :class="[chip, 'rounded-full border border-coral/30 bg-coral/10 font-mono text-coral']">
-          <span class="h-1.5 w-1.5 animate-pulse rounded-full bg-coral" aria-hidden="true" />public
-        </span>
-      </HintTooltip>
-      <span v-else-if="entry.bind === 'loopback'" :class="[chip, 'rounded-full border border-edge bg-steel font-mono text-ink-muted']">local</span>
-      <span v-else class="font-mono text-ink-muted">{{ entry.address }}</span>
+    <span class="flex min-w-0 items-baseline gap-1.5 overflow-hidden whitespace-nowrap">
+      <span class="truncate font-semibold text-ink">{{ entry.processName }}</span>
+      <span class="shrink-0 font-mono text-[12px] text-ink-2 tabular-nums">{{ entry.pid }}</span>
     </span>
 
-    <span class="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
-      <span class="shrink-0 truncate">
-        <span class="font-semibold text-ink">{{ entry.processName }}</span>
-        <span class="ml-1 font-mono text-[11px] text-ink-muted tabular-nums">{{ entry.pid }}</span>
-      </span>
-      <span v-if="showBranch && entry.project?.branch" data-badge="branch" :class="[chip, 'border border-edge bg-steel font-mono text-ink-muted']">
-        <GitBranch :size="10" :stroke-width="2" aria-hidden="true" />{{ entry.project.branch }}
-      </span>
-      <span v-if="framework" data-badge="framework" :class="[chip, 'bg-emerald-signal/15 font-mono text-emerald-signal']">
-        {{ framework }}
-      </span>
-      <HintTooltip
-        v-if="entry.orphan"
-        :text="zombie ? 'its terminal is gone; a dev server nobody is using' : 'its terminal is gone, but it is protected: Reap leaves it alone'"
-      >
-        <span data-badge="zombie" :class="[chip, 'border border-amber-neon/40 bg-amber-neon/15 text-amber-neon']">
-          <Zap :size="10" :stroke-width="2" aria-hidden="true" />zombie
-        </span>
-      </HintTooltip>
-      <HintTooltip v-if="entry.protected" :text="`${reason ?? 'protected'} — asks before killing`">
-        <span data-badge="protected" :class="[chip, 'border border-azure/40 bg-azure/15 text-azure']">
-          <Lock :size="10" :stroke-width="2" aria-hidden="true" />protected
-        </span>
-      </HintTooltip>
-      <HintTooltip v-if="entry.category === 'ai'" text="a local model server; this is the memory it holds">
-        <span data-badge="ai" :class="[chip, 'border border-violet/40 bg-violet/15 font-mono text-violet']">AI · {{ memory }}</span>
-      </HintTooltip>
-      <span v-if="!repeatsName" data-cell="command" class="hidden min-w-0 flex-1 truncate font-mono text-[11px] text-ink-muted sm:inline" :title="command.title">{{ command.text }}</span>
-      <span v-else-if="location" data-cell="location" class="hidden min-w-0 flex-1 truncate font-mono text-[11px] text-ink-muted sm:inline" :title="entry.exe || command.title">{{ location }}</span>
+    <span class="flex min-w-0 items-center gap-1.5 overflow-hidden">
+      <template v-for="(p, i) in pills" :key="p.key">
+        <HintTooltip v-if="p.hint" :text="p.hint">
+          <span :data-badge="p.key" :class="[pill, p.tone, i > 0 && WIDE_ONLY, i > 0 && '@min-[640px]/main:inline-flex']">{{ p.label }}</span>
+        </HintTooltip>
+        <span v-else :data-badge="p.key" :class="[pill, p.tone]">{{ p.label }}</span>
+      </template>
+      <FrameworkIcon :entry="entry" :size="16">
+        <span v-if="framework" data-badge="framework" :class="soft">{{ framework }}</span>
+      </FrameworkIcon>
     </span>
 
-    <span class="w-16 shrink-0 text-right font-mono text-[11px] text-ink-muted tabular-nums">{{ memory }}</span>
-    <span class="w-12 shrink-0 whitespace-nowrap text-right font-mono text-[11px] text-ink-muted tabular-nums">{{ uptime }}</span>
+    <span :class="[num, WIDE_ONLY]">{{ memory }}</span>
+    <span :class="[num, WIDE_ONLY]">{{ uptime }}</span>
 
-    <span class="flex w-18 shrink-0 items-center justify-end gap-1">
-      <LoaderCircle v-if="pending" :size="14" class="animate-spin text-ink-muted" aria-label="killing" />
+    <span class="flex items-center justify-end gap-1.5">
+      <LoaderCircle v-if="pending" :size="14" class="animate-spin text-ink-3" aria-label="killing" />
       <template v-else>
-        <button type="button" :class="iconButton" aria-label="Inspect" title="Inspect" @click.stop="actions.inspect(entry)">
-          <Eye :size="13" :stroke-width="2" />
-        </button>
         <button
           type="button"
-          class="h-6 rounded-md bg-steel px-2 text-[11px] font-semibold outline-none transition-colors focus-visible:ring-2 focus-visible:ring-coral/40"
-          :class="entry.protected ? 'text-ink-muted hover:text-ink' : 'text-coral hover:bg-coral hover:text-void'"
+          class="h-[26px] rounded-md border px-2.5 text-[12px] font-medium outline-none focus-visible:ring-2 focus-visible:ring-brand/40"
+          :class="
+            selected
+              ? 'border-red bg-red text-white hover:brightness-95'
+              : 'border-line-strong bg-surface text-red-ink hover:border-red hover:bg-red hover:text-white'
+          "
           :title="entry.protected ? 'Kill (asks first)' : 'Kill · ⌥ to force'"
           aria-label="Kill"
           @click.stop="actions.kill(entry, $event.altKey)"
         >
           Kill
         </button>
+        <DropdownMenuRoot>
+          <DropdownMenuTrigger as-child>
+            <button
+              type="button"
+              class="flex h-[26px] w-[26px] items-center justify-center rounded-md border border-line bg-surface text-ink-3 outline-none hover:border-line-strong hover:text-ink focus-visible:ring-2 focus-visible:ring-brand/40 data-[state=open]:bg-hover"
+              aria-label="More"
+              title="More"
+              @click.stop
+            >
+              <Ellipsis :size="14" :stroke-width="2" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuPortal>
+            <DropdownMenuContent
+              align="end"
+              :side-offset="4"
+              :collision-padding="8"
+              class="z-50 min-w-48 rounded-lg border border-line-strong bg-surface p-1"
+              @click.stop
+            >
+              <DropdownMenuItem :class="menuItem" @select="actions.inspect(entry)">Inspect</DropdownMenuItem>
+              <DropdownMenuItem :class="menuItem" :disabled="entry.protocol !== 'tcp'" @select="actions.openInBrowser(entry)">
+                Open localhost:{{ entry.port }}
+              </DropdownMenuItem>
+              <DropdownMenuItem :class="menuItem" @select="actions.copyKill(entry)">Copy kill -9 {{ entry.pid }}</DropdownMenuItem>
+              <DropdownMenuItem :class="menuItem" :disabled="!entry.command" @select="actions.copyCommand(entry)">
+                Copy command
+              </DropdownMenuItem>
+              <DropdownMenuItem :class="menuItem" :disabled="!entry.project?.root" @select="actions.revealFolder(entry)">
+                Reveal folder
+              </DropdownMenuItem>
+              <DropdownMenuSeparator class="my-1 h-px bg-line" />
+              <DropdownMenuItem :class="[menuItem, 'text-red-ink']" @select="actions.kill(entry, true)">
+                Force kill<span class="ml-auto font-mono text-[11px] text-ink-3">⌥↩</span>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenuPortal>
+        </DropdownMenuRoot>
       </template>
     </span>
   </div>

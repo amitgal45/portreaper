@@ -9,7 +9,7 @@ import type { CategoryFilter } from "../src/composables/usePorts";
 
 /** Entries in the mock core. */
 export const MOCK_PORT_COUNT = 11;
-/** Projects among them (the status line and the first tile count these). */
+/** Projects among them (the status line and the first card count these). */
 export const MOCK_PROJECT_COUNT = 7;
 
 export const rows = (page: Page): Locator => page.getByRole("row");
@@ -20,18 +20,24 @@ export const search = (page: Page): Locator => page.getByRole("textbox", { name:
 export const toasts = (page: Page): Locator => page.getByRole("status");
 export const confirmDialog = (page: Page): Locator => page.getByRole("alertdialog");
 export const statusLine = (page: Page): Locator => page.locator("footer");
-/** The Kill button on a row (the drawer has one too; scope through the row). */
-export const killButton = (r: Locator): Locator => r.getByRole("button", { name: "Kill", exact: true });
+/** The Kill button on a row (the inspector has one too; scope through the row or the inspector). */
+export const killButton = (scope: Locator): Locator =>
+  scope.getByRole("button", { name: "Kill", exact: true });
+/** The `…` of a row: opens the row menu. */
+export const moreButton = (r: Locator): Locator => r.getByRole("button", { name: "More" });
 
-// v0.2
-export const pill = (page: Page, key: CategoryFilter): Locator => page.locator(`[data-pill="${key}"]`);
+// The Board (WP-15a)
+/** A sidebar item: a category filter, or `taskline`. The one that is on has `aria-current`. */
+export const navItem = (page: Page, key: CategoryFilter | "taskline" | "settings"): Locator =>
+  page.locator(`[data-nav="${key}"]`);
 export const tile = (page: Page, name: "ports" | "memory" | "zombies" | "public"): Locator =>
   page.locator(`[data-tile="${name}"]`);
 export const reapButton = (page: Page): Locator => page.locator("[data-action='reap']");
-export const tab = (page: Page, name: "Studio" | "Taskline"): Locator => page.getByRole("tab", { name });
 export const tasklineBadge = (page: Page): Locator => page.locator("[data-badge='taskline-count']");
-/** The slide-over, portalled to the body. */
-export const drawer = (page: Page): Locator => page.locator("[data-drawer]");
+/** The inspector panel: the third column in a wide window, inside a dialog in a narrow one. */
+export const inspector = (page: Page): Locator => page.locator("[data-inspector]");
+/** The brand mark of a row's stack (`data-brand` names it), or nothing for an unknown stack. */
+export const frameworkIcon = (r: Locator): Locator => r.locator("[data-testid='framework-icon']");
 export const feed = (page: Page): Locator => page.getByRole("feed");
 export const events = (page: Page): Locator => feed(page).locator("article");
 export const eventOfKind = (page: Page, kind: string): Locator =>

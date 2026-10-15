@@ -107,19 +107,6 @@
   --color-purple-ink: var(--purple-ink);
   --color-sel: var(--sel);
   --color-hover: var(--hover);
-
-  /* v0.2 Cyber Scythe names, kept as aliases until WP-15 retires every use of them. */
-  --color-void: var(--canvas);
-  --color-obsidian: var(--surface);
-  --color-steel: var(--hover);
-  --color-edge: var(--line);
-  --color-ink-muted: var(--ink-2);
-  --color-ink-faint: var(--ink-3);
-  --color-coral: var(--brand);
-  --color-amber-neon: var(--orange);
-  --color-emerald-signal: var(--green);
-  --color-azure: var(--blue);
-  --color-violet: var(--purple);
 }
 
 html,

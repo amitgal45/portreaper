@@ -12,6 +12,7 @@ const N = MOCK_ENTRIES.length;
 
 let mounted: VueWrapper | null = null;
 
+/** happy-dom's window is 1024 px wide: the inspector is the third column here. */
 async function mountApp(api = createMockApi()) {
   const killProcess = vi.spyOn(api, "killProcess");
   const wrapper = mount(App, { global: { provide: { [API_KEY as symbol]: api } }, attachTo: document.body });
@@ -22,11 +23,11 @@ async function mountApp(api = createMockApi()) {
 
 const rowsOf = (wrapper: VueWrapper) => wrapper.findAll("[role='row']");
 const portsOf = (wrapper: VueWrapper) => rowsOf(wrapper).map((r) => Number(r.attributes("data-port")));
-/** The drawer is portalled to the body. */
-const drawer = () => document.body.querySelector<HTMLElement>("[data-drawer]");
-const drawerButton = (name: RegExp) =>
-  [...(drawer()?.querySelectorAll("button") ?? [])].find((b) => name.test(b.textContent ?? "")) ?? null;
+const inspector = () => document.body.querySelector<HTMLElement>("[data-inspector]");
+const inspectorButton = (name: RegExp) =>
+  [...(inspector()?.querySelectorAll("button") ?? [])].find((b) => name.test(b.textContent ?? "")) ?? null;
 const dialog = () => document.body.querySelector("[role='alertdialog']");
+const nav = (wrapper: VueWrapper, key: string) => wrapper.get(`[data-nav='${key}']`);
 
 describe("App", () => {
   // Unmount here, not in the test: a failed assertion must not leave a zombie App listening.
@@ -36,17 +37,22 @@ describe("App", () => {
     document.body.innerHTML = "";
   });
 
-  it("lists the machine grouped by project, with the counts in the title strip and the status line", async () => {
+  it("lists the machine grouped by project, with the counts in the sidebar, the cards and the status line", async () => {
     const { wrapper } = await mountApp();
     expect(rowsOf(wrapper)).toHaveLength(N);
     expect(wrapper.text()).toContain("shop-api");
-    expect(wrapper.get("header").text()).toContain(`${N} ports`);
+    expect(nav(wrapper, "all").text()).toContain(`${N}`);
+    expect(nav(wrapper, "all").attributes("aria-current")).toBe("true");
+    expect(nav(wrapper, "dev").text()).toContain("5");
+    expect(nav(wrapper, "zombie").text()).toContain("2");
+    expect(nav(wrapper, "public").text()).toContain("3");
     expect(wrapper.get("footer").text()).toContain(`${N} ports · 7 projects`);
     expect(wrapper.get("footer").text()).toMatch(/scan \d+ ms/);
     expect(wrapper.text()).toContain("v0.2.0-mock");
-    // The tiles over the list.
-    expect(wrapper.get("[data-tile='zombies']").text()).toContain("640 MB reclaimable");
+    expect(wrapper.get("[data-tile='zombies']").text()).toContain("zombies · 640 MB");
     expect(wrapper.get("[data-tile='public']").text()).toContain("3");
+    // Nothing selected: no inspector column.
+    expect(inspector()).toBeNull();
   });
 
   it("type 3000, Enter: kills shop-api's next dev and frees the port", async () => {
@@ -60,7 +66,7 @@ describe("App", () => {
     expect(killProcess).toHaveBeenCalledWith({ pid: 48213, force: false });
     expect(rowsOf(wrapper)).toHaveLength(0);
     expect(wrapper.text()).toContain("Killed node (48213). Port 3000 is free.");
-    // The Taskline tab counts it.
+    // The Taskline item counts it.
     expect(wrapper.get("[data-badge='taskline-count']").text()).toBe("1");
   });
 
@@ -88,7 +94,7 @@ describe("App", () => {
     expect(wrapper.text()).toContain("Ports 5432 and 6379 are free.");
   });
 
-  it("Esc clears the search, then the pill, then the selection; a digit from the list starts a search", async () => {
+  it("Esc clears the search, then the filter, then the selection; a digit from the list starts a search", async () => {
     const { wrapper } = await mountApp();
     const input = wrapper.get("input[aria-label='Search ports']");
     await input.setValue("51");
@@ -98,18 +104,23 @@ describe("App", () => {
     expect((input.element as HTMLInputElement).value).toBe("");
     expect(rowsOf(wrapper)).toHaveLength(N);
 
-    await wrapper.get("[data-pill='db']").trigger("click");
+    await nav(wrapper, "db").trigger("click");
     expect(portsOf(wrapper)).toEqual([5432, 6379]);
+    expect(nav(wrapper, "db").attributes("aria-current")).toBe("true");
     press("Escape");
     await flushPromises();
     expect(rowsOf(wrapper)).toHaveLength(N);
+    expect(nav(wrapper, "all").attributes("aria-current")).toBe("true");
 
     press("ArrowDown");
     await flushPromises();
     expect(wrapper.findAll("[role='row'][aria-selected='true']")).toHaveLength(1);
+    // The column follows the selection.
+    expect(inspector()?.textContent).toContain("[LISTENING ON :3000]");
     press("Escape");
     await flushPromises();
     expect(wrapper.findAll("[role='row'][aria-selected='true']")).toHaveLength(0);
+    expect(inspector()).toBeNull();
 
     press("8");
     await flushPromises();
@@ -117,16 +128,17 @@ describe("App", () => {
     expect(portsOf(wrapper)).toEqual([8080]);
   });
 
-  it("the pills and the tiles filter the list; the same tile again shows everything", async () => {
+  it("the sidebar and the cards filter the list; the same card again shows everything", async () => {
     const { wrapper } = await mountApp();
-    await wrapper.get("[data-pill='zombie']").trigger("click");
+    await nav(wrapper, "zombie").trigger("click");
     expect(portsOf(wrapper)).toEqual([4000, 5174]);
-    expect(wrapper.get("[data-pill='zombie']").attributes("aria-pressed")).toBe("true");
-    await wrapper.get("[data-pill='ai']").trigger("click");
+    expect(nav(wrapper, "zombie").attributes("aria-current")).toBe("true");
+    await nav(wrapper, "ai").trigger("click");
     expect(portsOf(wrapper)).toEqual([11434]);
     await wrapper.get("[data-tile='public']").trigger("click");
     expect(portsOf(wrapper)).toEqual([8080, 5432, 6379]);
     expect(wrapper.get("[data-tile='public']").attributes("aria-pressed")).toBe("true");
+    expect(nav(wrapper, "public").attributes("aria-current")).toBe("true");
     expect(wrapper.get("footer").text()).toContain(`3 of ${N} ports`);
     await wrapper.get("[data-tile='public']").trigger("click");
     expect(rowsOf(wrapper)).toHaveLength(N);
@@ -142,7 +154,9 @@ describe("App", () => {
     expect(wrapper.text()).toContain("Reaped 2 zombies, 640 MB back.");
     expect(wrapper.get("[data-action='reap']").attributes("disabled")).toBeDefined();
 
-    await wrapper.get("[role='tab'][aria-selected='false']").trigger("click");
+    await nav(wrapper, "taskline").trigger("click");
+    expect(nav(wrapper, "taskline").attributes("aria-current")).toBe("true");
+    expect(nav(wrapper, "all").attributes("aria-current")).toBeUndefined();
     const feed = wrapper.get("[role='feed']");
     expect(feed.findAll("article")).toHaveLength(2);
     expect(feed.text()).toContain("ZOMBIE REAPED");
@@ -150,6 +164,7 @@ describe("App", () => {
     expect(feed.text()).toContain("Reaped ruby (18402), a lost-terminal server on port 4000.");
     expect(feed.text()).toMatch(/RAM: 220 MB · 180 ms · tinyrecipe-lp/);
     expect(feed.text()).toMatch(/RAM: 420 MB · 180 ms · legacy-docs/);
+    expect(wrapper.text()).toContain("2 events this session");
 
     // Relaunch brings tinyrecipe-lp back: the feed records it, the badge counts three, the list has it again.
     const reaped = feed
@@ -161,13 +176,14 @@ describe("App", () => {
     expect(feed.findAll("article")).toHaveLength(3);
     expect(feed.text()).toContain("RELAUNCHED");
     expect(wrapper.get("[data-badge='taskline-count']").text()).toBe("3");
-    await wrapper.get("[role='tab'][aria-selected='false']").trigger("click");
+    // A category from the Taskline goes back to the Studio.
+    await nav(wrapper, "all").trigger("click");
     expect(rowsOf(wrapper)).toHaveLength(N - 1);
     expect(wrapper.find("[role='row'][data-port='5174']").exists()).toBe(true);
     expect(wrapper.find("[role='row'][data-port='4000']").exists()).toBe(false);
 
-    // Clear empties the feed.
-    await wrapper.get("[role='tab'][aria-selected='false']").trigger("click");
+    // Clear, in the toolbar, empties the feed.
+    await nav(wrapper, "taskline").trigger("click");
     const clear = wrapper.findAll("button").find((b) => b.text() === "Clear");
     await clear?.trigger("click");
     await flushPromises();
@@ -175,43 +191,44 @@ describe("App", () => {
     expect(wrapper.find("[data-badge='taskline-count']").exists()).toBe(false);
   });
 
-  it("a row click opens the drawer with the tree; Esc closes it; Restart brings the row back with a new pid", async () => {
+  it("a row click fills the inspector column; the keys stay on; ✕ clears it; Restart brings the row back with a new pid", async () => {
     const { wrapper, killProcess } = await mountApp();
     await wrapper.get("[role='row'][data-port='3000']").trigger("click");
     await flushPromises();
-    expect(drawer()?.textContent).toContain("node (Next.js)");
-    expect(drawer()?.textContent).toContain("[LISTENING ON :3000]");
+    expect(inspector()?.textContent).toContain("Next.js");
+    expect(inspector()?.textContent).toContain("[LISTENING ON :3000]");
     expect(wrapper.get("[role='row'][data-port='3000']").attributes("aria-selected")).toBe("true");
 
-    // The list's keys are off while the drawer is open.
-    press("Enter");
+    // ↓ moves the selection and the column with it.
+    press("ArrowDown");
     await flushPromises();
-    expect(killProcess).not.toHaveBeenCalled();
+    expect(inspector()?.textContent).toContain("[LISTENING ON :4000]");
 
-    drawer()?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+    inspector()?.querySelector<HTMLButtonElement>("button[aria-label='Close']")?.click();
     await flushPromises();
-    expect(drawer()).toBeNull();
+    expect(inspector()).toBeNull();
+    expect(wrapper.findAll("[role='row'][aria-selected='true']")).toHaveLength(0);
 
-    await wrapper.get("[role='row'][data-port='3000'] button[aria-label='Inspect']").trigger("click");
+    await wrapper.get("[role='row'][data-port='3000']").trigger("click");
     await flushPromises();
-    drawerButton(/Restart/)?.click();
+    inspectorButton(/Restart/)?.click();
     await flushPromises();
     expect(killProcess).toHaveBeenCalledWith({ pid: 48213, force: false });
     const back = wrapper.get("[role='row'][data-port='3000']");
     expect(back.attributes("data-pid")).not.toBe("48213");
     expect(back.attributes("aria-selected")).toBe("true");
-    expect(drawer()?.textContent).toContain(`Back on :3000 as pid ${back.attributes("data-pid")}.`);
-    expect(drawer()?.textContent).toContain(`PID ${back.attributes("data-pid")}`);
+    expect(inspector()?.textContent).toContain(`Back on :3000 as pid ${back.attributes("data-pid")}.`);
+    expect(inspector()?.textContent).toContain(`PID ${back.attributes("data-pid")}`);
     expect(wrapper.text()).toContain(
       `Relaunched node on port 3000 (new pid ${back.attributes("data-pid")}).`,
     );
   });
 
-  it("Kill from the drawer goes through the gate and closes the drawer once the row is gone", async () => {
+  it("Kill from the inspector goes through the gate; the column moves on once the row is gone", async () => {
     const { wrapper, killProcess } = await mountApp();
     await wrapper.get("[role='row'][data-port='5432']").trigger("click");
     await flushPromises();
-    drawerButton(/^\s*Kill/)?.click();
+    inspectorButton(/^\s*Kill/)?.click();
     await flushPromises();
     expect(killProcess).not.toHaveBeenCalled();
     expect(dialog()?.textContent).toContain("Kill com.docker.backend (11710)?");
@@ -220,14 +237,16 @@ describe("App", () => {
       ?.click();
     await flushPromises();
     expect(killProcess).toHaveBeenCalledWith({ pid: 11710, force: false });
-    expect(drawer()).toBeNull();
+    // The selection slid to the neighbour (ControlCenter), and the column shows it.
+    expect(inspector()?.textContent).not.toContain("com.docker.backend");
+    expect(inspector()?.textContent).toContain("ControlCenter");
   });
 
-  it("says when a drawer action is not available in the browser", async () => {
+  it("says when an inspector action is not available in the browser", async () => {
     const { wrapper } = await mountApp();
     await wrapper.get("[role='row'][data-port='3000']").trigger("click");
     await flushPromises();
-    drawerButton(/Reveal folder/)?.click();
+    inspectorButton(/Reveal folder/)?.click();
     await flushPromises();
     expect(wrapper.text()).toContain("Not available in the browser");
   });

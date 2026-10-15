@@ -5,7 +5,7 @@ import { createMockApi, MOCK_ENTRIES } from "../api/mock";
 import { ACTIONS_KEY, type UiActions } from "../composables/useActions";
 import type { RestartState } from "../composables/useKillFlow";
 import type { PortApi, PortEntry } from "../types";
-import ProcessDrawer from "./ProcessDrawer.vue";
+import Inspector from "./Inspector.vue";
 
 const byPort = (port: number): PortEntry => {
   const e = MOCK_ENTRIES.find((x) => x.port === port);
@@ -31,8 +31,8 @@ function spies(): UiActions {
 
 let mounted: VueWrapper | null = null;
 
-async function mountDrawer(
-  entry: PortEntry | null,
+async function mountInspector(
+  entry: PortEntry,
   {
     api = createMockApi(),
     actions = spies(),
@@ -40,7 +40,7 @@ async function mountDrawer(
     reason = null as string | null,
   } = {},
 ) {
-  const wrapper = mount(ProcessDrawer, {
+  const wrapper = mount(Inspector, {
     props: { entry, reason, restart },
     global: { provide: { [API_KEY as symbol]: api, [ACTIONS_KEY as symbol]: actions } },
     attachTo: document.body,
@@ -50,33 +50,28 @@ async function mountDrawer(
   return { wrapper, api, actions };
 }
 
-/** The drawer is portalled: read it from the body. */
-const drawer = () => document.body.querySelector<HTMLElement>("[data-drawer]");
-const text = () => drawer()?.textContent?.replace(/\s+/g, " ") ?? "";
-const button = (name: RegExp) =>
-  [...(drawer()?.querySelectorAll("button") ?? [])].find((b) => name.test(b.textContent ?? "")) ?? null;
+const text = () => mounted?.text().replace(/\s+/g, " ") ?? "";
+const button = (name: RegExp) => mounted?.findAll("button").find((b) => name.test(b.text())) ?? null;
 
-describe("ProcessDrawer", () => {
+describe("Inspector", () => {
   afterEach(() => {
     mounted?.unmount();
     mounted = null;
     document.body.innerHTML = "";
   });
 
-  it("is absent while closed", async () => {
-    await mountDrawer(null);
-    expect(drawer()).toBeNull();
-  });
-
-  it("renders the header, the tiles, the project, the tree and the command", async () => {
-    await mountDrawer(byPort(3000));
+  it("renders the header, network, resources, project, the tree and the command", async () => {
+    await mountInspector(byPort(3000));
     const t = text();
     expect(t).toContain(":3000");
-    expect(t).toContain("node (Next.js)");
+    expect(t).toContain("node");
+    expect(t).toContain("Next.js");
+    expect(mounted?.get("[data-testid='framework-icon']").attributes("data-brand")).toBe("Next.js");
     expect(t).toContain("PID 48213 · up 2 h");
     expect(t).toContain("127.0.0.1");
     expect(t).toContain("isolated to this machine");
     expect(t).toContain("412 MB");
+    expect(t).toContain("running 2 h");
     expect(t).toContain("shop-api");
     expect(t).toContain("feature/cart");
     expect(t).toContain("cwd /Users/amit/work/shop-api");
@@ -85,75 +80,82 @@ describe("ProcessDrawer", () => {
     expect(t).toContain("└─ PID 900 (zsh)");
     expect(t).toContain("└─ PID 48213 (node) [LISTENING ON :3000]");
     expect(t).toContain("node /Users/amit/work/shop-api/node_modules/.bin/next dev");
-    const items = [...(drawer()?.querySelectorAll("[data-section='tree'] li") ?? [])];
-    const leaf = items[items.length - 1];
-    expect(leaf?.className).toContain("text-coral");
-    expect(drawer()?.getAttribute("role")).toBe("dialog");
+    const items = mounted?.findAll("[data-section='tree'] li") ?? [];
+    expect(items[items.length - 1]?.classes()).toContain("text-brand-ink");
+    expect(mounted?.get("[data-inspector]").element.tagName).toBe("ASIDE");
   });
 
   it("says when the core does not know the ancestry, the project or the command", async () => {
     const api: PortApi = { ...createMockApi(), processTree: async () => [] };
-    await mountDrawer({ ...byPort(9335), command: "" }, { api });
+    await mountInspector({ ...byPort(9335), command: "" }, { api });
     const t = text();
     expect(t).toContain("Ancestry unknown");
     expect(t).toContain("No project detected");
     expect(t).toContain("cwd unknown");
-    expect(drawer()?.querySelector("[data-section='command'] p")?.textContent?.trim()).toBe("unknown");
-    expect(button(/Copy command/)?.hasAttribute("disabled")).toBe(true);
-    expect(button(/Reveal folder/)?.hasAttribute("disabled")).toBe(true);
+    expect(mounted?.get("[data-section='command'] p").text()).toBe("unknown");
+    expect(button(/^Copy$/)?.attributes("disabled")).toBeDefined();
+    expect(button(/Reveal folder/)?.attributes("disabled")).toBeDefined();
   });
 
   it("marks a public bind and a protected process, and blocks Restart there", async () => {
-    await mountDrawer(byPort(5432), { reason: "Docker" });
+    await mountInspector(byPort(5432), { reason: "Docker" });
     const t = text();
     expect(t).toContain("*");
     expect(t).toContain("reachable from your network");
-    expect(t).toContain("com.docker.backend (PostgreSQL 16)");
+    expect(t).toContain("com.docker.backend");
+    expect(t).toContain("PostgreSQL 16");
     const restart = button(/Restart/);
-    expect(restart?.hasAttribute("disabled")).toBe(true);
-    expect(restart?.title).toContain("Docker");
+    expect(restart?.attributes("disabled")).toBeDefined();
+    expect(restart?.attributes("title")).toContain("Docker");
   });
 
   it("asks for the actions through the injected verbs", async () => {
-    const { actions } = await mountDrawer(byPort(3000));
-    button(/Restart/)?.click();
+    const { actions } = await mountInspector(byPort(3000));
+    await button(/Restart/)?.trigger("click");
     expect(actions.restart).toHaveBeenCalledWith(byPort(3000));
-    button(/^\s*Kill/)?.click();
+    await button(/^\s*Kill/)?.trigger("click");
     expect(actions.kill).toHaveBeenCalledWith(byPort(3000), false);
-    button(/Open localhost:3000/)?.click();
+    await button(/Open localhost:3000/)?.trigger("click");
     expect(actions.openInBrowser).toHaveBeenCalledWith(byPort(3000));
-    button(/Copy kill -9 48213/)?.click();
+    await button(/Copy kill -9 48213/)?.trigger("click");
     expect(actions.copyKill).toHaveBeenCalledWith(byPort(3000));
-    button(/Copy command/)?.click();
+    await button(/^Copy$/)?.trigger("click");
     expect(actions.copyCommand).toHaveBeenCalledWith(byPort(3000));
-    button(/Reveal folder/)?.click();
+    await button(/Reveal folder/)?.trigger("click");
     expect(actions.revealFolder).toHaveBeenCalledWith(byPort(3000));
   });
 
-  it("closes on the ✕ and on Esc", async () => {
-    const { wrapper } = await mountDrawer(byPort(3000));
-    drawer()?.querySelector<HTMLButtonElement>("button[aria-label='Close']")?.click();
-    await flushPromises();
+  it("asks to close on the ✕", async () => {
+    const { wrapper } = await mountInspector(byPort(3000));
+    await wrapper.get("button[aria-label='Close']").trigger("click");
     expect(wrapper.emitted("close")).toHaveLength(1);
-    drawer()?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
-    await flushPromises();
-    expect(wrapper.emitted("close")).toHaveLength(2);
   });
 
   it("tells the Restart's story: busy, the new pid, or the failure", async () => {
-    const { wrapper } = await mountDrawer(byPort(3000), { restart: { phase: "killing", pid: 48213 } });
-    const status = () => drawer()?.querySelector("[data-restart-status]")?.textContent?.trim();
-    expect(status()).toBe("Stopping node (48213)…");
-    expect(button(/Restart/)?.hasAttribute("disabled")).toBe(true);
+    const { wrapper } = await mountInspector(byPort(3000), { restart: { phase: "killing", pid: 48213 } });
+    const status = () => wrapper.find("[data-restart-status]");
+    expect(status().text()).toBe("Stopping node (48213)…");
+    expect(button(/Restart/)?.attributes("disabled")).toBeDefined();
 
     await wrapper.setProps({ restart: { phase: "started", pid: 48213, newPid: 60000 } });
-    expect(status()).toBe("Back on :3000 as pid 60000.");
-    expect(button(/Restart/)?.hasAttribute("disabled")).toBe(false);
+    expect(status().text()).toBe("Back on :3000 as pid 60000.");
+    expect(button(/Restart/)?.attributes("disabled")).toBeUndefined();
 
     await wrapper.setProps({ restart: { phase: "failed", pid: 48213, error: "ENOENT" } });
-    expect(status()).toBe("Restart failed: ENOENT");
+    expect(status().text()).toBe("Restart failed: ENOENT");
 
     await wrapper.setProps({ restart: null });
-    expect(drawer()?.querySelector("[data-restart-status]")).toBeNull();
+    expect(status().exists()).toBe(false);
+  });
+
+  it("reloads the tree when the row changes pid", async () => {
+    const api = createMockApi();
+    const processTree = vi.spyOn(api, "processTree");
+    const { wrapper } = await mountInspector(byPort(3000), { api });
+    expect(processTree).toHaveBeenCalledWith(48213);
+    await wrapper.setProps({ entry: byPort(5173) });
+    await flushPromises();
+    expect(processTree).toHaveBeenCalledWith(51022);
+    expect(text()).toContain("[LISTENING ON :5173]");
   });
 });

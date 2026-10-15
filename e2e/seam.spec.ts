@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { drawer, open, row, toasts } from "./helpers";
+import { inspector, open, row, toasts } from "./helpers";
 
 /**
  * The seam these tests do not reach: `invoke`, the tray, the shortcut, the Taskline event,
@@ -21,9 +21,9 @@ test("without Tauri the listeners are no-ops and the page does not throw", async
   expect(thrown).toEqual([]);
   expect(logged.filter((m) => m.includes("tray:select-port") || m.includes("taskline:event"))).toEqual([]);
 
-  // A drawer action that needs the core says so instead of failing silently.
+  // An inspector action that needs the core says so instead of failing silently.
   await row(page, 3000).click();
-  await drawer(page).getByRole("button", { name: "Open localhost:3000" }).click();
+  await inspector(page).getByRole("button", { name: "Open localhost:3000" }).click();
   await expect(toasts(page)).toContainText("Not available in the browser");
   expect(thrown).toEqual([]);
 });
