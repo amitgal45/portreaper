@@ -73,6 +73,42 @@ test.describe("at the minimum window size", () => {
   });
 });
 
+test.describe("at the default window size", () => {
+  test.use({ viewport: { width: 1040, height: 660 } });
+
+  test("the inspector is a 340 px column, nothing scrolls sideways, and the long project names fit", async ({
+    page,
+  }) => {
+    await open(page);
+    await row(page, 3000).click();
+    await expect(inspector(page)).toContainText("[LISTENING ON :3000]");
+    // The column is the grid track: the panel plus its 1 px left border.
+    const column = await inspector(page).locator("xpath=..").boundingBox();
+    expect(column, "inspector column has a box").not.toBeNull();
+    expect((column as { width: number }).width).toBe(340);
+    expect((column as { x: number; width: number }).x + (column as { width: number }).width).toBe(1040);
+
+    await expect
+      .poll(() =>
+        page.evaluate(() => {
+          const html = document.documentElement;
+          const list = document.querySelector('[role="grid"]');
+          return {
+            page: html.scrollWidth <= html.clientWidth,
+            list: list !== null && list.scrollWidth <= list.clientWidth,
+          };
+        }),
+      )
+      .toEqual({ page: true, list: true });
+
+    // 900×600 cut "tinyrecipe-lp" and its branch with the inspector open; 1040 shows them whole.
+    const name = group(page, "p:tinyrecipe-lp").getByText("tinyrecipe-lp", { exact: true });
+    expect(await name.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+    const branch = group(page, "p:tinyrecipe-lp").getByText("amit/TR-120-hero", { exact: true });
+    expect(await branch.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+  });
+});
+
 test("three toasts stacked leave the last row's Kill clickable", async ({ page }) => {
   await open(page);
 
