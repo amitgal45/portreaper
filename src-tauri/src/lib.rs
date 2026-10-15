@@ -6,6 +6,8 @@
 //! - `kill`      graceful then forceful termination                  (WP-1)
 //! - `project`   cwd -> project name, kind, branch, tool             (WP-2)
 //! - `classify`  the port taxonomy: category and framework           (WP-10)
+//! - `taskline`  the session log every kill lands in                 (WP-10)
+//! - `relaunch`  a killed process started again from its record      (WP-10)
 //! - `tray`      menu-bar icon, menu, close-to-hide                  (WP-4, WP-8a)
 //! - `shortcuts` the global shortcuts                                (WP-4, WP-8a)
 //! - `quick`     the Quick window that hosts "Free a port…"          (WP-8a)
@@ -22,8 +24,10 @@ mod model;
 mod ports;
 mod project;
 mod quick;
+mod relaunch;
 mod settings;
 mod shortcuts;
+mod taskline;
 mod tray;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -36,6 +40,8 @@ pub fn run() {
         .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, None))
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_process::init())
+        // One Taskline for the session: every surface records into it, every window reads it.
+        .manage(taskline::Taskline::default())
         .setup(|app| {
             tray::setup(app.handle())?;
             shortcuts::setup(app.handle())?;
@@ -47,7 +53,12 @@ pub fn run() {
             commands::list_ports,
             commands::kill_process,
             commands::free_port,
-            commands::app_version
+            commands::app_version,
+            commands::reap_zombies,
+            commands::process_tree,
+            commands::taskline_events,
+            commands::clear_taskline,
+            commands::relaunch
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
