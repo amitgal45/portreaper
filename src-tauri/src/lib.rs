@@ -12,6 +12,7 @@
 //! - `shortcuts` the global shortcuts                                (WP-4, WP-8a)
 //! - `quick`     the Quick window that hosts "Free a port…"          (WP-8a)
 //! - `settings`  settings on disk; start at login on first run       (WP-8a)
+//! - `update`    auto-update from GitHub Releases                    (WP-16)
 //! - `commands`  the thin `#[tauri::command]` layer
 //!
 //! Every plugin is registered here and allowed in `capabilities/default.json`. Add new ones in
@@ -29,24 +30,32 @@ mod settings;
 mod shortcuts;
 mod taskline;
 mod tray;
+mod update;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, None))
         .plugin(tauri_plugin_clipboard_manager::init())
-        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_process::init());
+    // The updater and the dialog that offers its finds exist on desktop only.
+    #[cfg(desktop)]
+    let builder = builder.plugin(tauri_plugin_updater::Builder::new().build()).plugin(tauri_plugin_dialog::init());
+    builder
         // One Taskline for the session: every surface records into it, every window reads it.
         .manage(taskline::Taskline::default())
+        // The update the last check found, for the banner's Update and Retry.
+        .manage(update::UpdateState::default())
         .setup(|app| {
             tray::setup(app.handle())?;
             shortcuts::setup(app.handle())?;
             settings::enable_autostart_on_first_run(app.handle());
             quick::precreate(app.handle());
+            update::setup(app.handle());
             Ok(())
         })
         .on_window_event(tray::on_window_event)
@@ -59,7 +68,9 @@ pub fn run() {
             commands::process_tree,
             commands::taskline_events,
             commands::clear_taskline,
-            commands::relaunch
+            commands::relaunch,
+            commands::check_for_updates,
+            commands::install_update
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

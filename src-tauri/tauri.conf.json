@@ -28,12 +28,21 @@
       "csp": null
     }
   },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/amitgal45/portreaper/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDVGRTdFODVDODBFREZGOTYKUldTVy8rMkFYT2puWDJBWGtLVXFuZ3Qxd3dEZnQwT2QvZjhBMEFESjA2bnp4NGdwZHNtbUV0UUMK"
+    }
+  },
   "bundle": {
     "active": true,
     "targets": [
       "app",
       "dmg"
     ],
+    "createUpdaterArtifacts": true,
     "category": "DeveloperTool",
     "shortDescription": "Kill ports. See what is behind them.",
     "longDescription": "PortReaper shows every listening port on your Mac, which project and branch it belongs to, and kills it in one click.",
