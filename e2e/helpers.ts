@@ -8,7 +8,7 @@ import type { CategoryFilter } from "../src/composables/usePorts";
  */
 
 /** Entries in the mock core. */
-export const MOCK_PORT_COUNT = 11;
+export const MOCK_PORT_COUNT = 12;
 /** Projects among them (the status line and the first card count these). */
 export const MOCK_PROJECT_COUNT = 7;
 

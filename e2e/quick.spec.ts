@@ -139,7 +139,7 @@ test("lists rows within 100 ms of load: the lost-terminal zombies first, the new
   await expect(status(option(page, 9335))).toHaveCount(0);
   await expect(brand(option(page, 9335))).toHaveCount(0);
   await expect(option(page, 5432)).toHaveCount(0);
-  await expect(header(page)).toHaveText("PortReaper · 11 ports · ⌘⇧K");
+  await expect(header(page)).toHaveText("PortReaper · 12 ports · ⌘⇧K");
   await expect(footer(page)).toHaveText("↑↓ choose · ↩ free · ⌥↩ force · esc close");
 
   // Warm: a reload paints the cached list before its first poll answers.
