@@ -96,7 +96,7 @@ describe("usePorts: search", () => {
     const ports = () => store.visibleEntries.value.map((e) => e.port);
     store.query.value = "Docker";
     await nextTick();
-    expect(ports()).toEqual([5432, 6379]);
+    expect(ports()).toEqual([5432, 5433, 6379]);
     store.query.value = "shop";
     await nextTick();
     expect(ports()).toEqual([3000]);
@@ -294,14 +294,16 @@ describe("usePorts: kill", () => {
     const docker = store.groups.value.find((g) => g.name === "postgres:16");
     const specmate = store.groups.value.find((g) => g.name === "@specmate/api");
     if (!docker || !specmate) throw new Error("mock changed");
+    // The postgres:16 group holds two backend pids since WP-20 (:5432 and the shop-db container on :5433).
     const reports = await store.killGroup(docker);
-    expect(reports).toHaveLength(1);
-    expect(killProcess).toHaveBeenCalledTimes(1);
+    expect(reports).toHaveLength(2);
+    expect(killProcess).toHaveBeenCalledTimes(2);
     expect(killProcess).toHaveBeenCalledWith({ pid: 11710, force: false });
+    expect(killProcess).toHaveBeenCalledWith({ pid: 11712, force: false });
     await store.killGroup(specmate, true);
     expect(killProcess).toHaveBeenLastCalledWith({ pid: 22104, force: true });
     await flush();
-    expect(store.entries.value.some((e) => e.port === 6379 || e.port === 8080)).toBe(false);
+    expect(store.entries.value.some((e) => [5433, 6379, 8080].includes(e.port))).toBe(false);
   });
 
   it("names the reason for a protected row", async () => {
@@ -316,7 +318,7 @@ describe("usePorts: kill", () => {
 describe("usePorts: categories (v0.2)", () => {
   it("counts the pills over the whole list and sums memory once per pid", async () => {
     const store = await loadedStore();
-    expect(store.counts.value).toEqual({ all: 11, dev: 5, ai: 1, db: 2, zombie: 2, public: 3 });
+    expect(store.counts.value).toEqual({ all: 12, dev: 5, ai: 1, db: 3, zombie: 2, public: 3 });
     // web + api + ai: 412 + 180 + 220 + 610 + 420 MB and Ollama's 4.85 GB.
     expect(Math.round(store.devMemoryBytes.value / (1024 * 1024))).toBe(1842 + Math.round(4.85 * 1024));
     // The two lost-terminal servers: tinyrecipe-lp's 220 MB and the Jekyll's 420 MB.
@@ -342,7 +344,7 @@ describe("usePorts: categories (v0.2)", () => {
     expect(ports()).toEqual([11434]);
     store.setCategory("db");
     await nextTick();
-    expect(ports()).toEqual([5432, 6379]);
+    expect(ports()).toEqual([5432, 5433, 6379]);
     store.setCategory("dev");
     await nextTick();
     // Group order as today: the user's projects by first port, the Jekyll's legacy-docs among them.
@@ -381,7 +383,7 @@ describe("usePorts: categories (v0.2)", () => {
     expect(store.entries.value.some((e) => e.orphan && !e.protected)).toBe(false);
     expect(store.counts.value.zombie).toBe(0);
     await store.refresh();
-    expect(store.entries.value).toHaveLength(9);
+    expect(store.entries.value).toHaveLength(MOCK_ENTRIES.length - 2);
   });
 
   it("counts a refusal and keeps that row", async () => {

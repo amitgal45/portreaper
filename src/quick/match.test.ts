@@ -46,7 +46,7 @@ describe("rankMatches", () => {
 
   it("matches process name, project, branch and command, case-insensitively, and trims", () => {
     const ports = (q: string) => rankMatches(MOCK_ENTRIES, q).map((e) => e.port);
-    expect(ports("Docker")).toEqual([5432, 6379]);
+    expect(ports("Docker")).toEqual([5432, 5433, 6379]);
     expect(ports("  shop ")).toEqual([3000]);
     expect(ports("TR-120")).toEqual([5174]);
     expect(ports("dist/main")).toEqual([8080]);

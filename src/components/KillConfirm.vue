@@ -30,7 +30,7 @@ const title = computed(() => {
   if (!t) return "";
   switch (t.kind) {
     case "entry":
-      return `Kill ${who(t.entry)}?`;
+      return t.entry.container ? `Stop container ${t.entry.container}?` : `Kill ${who(t.entry)}?`;
     case "group":
       return `Kill everything in ${t.group.name}?`;
     case "zombies":
@@ -42,6 +42,18 @@ const description = computed(() => {
   const t = props.target;
   if (!t) return "";
   const lines: string[] = [];
+  if (t.kind === "entry" && t.entry.container) {
+    // Kill on a container stops the container (WP-20): the process, Docker's backend, is not signalled.
+    lines.push(
+      `${t.entry.container} is a Docker container publishing port ${t.entry.port}; stopping it leaves Docker running.`,
+    );
+    lines.push(
+      t.force
+        ? "This runs docker kill at once."
+        : "This runs docker stop and waits up to 3 s before docker kill.",
+    );
+    return lines.join(" ");
+  }
   if (t.kind === "entry") {
     const held = props.portsOf(t.entry.pid);
     lines.push(`${t.entry.processName} is ${props.reasonFor(t.entry)}.`);
@@ -60,7 +72,8 @@ const description = computed(() => {
     for (const e of t.group.entries) {
       if (!e.protected || seen.has(e.pid)) continue;
       seen.add(e.pid);
-      lines.push(`${e.processName} is ${props.reasonFor(e)}.`);
+      if (e.container) lines.push(`${e.container} is a Docker container: it is stopped, Docker stays up.`);
+      else lines.push(`${e.processName} is ${props.reasonFor(e)}.`);
     }
   } else {
     lines.push(`${t.count} dev servers whose terminal is gone, holding ${formatBytes(t.memoryBytes)}.`);
@@ -72,7 +85,12 @@ const description = computed(() => {
   return lines.join(" ");
 });
 
-const action = computed(() => (props.target?.kind === "zombies" ? "Reap them" : "Kill anyway"));
+const action = computed(() => {
+  const t = props.target;
+  if (t?.kind === "zombies") return "Reap them";
+  if (t?.kind === "entry" && t.entry.container) return "Stop container";
+  return "Kill anyway";
+});
 
 function onOpenChange(open: boolean) {
   if (!open) emit("cancel");

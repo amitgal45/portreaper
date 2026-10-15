@@ -47,6 +47,7 @@ function classifyMock(port: number): { category: Category; framework: string | n
     5000: ["api", null],
     4000: ["api", null],
     5432: ["db", "PostgreSQL 16"],
+    5433: ["db", "PostgreSQL 16"],
     6379: ["db", "Redis 7"],
     27017: ["db", "MongoDB"],
     11434: ["ai", "Ollama"],
@@ -159,6 +160,19 @@ export const MOCK_ENTRIES: PortEntry[] = [
     memoryBytes: 1200 * 1024 * 1024,
     startedAt: now - 3 * 24 * 3600,
     protected: true,
+    project: { name: "postgres:16", root: "", kind: "unknown", branch: null, tool: "docker" },
+  }),
+  // The one container the mock names (WP-20), on its own port and under a second backend
+  // process, so the Docker rows above and the counts the earlier specs assert stay as they are.
+  entry({
+    port: 5433,
+    pid: 11712,
+    processName: "com.docker.backend",
+    command: "/Applications/Docker.app/Contents/MacOS/com.docker.backend",
+    memoryBytes: 1200 * 1024 * 1024,
+    startedAt: now - 3 * 24 * 3600,
+    protected: true,
+    container: "shop-db",
     project: { name: "postgres:16", root: "", kind: "unknown", branch: null, tool: "docker" },
   }),
   entry({
@@ -304,8 +318,22 @@ export function createMockApi(seed: PortEntry[] = MOCK_ENTRIES): PortApi {
     const victim = entries.find((e) => e.pid === request.pid);
     if (!victim) return { status: "notFound", pid: request.pid };
     if (victim.pid <= 1) return { status: "refused", pid: request.pid, reason: "launchd" };
-    entries = entries.filter((e) => e.pid !== request.pid);
     const waitedMs = request.force ? 0 : 180;
+    if (victim.container) {
+      // The core stops the container and leaves Docker's backend alone (WP-20): only that port
+      // goes, nothing comes back to relaunch, and the sentence names the container.
+      entries = entries.filter((e) => !(e.pid === victim.pid && e.container === victim.container));
+      record(
+        request.force ? "forceKilled" : "portFreed",
+        // The backend keeps its memory: nothing came back that the feed could count.
+        { ...victim, memoryBytes: 0 },
+        waitedMs,
+        `${request.force ? "Killed" : "Stopped"} container ${victim.container}. Port ${victim.port} is free.`,
+        false,
+      );
+      return { status: "killed", pid: request.pid, graceful: !request.force, waitedMs };
+    }
+    entries = entries.filter((e) => e.pid !== request.pid);
     const verb = request.force ? "Force-killed" : "Killed";
     record(
       request.force ? "forceKilled" : "portFreed",

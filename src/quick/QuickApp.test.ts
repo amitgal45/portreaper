@@ -54,7 +54,7 @@ describe("QuickApp", () => {
     expect(options[1]?.classes()).not.toContain("bg-sel");
     expect(options[1]?.classes()).not.toContain("shadow-[inset_3px_0_0_var(--brand)]");
     expect(options[4]?.find("[data-status]").text()).toBe("Public");
-    expect(wrapper.find("header").text()).toBe("PortReaper · 11 ports · ⌘⇧K");
+    expect(wrapper.find("header").text()).toBe("PortReaper · 12 ports · ⌘⇧K");
     expect(wrapper.find("footer").text()).toBe("↑↓ choose · ↩ free · ⌥↩ force · esc close");
     expect(document.activeElement).toBe(wrapper.find("input").element);
   });
@@ -113,7 +113,7 @@ describe("QuickApp", () => {
     expect(ollama.find("[data-status]").attributes("data-status")).toBe("ai");
     expect(ollama.find("[data-status]").classes()).toContain("bg-purple");
     expect(ollama.find("[data-testid='framework-icon']").attributes("data-brand")).toBe("Ollama");
-    expect(wrapper.find("header").text()).toBe("PortReaper · 11 ports · ⌘⇧K");
+    expect(wrapper.find("header").text()).toBe("PortReaper · 12 ports · ⌘⇧K");
   });
 
   it("a refusal shows in the row and stays; the row is whole again afterwards", async () => {

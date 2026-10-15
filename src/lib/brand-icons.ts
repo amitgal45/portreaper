@@ -116,10 +116,13 @@ function toIcon(icon: SimpleIcon): BrandIcon {
 
 /**
  * The brand mark for an entry, or `null` when the stack is unknown: the row then falls back to a
- * text pill. Framework first (`Next.js` beats `node`), then the process name; a framework like
- * `PostgreSQL 16` matches on its first word.
+ * text pill. Framework first (`Next.js` beats `node`), then Docker's mark for a container whose
+ * image names nothing we draw (WP-20), then the process name; a framework like `PostgreSQL 16`
+ * matches on its first word.
  */
-export function brandIcon(entry: Pick<PortEntry, "framework" | "processName">): BrandIcon | null {
+export function brandIcon(
+  entry: Pick<PortEntry, "framework" | "processName"> & { container?: string | null },
+): BrandIcon | null {
   const framework = entry.framework?.toLowerCase().trim();
   if (framework) {
     const exact = BY_FRAMEWORK[framework];
@@ -128,6 +131,7 @@ export function brandIcon(entry: Pick<PortEntry, "framework" | "processName">): 
     const byWord = BY_FRAMEWORK[firstWord];
     if (byWord) return toIcon(byWord);
   }
+  if (entry.container) return toIcon(siDocker);
   const process = entry.processName.toLowerCase().trim();
   const byProcess = BY_PROCESS[process];
   return byProcess ? toIcon(byProcess) : null;

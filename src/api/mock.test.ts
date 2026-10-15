@@ -86,3 +86,45 @@ describe("mock api v0.2", () => {
     expect((await api.tasklineEvents()).map((e) => e.kind)).toEqual(["zombieReaped", "zombieReaped"]);
   });
 });
+
+describe("mock api v0.3", () => {
+  it("names one container on its own port, and stops it without touching the other Docker rows", async () => {
+    expect(MOCK_ENTRIES.filter((e) => e.container !== null).map((e) => e.port)).toEqual([5433]);
+    const api = createMockApi();
+    const shopDb = (await api.listPorts()).find((e) => e.port === 5433);
+    expect(shopDb).toMatchObject({
+      container: "shop-db",
+      processName: "com.docker.backend",
+      category: "db",
+      framework: "PostgreSQL 16",
+      protected: true,
+      bind: "loopback",
+      project: { name: "postgres:16", root: "", tool: "docker" },
+    });
+
+    const outcome = await api.killProcess({ pid: shopDb?.pid ?? -1, force: false });
+    expect(outcome).toEqual({ status: "killed", pid: 11712, graceful: true, waitedMs: 180 });
+    const left = await api.listPorts();
+    expect(left.some((e) => e.port === 5433)).toBe(false);
+    expect(left.filter((e) => e.processName === "com.docker.backend").map((e) => e.port)).toEqual([
+      5432, 6379,
+    ]);
+    const [event] = await api.tasklineEvents();
+    expect(event).toMatchObject({
+      kind: "portFreed",
+      port: 5433,
+      pid: 11712,
+      project: "postgres:16",
+      message: "Stopped container shop-db. Port 5433 is free.",
+      relaunchable: false,
+    });
+    expect(await api.relaunch(event?.id ?? -1)).toMatchObject({ status: "failed" });
+
+    const forced = createMockApi();
+    await forced.killProcess({ pid: 11712, force: true });
+    expect((await forced.tasklineEvents())[0]).toMatchObject({
+      kind: "forceKilled",
+      message: "Killed container shop-db. Port 5433 is free.",
+    });
+  });
+});
