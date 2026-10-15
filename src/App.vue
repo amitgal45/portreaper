@@ -12,12 +12,15 @@ import {
   DialogTitle,
   TooltipProvider,
 } from "reka-ui";
-import { computed, onMounted, onUnmounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { provideApi } from "./api";
+import { onOpenPreferences } from "./api/events";
 import { copyText, openInBrowser, revealFolder } from "./api/system";
 import Inspector from "./components/Inspector.vue";
 import KillConfirm from "./components/KillConfirm.vue";
+import Onboarding from "./components/Onboarding.vue";
 import PortTable from "./components/PortTable.vue";
+import SettingsView from "./components/SettingsView.vue";
 import Sidebar, { type View } from "./components/Sidebar.vue";
 import StatsBar from "./components/StatsBar.vue";
 import StatusLine from "./components/StatusLine.vue";
@@ -29,6 +32,7 @@ import { useInspector } from "./composables/useInspector";
 import { useKeyboard } from "./composables/useKeyboard";
 import { useKillFlow } from "./composables/useKillFlow";
 import { usePorts } from "./composables/usePorts";
+import { demoOnboarding, useSettings } from "./composables/useSettings";
 import { useTaskline } from "./composables/useTaskline";
 import { useToasts } from "./composables/useToasts";
 import { selectFromTray, useTrayListener } from "./composables/useTray";
@@ -36,10 +40,14 @@ import { demoUpdate, useUpdate } from "./composables/useUpdate";
 import type { PortEntry } from "./types";
 
 const api = provideApi();
-const ports = usePorts(api);
+// The preferences (WP-17b): the poll interval and the Kill base read from them; in a browser,
+// `?onboarding=1` shows the first-run card over the mock's dismissed flag.
+const settings = useSettings(api, { onboarding: demoOnboarding(location.search) });
+const prefs = settings.settings;
+const ports = usePorts(api, { intervalMs: () => prefs.value.refreshMs });
 const toasts = useToasts();
 const taskline = useTaskline(api, toasts);
-const flow = useKillFlow(ports, toasts, taskline);
+const flow = useKillFlow(ports, toasts, taskline, { defaultForce: () => prefs.value.defaultForce });
 const inspector = useInspector(ports, flow);
 // The sidebar's update banner (WP-16): fed by the core's events; in a browser, `?update=1` shows the demo.
 const update = useUpdate(api, { seed: demoUpdate(location.search) });
@@ -63,6 +71,11 @@ const {
 } = ports;
 
 const view = ref<View>("studio");
+// Preferences re-reads the core each time it opens: a change made elsewhere (the tray) shows even
+// if its event was missed, and in a browser a second read proves the mock kept the value.
+watch(view, (now) => {
+  if (now === "settings") void settings.load();
+});
 const toolbar = ref<{ focus(mode?: "all" | "end"): Promise<void> } | null>(null);
 /** Rows that match the search and the filter; the status line says "N of M ports" while fewer than M. */
 const shown = computed(() => groups.value.reduce((n, g) => n + g.entries.length, 0));
@@ -111,11 +124,14 @@ async function thenRefreshTaskline(action: Promise<void>) {
   await taskline.refresh();
 }
 
+// A Kill button hands over its ⌥ state; the preference is the base and ⌥ flips it either way.
 provideActions({
   select: (entry) => ports.select(entry),
   inspect,
-  kill: (entry, force) => void thenRefreshTaskline(flow.request({ kind: "entry", entry, force })),
-  killGroup: (group, force) => void thenRefreshTaskline(flow.request({ kind: "group", group, force })),
+  kill: (entry, alt) =>
+    void thenRefreshTaskline(flow.request({ kind: "entry", entry, force: flow.forceFor(alt) })),
+  killGroup: (group, alt) =>
+    void thenRefreshTaskline(flow.request({ kind: "group", group, force: flow.forceFor(alt) })),
   restart: (entry) => void restart(entry),
   reap: () => void thenRefreshTaskline(flow.reap()),
   toggleGroup: (key) => ports.toggleGroup(key),
@@ -131,16 +147,19 @@ const keyboard = useKeyboard(
     down: () => ports.selectNext(),
     enter: () => {
       const entry = ports.selected.value;
-      if (entry) void thenRefreshTaskline(flow.request({ kind: "entry", entry, force: false }));
+      if (entry)
+        void thenRefreshTaskline(flow.request({ kind: "entry", entry, force: flow.forceFor(false) }));
     },
     forceKill: () => {
       const entry = ports.selected.value;
       if (!entry) return false;
-      void thenRefreshTaskline(flow.request({ kind: "entry", entry, force: true }));
+      void thenRefreshTaskline(flow.request({ kind: "entry", entry, force: flow.forceFor(true) }));
       return true;
     },
     escape: () => {
-      if (query.value) ports.clearSearch();
+      // From Preferences, Esc is the way back; the Studio's own Esc chain is untouched.
+      if (view.value === "settings") view.value = "studio";
+      else if (query.value) ports.clearSearch();
       else if (category.value !== "all") ports.setCategory("all");
       else ports.clearSelection();
     },
@@ -151,6 +170,9 @@ const keyboard = useKeyboard(
     refresh: () => {
       void ports.refresh();
       void taskline.refresh();
+    },
+    preferences: () => {
+      view.value = "settings";
     },
     digit: (digit) => {
       view.value = "studio";
@@ -167,6 +189,8 @@ const tray = useTrayListener((payload) => {
   view.value = "studio";
   void selectFromTray(ports, flow, payload);
 });
+// The tray's Preferences… item (WP-17a) opens the view; a no-op outside Tauri.
+let offOpenPreferences: () => void = () => {};
 
 async function confirmed() {
   await flow.confirmed();
@@ -182,18 +206,25 @@ function onOverlayOpenChange(open: boolean) {
 }
 
 onMounted(() => {
+  void settings.load();
+  settings.start();
   ports.start();
   taskline.start();
   keyboard.start();
   void tray.start();
+  offOpenPreferences = onOpenPreferences(() => {
+    view.value = "settings";
+  });
   update.start();
 });
 onUnmounted(() => {
   update.stop();
+  offOpenPreferences();
   tray.stop();
   keyboard.stop();
   taskline.stop();
   ports.stop();
+  settings.stop();
 });
 </script>
 
@@ -215,7 +246,9 @@ onUnmounted(() => {
       />
 
       <section class="@container/main flex min-h-0 min-w-0 flex-col">
+        <!-- Preferences brings its own strip; the toolbar stays mounted so the search keeps its text and focus target. -->
         <Toolbar
+          v-show="view !== 'settings'"
           ref="toolbar"
           v-model:query="query"
           :view="view"
@@ -226,6 +259,14 @@ onUnmounted(() => {
           @clear="taskline.clear()"
         />
         <template v-if="view === 'studio'">
+          <!-- The first run (WP-17b): where the app lives and the one shortcut. Got it stores the flag. -->
+          <Onboarding
+            v-if="!prefs.onboardingDone"
+            :start-at-login="prefs.startAtLogin"
+            :quick-shortcut="prefs.quickShortcut"
+            @update:start-at-login="(on) => settings.patch({ field: 'startAtLogin', value: on })"
+            @done="settings.patch({ field: 'onboardingDone', value: true })"
+          />
           <StatsBar
             :total="total"
             :projects="projectCount"
@@ -249,12 +290,20 @@ onUnmounted(() => {
           />
         </template>
         <TasklineView
-          v-else
+          v-else-if="view === 'taskline'"
           :events="taskline.events.value"
           :loaded="taskline.loaded.value"
           :relaunching="taskline.relaunching"
           :can-relaunch="taskline.canRelaunch"
           @relaunch="(id) => void taskline.relaunch(id).then(() => ports.refresh())"
+        />
+        <SettingsView
+          v-else
+          :settings="prefs"
+          :error="settings.error"
+          :saved="settings.saved"
+          :version="version"
+          @patch="(p) => settings.patch(p)"
         />
         <!-- In the flow, between the table and the status line: the table shrinks while toasts are up. -->
         <ToastList :toasts="toasts.toasts.value" @dismiss="toasts.dismiss" />
