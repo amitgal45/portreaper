@@ -8,7 +8,7 @@ app shows it in its update dialog. Add a section for every release before taggin
 ## 0.3.0
 
 - WP-17a: Preferences in the core: Dock icon, start at login, shortcuts, refresh rate, notifications; one universal build for Intel and Apple Silicon.
-- WP-17b: The Preferences view (⌘,) and a first-run card.
+- Preferences, in the window (⌘, or the sidebar's Settings): Show in Dock, Start at login, the refresh rate, both shortcuts with a recorder, Kill sends SIGKILL at once, Notifications, and Check for Updates. Every change saves as you make it. A first-run card says where the app lives and what ⌘⇧K does.
 - WP-18: Watch a port: a notification when it frees up or gets taken.
 - WP-19: Text contrast at AA everywhere; a wider default window.
 - WP-20: Docker containers by name; Kill stops the container.
