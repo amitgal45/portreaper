@@ -45,6 +45,9 @@ Part of: PortReaper (`~/work/portreaper`). Startup-wide rules come from the pare
   3. On `main`: `git tag vX.Y.Z && git push origin vX.Y.Z`. `.github/workflows/release.yml`
      refuses a tag that does not match the app version, then builds, signs and publishes the
      release with the `.dmg`, the `.app.tar.gz` + `.sig` and `latest.json`.
+- `createUpdaterArtifacts` lives in `src-tauri/tauri.release.conf.json`, which only the release
+  job merges in (`--config`): with it on, the Tauri CLI refuses to build without the private key,
+  and CI's unsigned `pnpm tauri build --bundles app` has none. Keep it out of `tauri.conf.json`.
 - The signing key. Private: `~/.tauri/portreaper.key`, and in the repository's Actions secrets
   `TAURI_SIGNING_PRIVATE_KEY` / `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` (empty). Public:
   `~/.tauri/portreaper.key.pub`, pasted into `tauri.conf.json`. Never commit, print, copy or move

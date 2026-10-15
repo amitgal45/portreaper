@@ -20,6 +20,10 @@ const conf = JSON.parse(read("src-tauri/tauri.conf.json")) as {
   bundle: { createUpdaterArtifacts?: boolean; targets?: string[] };
   plugins?: { updater?: { endpoints?: string[]; pubkey?: string } };
 };
+/** Merged over tauri.conf.json by the release workflow only (`--config`). */
+const releaseConf = JSON.parse(read("src-tauri/tauri.release.conf.json")) as {
+  bundle?: { createUpdaterArtifacts?: boolean };
+};
 const cargo = read("src-tauri/Cargo.toml");
 
 /** The `version = "…"` line of the `[package]` table, not a dependency's. */
@@ -61,8 +65,11 @@ describe("updater configuration", () => {
     );
   });
 
-  it("builds the signed updater artifacts next to the app and the dmg", () => {
-    expect(conf.bundle.createUpdaterArtifacts).toBe(true);
+  it("builds the signed updater artifact in the release job only, next to the app and the dmg", () => {
+    // With it on, the Tauri CLI refuses to build without the private key; CI's unsigned build
+    // (`pnpm tauri build --bundles app`, no key) must keep passing, so the base config leaves it off.
+    expect(conf.bundle.createUpdaterArtifacts).toBeUndefined();
+    expect(releaseConf.bundle?.createUpdaterArtifacts).toBe(true);
     expect(conf.bundle.targets).toEqual(["app", "dmg"]);
   });
 });

@@ -42,7 +42,6 @@
       "app",
       "dmg"
     ],
-    "createUpdaterArtifacts": true,
     "category": "DeveloperTool",
     "shortDescription": "Kill ports. See what is behind them.",
     "longDescription": "PortReaper shows every listening port on your Mac, which project and branch it belongs to, and kills it in one click.",

@@ -69,9 +69,11 @@ jobs:
             echo "$delimiter"
           } >> "$GITHUB_OUTPUT"
 
-      # Runs `pnpm tauri build` (app + dmg, and with createUpdaterArtifacts the .app.tar.gz, which
-      # the private key signs), creates the release for the tag and uploads the artifacts plus
-      # latest.json. The private key never leaves the secrets; only its public half is in the repo.
+      # Runs `pnpm tauri build` (app + dmg, and the .app.tar.gz the private key signs), creates
+      # the release for the tag and uploads the artifacts plus latest.json. The updater artifact
+      # is switched on here only (src-tauri/tauri.release.conf.json merged over tauri.conf.json):
+      # with it on, the Tauri CLI refuses to build without the private key, and CI's unsigned
+      # build has none. The private key never leaves the secrets; its public half is in the repo.
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -84,3 +86,4 @@ jobs:
           releaseDraft: false
           prerelease: false
           includeUpdaterJson: true
+          args: --config src-tauri/tauri.release.conf.json
