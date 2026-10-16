@@ -85,17 +85,42 @@ jobs:
       # under both `darwin-aarch64` and `darwin-x86_64` (plus the `-app` variants) in
       # latest.json, which is what an installed native build looks up; `darwin-universal` is only
       # written with `updaterJsonKeepUniversal`, and nothing looks it up.
+      # Developer ID signing and notarization, done by the Tauri bundler from six secrets: it
+      # imports the certificate (a base64 .p12) into a throwaway keychain, signs every binary
+      # with the hardened runtime, submits the bundle to Apple's notary service with the Apple
+      # ID + app-specific password + team id, and staples the ticket. A missing secret has to
+      # stop the run here: with no identity the CLI signs nothing, and Apple Silicon Gatekeeper
+      # reports the downloaded copy as "damaged" with no way to open it. Setting the six:
+      # CLAUDE.md, "Signing". CI's PR build stays ad-hoc ("-"); fork PRs get no secrets.
+      - name: The six Apple secrets must be set
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          missing=""
+          for name in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
+            [ -n "${!name}" ] || missing="$missing $name"
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::repository secrets missing:$missing. Set them (CLAUDE.md, Signing) before tagging; an unsigned release opens as damaged." >&2
+            exit 1
+          fi
+
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          # "-" is an ad-hoc signature: no Developer ID yet, but the bundle gets a real
-          # _CodeSignature. Without it Tauri signs nothing and Apple Silicon Gatekeeper reports a
-          # downloaded copy as "damaged" with no way to open it. With it the user gets the normal
-          # "Apple could not verify" dialog and Open Anyway. A Developer ID plus notarization
-          # replaces this line with the APPLE_* secrets (see CLAUDE.md).
-          APPLE_SIGNING_IDENTITY: "-"
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
           tagName: v__VERSION__
           releaseName: "PortReaper v__VERSION__"

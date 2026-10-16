@@ -65,11 +65,12 @@ second time. Esc backs out one step: disarms, clears the query, hides the strip.
 
 ## Install
 
-**First launch of a downloaded build.** PortReaper is not yet signed with an Apple Developer ID,
-so macOS shows "Apple could not verify PortReaper" the first time and does not open it. Click
-Done, then System Settings → Privacy & Security → scroll down to "PortReaper was blocked" →
-**Open Anyway** (once per install; right-click → Open no longer works on macOS 15). If macOS calls
-the app "damaged" instead (builds before 0.2.1), clear the download flag and open it:
+**First launch of a downloaded build.** From 0.3.0 the app is signed with an Apple Developer ID
+and notarized: it opens like any other app. The 0.2.x builds were only ad-hoc signed, so macOS
+shows "Apple could not verify PortReaper" the first time and does not open it. Click Done, then
+System Settings → Privacy & Security → scroll down to "PortReaper was blocked" → **Open Anyway**
+(once per install; right-click → Open no longer works on macOS 15). If macOS calls the app
+"damaged" instead (builds before 0.2.1), clear the download flag and open it:
 
 ```bash
 xattr -cr /Applications/PortReaper.app
@@ -125,10 +126,12 @@ the contract between the two. The look is described in [`design/README.md`](desi
 
 ## FAQ
 
-**Why is the app unsigned?**
-There is no Apple Developer certificate yet. An app you build yourself opens normally. A
-downloaded build carries macOS's quarantine flag and is refused on first launch: open
-System Settings → Privacy & Security and click "Open Anyway", or run
+**Is the app signed?**
+From 0.3.0, yes: Developer ID Application, hardened runtime, notarized by Apple and stapled, so
+a downloaded build opens on first launch. Updates are checked against the minisign public key
+built into the app on top of that (see Updates). An app you build yourself is ad-hoc signed and
+opens normally on your own Mac. A 0.2.x download is refused on first launch: open System
+Settings → Privacy & Security and click "Open Anyway", or run
 `xattr -dr com.apple.quarantine PortReaper.app`.
 
 **What does it read, and where does it go?**
