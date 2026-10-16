@@ -22,6 +22,8 @@ app shows it in its update dialog. Add a section for every release before taggin
 - Docker containers by name: a port a container publishes shows the container instead of
   `com.docker.backend`, its image names the stack (PostgreSQL, Redis, Ollama…), and Kill stops
   the container (`docker stop`; ⌥ for `docker kill`) instead of taking Docker Desktop down.
+- Signed with a Developer ID and notarized by Apple: a downloaded build opens on first launch,
+  with no "Open Anyway".
 
 ## 0.2.1
 

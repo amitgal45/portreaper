@@ -53,8 +53,16 @@ Part of: PortReaper (`~/work/portreaper`). Startup-wide rules come from the pare
   `~/.tauri/portreaper.key.pub`, pasted into `tauri.conf.json`. Never commit, print, copy or move
   the private key; an app built with a different key cannot verify these releases, and a lost
   key means every installed app stops updating until it is reinstalled by hand.
-- Signing: release builds are ad-hoc signed (`APPLE_SIGNING_IDENTITY: "-"` in both workflows) so a
-  downloaded bundle is intact; Gatekeeper still warns. Notarization needs an Apple Developer ID:
-  set the `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`, `APPLE_ID`,
-  `APPLE_PASSWORD` (app-specific) and `APPLE_TEAM_ID` secrets and drop the `"-"`; tauri-action
-  notarizes on its own.
+- Signing: release builds are signed with the owner's Developer ID and notarized by Apple. The six
+  `APPLE_*` repository secrets (`APPLE_CERTIFICATE` = the `.p12` as base64, `APPLE_CERTIFICATE_PASSWORD`,
+  `APPLE_SIGNING_IDENTITY` = `Developer ID Application: <name> (<team id>)`, `APPLE_ID`,
+  `APPLE_PASSWORD` = an app-specific password, `APPLE_TEAM_ID`) go to tauri-action's env; the
+  Tauri bundler imports the certificate into a throwaway keychain, signs with the hardened
+  runtime, notarizes with `notarytool` and staples the ticket. `release.yml` refuses to run with
+  any of the six missing: a bundle the CLI does not sign opens as "damaged" on Apple Silicon.
+  CI's PR build stays ad-hoc (`APPLE_SIGNING_IDENTITY: "-"`), because fork PRs get no secrets.
+  Setting or renewing the secrets (the certificate expires after five years):
+  `ops/runbooks/apple-signing.md` in the meta-repo runs `ops/scripts/apple-secrets.sh`. The
+  certificate's private key lives in the owner's login keychain; never export, print or commit
+  it outside that script. Check a release with `spctl -a -vv PortReaper.app`
+  ("source=Notarized Developer ID") and `xcrun stapler validate PortReaper.app`.
