@@ -238,4 +238,24 @@ describe("PortRow", () => {
     expect(other.find("[data-badge='watched']").exists()).toBe(false);
     other.unmount();
   });
+
+  it("renders stdio instead of 0 for a portless orphan row (WP-23)", () => {
+    const mcp: PortEntry = {
+      ...byPort(5174),
+      port: 0,
+      pid: 61204,
+      address: "stdio",
+      processName: "mcp-server-filesystem",
+      category: "ai",
+      framework: "MCP",
+    };
+    const row = mountRow(mcp, spies());
+    expect(row.get("[role='row'] > span").text()).toBe("stdio");
+    expect(pillsOf(row)).toEqual([
+      ["zombie", "Zombie"],
+      ["ai", "AI · 220 MB"],
+      ["framework", "MCP"],
+    ]);
+    row.unmount();
+  });
 });

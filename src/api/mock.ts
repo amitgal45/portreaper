@@ -256,6 +256,58 @@ export const MOCK_ENTRIES: PortEntry[] = [
   }),
 ];
 
+/**
+ * Portless (`stdio`) agent & browser zombies (`WP-23`), added to `mockApi` when `?stdio=1` is in
+ * the URL so default `MOCK_ENTRIES` counts stay unchanged for existing specs.
+ */
+export const MOCK_STDIO_ZOMBIES: PortEntry[] = [
+  entry({
+    port: 0,
+    pid: 74910,
+    processName: "node",
+    category: "ai",
+    framework: "MCP",
+    address: "stdio",
+    command: "npx -y @modelcontextprotocol/server-filesystem /Users/amit/work/shop-api",
+    cwd: "/Users/amit/work/shop-api",
+    memoryBytes: 640 * 1024 * 1024,
+    startedAt: now - 18 * 3600,
+    parentPid: 1,
+    orphan: true,
+    protected: false,
+    project: {
+      name: "shop-api",
+      root: "/Users/amit/work/shop-api",
+      kind: "node",
+      branch: "feature/cart",
+      tool: "mcp",
+    },
+  }),
+  entry({
+    port: 0,
+    pid: 74911,
+    processName: "chrome-headless-shell",
+    category: "web",
+    framework: "Playwright",
+    address: "stdio",
+    command:
+      "/Users/amit/Library/Caches/ms-playwright/chromium_headless_shell-1208/chrome-headless-shell --headless",
+    cwd: "/Users/amit/work/portreaper",
+    memoryBytes: 920 * 1024 * 1024,
+    startedAt: now - 8 * 3600,
+    parentPid: 1,
+    orphan: true,
+    protected: false,
+    project: {
+      name: "portreaper",
+      root: "/Users/amit/work/portreaper",
+      kind: "node",
+      branch: "main",
+      tool: "playwright",
+    },
+  }),
+];
+
 export function createMockApi(seed: PortEntry[] = MOCK_ENTRIES): PortApi {
   let entries = seed.map((e) => ({ ...e }));
   const events: TasklineEvent[] = [];
@@ -339,7 +391,9 @@ export function createMockApi(seed: PortEntry[] = MOCK_ENTRIES): PortApi {
       request.force ? "forceKilled" : "portFreed",
       victim,
       waitedMs,
-      `${verb} ${victim.processName} (${victim.pid}). Port ${victim.port} is free.`,
+      victim.port === 0
+        ? `${verb} ${victim.processName} (${victim.pid}).`
+        : `${verb} ${victim.processName} (${victim.pid}). Port ${victim.port} is free.`,
       !victim.protected && victim.command !== "" && victim.cwd !== null,
     );
     return { status: "killed", pid: request.pid, graceful: !request.force, waitedMs };
@@ -378,7 +432,10 @@ export function createMockApi(seed: PortEntry[] = MOCK_ENTRIES): PortApi {
         const ev = events[0];
         if (outcome.status === "killed" && ev && ev.pid === z.pid) {
           ev.kind = "zombieReaped";
-          ev.message = `Reaped ${z.processName} (${z.pid}), a lost-terminal server on port ${z.port}.`;
+          ev.message =
+            z.port === 0
+              ? `Reaped ${z.processName} (${z.pid}), an orphaned background process.`
+              : `Reaped ${z.processName} (${z.pid}), a lost-terminal server on port ${z.port}.`;
         }
         return outcome;
       });
@@ -401,7 +458,9 @@ export function createMockApi(seed: PortEntry[] = MOCK_ENTRIES): PortApi {
         "relaunched",
         back,
         0,
-        `Relaunched ${back.processName} on port ${back.port} (new pid ${pid}).`,
+        back.port === 0
+          ? `Relaunched ${back.processName} (new pid ${pid}).`
+          : `Relaunched ${back.processName} on port ${back.port} (new pid ${pid}).`,
         false,
       );
       return { status: "started", pid };
@@ -428,4 +487,11 @@ export function createMockApi(seed: PortEntry[] = MOCK_ENTRIES): PortApi {
   };
 }
 
-export const mockApi: PortApi = createMockApi();
+const stdioDemo =
+  typeof window !== "undefined" &&
+  typeof window.location?.search === "string" &&
+  new URLSearchParams(window.location.search).get("stdio") === "1";
+
+export const mockApi: PortApi = createMockApi(
+  stdioDemo ? [...MOCK_ENTRIES, ...MOCK_STDIO_ZOMBIES] : MOCK_ENTRIES,
+);

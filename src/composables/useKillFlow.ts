@@ -28,11 +28,17 @@ export function killMessage(report: KillReport): { message: string; kind: ToastK
   const { entry, outcome } = report;
   const who = `${entry.processName} (${entry.pid})`;
   switch (outcome.status) {
-    case "killed":
+    case "killed": {
+      const verb = outcome.graceful ? "Killed" : "Force-killed";
+      const freed = report.ports.filter((p) => p > 0);
       return {
-        message: `${outcome.graceful ? "Killed" : "Force-killed"} ${who}. ${formatPorts(report.ports)} ${report.ports.length === 1 ? "is" : "are"} free.`,
+        message:
+          freed.length === 0
+            ? `${verb} ${who}.`
+            : `${verb} ${who}. ${formatPorts(freed)} ${freed.length === 1 ? "is" : "are"} free.`,
         kind: "info",
       };
+    }
     case "notFound":
       return { message: `${who} is already gone.`, kind: "info" };
     case "refused":

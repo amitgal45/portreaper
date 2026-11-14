@@ -5,6 +5,18 @@ section whose heading matches the tag (`v0.2.0` → `## 0.2.0`) into the GitHub 
 app shows it in its update dialog. Add a section for every release before tagging it
 (the recipe is in `CLAUDE.md`).
 
+## 0.4.0
+
+- **Agent & MCP Zombie Reaper (WP-23):** Detects orphaned background dev and agent processes that
+  have been re-parented to `launchd` (`PID 1`) even when they hold no listening port (`stdio`),
+  including `mcp-server-*` / `@modelcontextprotocol/*` / `fastmcp`, Playwright
+  `chrome-headless-shell`, `vitest`, `jest`, `esbuild`, and `rust-analyzer`.
+- Portless orphans show `stdio` in the Port column, Inspector, and Quick strip (`⌘⇧K`), are
+  grouped by project and git branch, count toward the `Zombie` filter and reclaimable RAM total,
+  and are reaped in one click via **Reap zombies** or the menu bar's **Kill lost-terminal
+  servers**.
+- Added Homebrew Cask (`packaging/homebrew/portreaper.rb`) for one-command installation.
+
 ## 0.3.0
 
 - Preferences that take effect the moment they change: the Dock icon (or menu bar only), start

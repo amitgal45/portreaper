@@ -153,9 +153,16 @@ function uniform<T>(values: T[]): T | null {
 }
 
 function matches(e: PortEntry, q: string): boolean {
-  if (String(e.port).startsWith(q)) return true;
+  if (e.port > 0 && String(e.port).startsWith(q)) return true;
   if (String(e.pid) === q) return true;
-  const haystacks = [e.processName, e.project?.name ?? "", e.project?.branch ?? "", e.command];
+  const haystacks = [
+    e.processName,
+    e.framework ?? "",
+    e.project?.name ?? "",
+    e.project?.branch ?? "",
+    e.command,
+    e.port === 0 ? "stdio" : "",
+  ];
   return haystacks.some((h) => h.toLowerCase().includes(q));
 }
 
@@ -440,7 +447,9 @@ export function usePorts(api: PortApi, options: UsePortsOptions = {}) {
 
   // Killing
   function portsOf(pid: number): number[] {
-    return [...new Set(entries.value.filter((e) => e.pid === pid).map((e) => e.port))].sort((a, b) => a - b);
+    return [...new Set(entries.value.filter((e) => e.pid === pid && e.port > 0).map((e) => e.port))].sort(
+      (a, b) => a - b,
+    );
   }
 
   function reasonFor(entry: PortEntry): string {

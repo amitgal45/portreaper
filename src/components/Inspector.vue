@@ -60,11 +60,12 @@ const image = computed(() => (props.entry.project?.tool === "docker" ? props.ent
 const DOCKER_MARK = { framework: "Docker", processName: "docker" } as const;
 const isPublic = computed(() => props.entry.bind === "any");
 const bindNote = computed(() => {
+  if (props.entry.port === 0) return "no listening socket (stdio or background worker)";
   if (props.entry.bind === "any") return "reachable from your network";
   if (props.entry.bind === "loopback") return "isolated to this machine";
   return "one interface only";
 });
-const canOpen = computed(() => props.entry.protocol === "tcp");
+const canOpen = computed(() => props.entry.port > 0 && props.entry.protocol === "tcp");
 const root = computed(() => props.entry.project?.root ?? "");
 /** Restart needs something to relaunch: an unprotected process with a command and a cwd. */
 const restartBlocked = computed(() => {
@@ -85,7 +86,13 @@ const restartLine = computed(() => {
     case "relaunching":
       return { text: "Relaunching from the remembered command…", tone: "text-ink-2" };
     case "started":
-      return { text: `Back on :${props.entry.port} as pid ${r.newPid}.`, tone: "text-green-ink" };
+      return {
+        text:
+          props.entry.port === 0
+            ? `Back as pid ${r.newPid}.`
+            : `Back on :${props.entry.port} as pid ${r.newPid}.`,
+        tone: "text-green-ink",
+      };
     case "failed":
       return { text: `Restart failed: ${r.error}`, tone: "text-red-ink" };
   }
@@ -101,7 +108,7 @@ const ghost =
   <aside data-inspector class="flex h-full min-h-0 flex-col bg-surface text-[13px] text-ink">
     <header class="flex shrink-0 items-center gap-2.5 border-b border-line px-4 py-3">
       <span class="flex h-8 shrink-0 items-center rounded-lg border border-line bg-canvas px-2 font-mono text-[15px] font-semibold text-ink tabular-nums">
-        :{{ entry.port }}
+        {{ entry.port === 0 ? "stdio" : `:${entry.port}` }}
       </span>
       <div class="min-w-0 flex-1">
         <div class="flex items-center gap-1.5">
@@ -114,11 +121,12 @@ const ghost =
       <button
         type="button"
         data-action="watch"
-        class="flex h-7 w-7 shrink-0 items-center justify-center rounded-md outline-none hover:bg-hover focus-visible:ring-2 focus-visible:ring-brand/40"
-        :class="watched ? 'text-blue-ink' : 'text-ink-3 hover:text-ink'"
+        :disabled="entry.port === 0"
+        class="flex h-7 w-7 shrink-0 items-center justify-center rounded-md outline-none enabled:hover:bg-hover focus-visible:ring-2 focus-visible:ring-brand/40 disabled:opacity-40"
+        :class="watched ? 'text-blue-ink' : 'text-ink-3 enabled:hover:text-ink'"
         :aria-pressed="watched"
         aria-label="Watch"
-        :title="watched ? `Stop watching :${entry.port}` : `Watch :${entry.port} · notify when it is free`"
+        :title="entry.port === 0 ? 'No port to watch (stdio process)' : watched ? `Stop watching :${entry.port}` : `Watch :${entry.port} · notify when it is free`"
         @click="actions.watch(entry)"
       >
         <Eye :size="14" :stroke-width="2" />
@@ -190,7 +198,7 @@ const ghost =
             :style="{ paddingLeft: `${depth * 12}px` }"
             :class="depth === tree.length - 1 ? 'font-semibold text-brand-ink' : 'text-ink-2'"
           >
-            <span v-if="depth > 0" aria-hidden="true">└─ </span>PID {{ node.pid }} ({{ node.name }})<span v-if="depth === tree.length - 1"> [LISTENING ON :{{ entry.port }}]</span>
+            <span v-if="depth > 0" aria-hidden="true">└─ </span>PID {{ node.pid }} ({{ node.name }})<span v-if="depth === tree.length - 1">{{ entry.port === 0 ? " [STDIO / NO PORT]" : ` [LISTENING ON :${entry.port}]` }}</span>
           </li>
         </ol>
       </div>
@@ -210,7 +218,7 @@ const ghost =
         </p>
         <div class="flex flex-wrap gap-1.5 pt-1">
           <button type="button" :class="ghost" :disabled="!canOpen" @click="actions.openInBrowser(entry)">
-            <ExternalLink :size="11" aria-hidden="true" />Open localhost:{{ entry.port }}
+            <ExternalLink :size="11" aria-hidden="true" />{{ entry.port === 0 ? "Open in browser" : `Open localhost:${entry.port}` }}
           </button>
           <button type="button" :class="ghost" @click="actions.copyKill(entry)">
             <Copy :size="11" aria-hidden="true" />Copy kill -9 {{ entry.pid }}

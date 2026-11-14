@@ -202,6 +202,8 @@ fn counted_label(label: &str, count: usize) -> String {
 fn bulk_summary(ports: usize, processes: usize, refused: usize) -> String {
     let mut summary = if processes == 0 {
         "Could not free any port".to_string()
+    } else if ports == 0 {
+        format!("Killed {}", plural(processes, "process", "processes"))
     } else {
         format!("Freed {} · {}", plural(ports, "port", "ports"), plural(processes, "process", "processes"))
     };
@@ -227,7 +229,7 @@ fn distinct_ports(entries: &[PortEntry]) -> Vec<MenuEntry> {
     }
 
     let mut lines: Vec<Line<'_>> = Vec::new();
-    for entry in entries {
+    for entry in entries.iter().filter(|e| e.port > 0) {
         let project = entry.project.as_ref().map(|p| p.name.as_str());
         match lines.iter_mut().find(|l| l.port == entry.port && l.protocol == entry.protocol) {
             Some(line) => {
@@ -778,7 +780,7 @@ fn bulk_kill(app: &AppHandle, bulk: Bulk) {
         }
     }
     let ports: HashSet<(u16, Protocol)> =
-        entries.iter().filter(|e| freed.contains(&e.pid)).map(|e| (e.port, e.protocol)).collect();
+        entries.iter().filter(|e| e.port > 0 && freed.contains(&e.pid)).map(|e| (e.port, e.protocol)).collect();
     notify(app, &bulk_summary(ports.len(), freed.len(), refused));
     signal(app, Signal::Refresh);
 }
@@ -1087,7 +1089,23 @@ mod tests {
         assert_eq!(bulk_summary(4, 3, 0), "Freed 4 ports · 3 processes");
         assert_eq!(bulk_summary(1, 1, 0), "Freed 1 port · 1 process");
         assert_eq!(bulk_summary(2, 2, 1), "Freed 2 ports · 2 processes · 1 refused");
+        assert_eq!(bulk_summary(0, 2, 0), "Killed 2 processes");
         assert_eq!(bulk_summary(0, 0, 2), "Could not free any port · 2 refused");
+    }
+
+    #[test]
+    fn portless_orphans_are_excluded_from_port_lines_and_counts_but_included_in_bulk_orphans() {
+        let entries = vec![
+            entry(3000, Protocol::Tcp, "127.0.0.1", 10, "node"),
+            orphan(entry(0, Protocol::Tcp, "stdio", 20, "mcp-server-filesystem")),
+            orphan(with_project(entry(0, Protocol::Tcp, "stdio", 21, "chrome-headless-shell"), "shop-e2e")),
+        ];
+        let model = shortcuts_model(&entries);
+        assert_eq!(labels(&model.ports), ["Free :3000 · node"], "port 0 never appears as Free :0");
+        assert_eq!(model.header, "PortReaper · 1 port");
+        assert_eq!(tray_title(&entries), "1");
+        assert_eq!(model.orphans, [20, 21], "portless orphans are still reaped by Kill lost-terminal servers");
+        assert_eq!(model.orphans_label(), "Kill lost-terminal servers (2)");
     }
 
     #[test]

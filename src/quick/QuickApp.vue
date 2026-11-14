@@ -49,7 +49,14 @@ const PILL_CLASS: Record<Status, string> = {
 function statusOf(e: PortEntry): StatusPill | null {
   if (e.protected) return { kind: "protected", text: "Protected", title: "protected — asks twice" };
   if (isZombie(e)) {
-    return { kind: "zombie", text: "Zombie", title: "lost terminal: the shell that started it is gone" };
+    return {
+      kind: "zombie",
+      text: "Zombie",
+      title:
+        e.port === 0
+          ? "orphaned process: the agent or terminal that started it is gone"
+          : "lost terminal: the shell that started it is gone",
+    };
   }
   if (e.bind === "any") return { kind: "public", text: "Public", title: "reachable from your network" };
   if (e.category === "ai") {
@@ -171,9 +178,9 @@ onUnmounted(() => quick.stop());
                 v-if="zombie"
                 role="img"
                 aria-label="lost terminal"
-                title="lost terminal: the shell that started it is gone"
+                :title="e.port === 0 ? 'orphaned process: the agent or terminal that started it is gone' : 'lost terminal: the shell that started it is gone'"
                 class="mr-0.5 text-[13px]"
-              >⚡</span>{{ e.port }}<span v-if="e.protocol === 'udp'" class="ml-1 font-sans text-[10px] font-normal text-ink-3">udp</span>
+              >⚡</span><template v-if="e.port === 0">stdio</template><template v-else>{{ e.port }}<span v-if="e.protocol === 'udp'" class="ml-1 font-sans text-[10px] font-normal text-ink-3">udp</span></template>
             </span>
             <span class="shrink-0 truncate" style="max-width: 10rem">
               <span class="font-semibold">{{ e.processName }}</span>

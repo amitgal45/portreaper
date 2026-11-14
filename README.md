@@ -6,8 +6,8 @@ PortReaper is a small macOS app that lists every listening port on your machine,
 project and git branch behind each one, and kills the process in one click. It lives in the Dock
 and in the menu bar. Instead of `node 48213` you see `shop-api · feature/cart · vite`.
 
-Status: **v0.2 in progress, macOS only.** Nothing is released yet; what follows is what v0.2 is
-being built to do, work package by work package.
+Status: **v0.4, macOS (Universal: Apple Silicon & Intel).** Signed with an Apple Developer ID,
+notarized, and auto-updating.
 
 ![PortReaper: eleven listening ports grouped by project, the first one selected](docs/screenshot.png)
 
@@ -33,9 +33,14 @@ second time. Esc backs out one step: disarms, clears the query, hides the strip.
   behind it (name, command line, working directory, user, memory, uptime) and a category: `web`
   (3000–3010, 5173 and up, 4200), `api` (8000, 8080, 5000, 4000), `db`, `ai` (Ollama, LM Studio,
   vLLM: the ones holding gigabytes of models), `system`, `other`. When the command line gives the
-  stack away it is named: Next.js, NestJS, PostgreSQL, Ollama. A port bound to every interface
-  carries a public-LAN badge. A dev server that lost its terminal is a zombie; "Reap zombies"
-  frees them all at once.
+  stack away it is named: Next.js, NestJS, PostgreSQL, Ollama, MCP, Playwright, Vitest. A port
+  bound to every interface carries a public-LAN badge.
+- **Agent & MCP Zombie Reaper.** When an AI coding session (Claude Code, Cursor, Antigravity) or
+  a terminal closes, orphaned `mcp-server-*` (`stdio`), `chrome-headless-shell` (Playwright),
+  `vitest`/`jest` workers, `esbuild`, and `rust-analyzer` processes often get re-parented to
+  `launchd` (`PID 1`) and keep eating gigabytes of RAM without holding a port. PortReaper spots
+  both lost-terminal servers and portless `stdio` orphans, badges them as `Zombie`, shows the RAM
+  they hold, and reaps them all in one click (`Reap zombies`).
 - **The project behind the port.** Name from `package.json`, `Cargo.toml`, `pyproject.toml` or
   `go.mod` (else the folder), the git branch read from `.git/HEAD` (worktrees included), and the
   tool from the command line: `vite`, `next`, `node`, `docker`, `postgres`... When it is not sure
@@ -64,6 +69,16 @@ second time. Esc backs out one step: disarms, clears the query, hides the strip.
   the update check (below), and it carries nothing about you.
 
 ## Install
+
+### Homebrew
+
+```bash
+brew install --cask amitgal45/tap/portreaper
+```
+
+*(Or directly from the formula in this repository: `brew install --cask packaging/homebrew/portreaper.rb`.)*
+
+### Direct Download
 
 **First launch of a downloaded build.** From 0.3.0 the app is signed with an Apple Developer ID
 and notarized: it opens like any other app. The 0.2.x builds were only ad-hoc signed, so macOS

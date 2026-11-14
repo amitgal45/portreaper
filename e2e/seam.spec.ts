@@ -1,5 +1,17 @@
 import { expect, test } from "@playwright/test";
-import { inspector, MOCK_PORT_COUNT, open, row, rows, toasts, updateBanner } from "./helpers";
+import {
+  confirmDialog,
+  eventOfKind,
+  inspector,
+  MOCK_PORT_COUNT,
+  navItem,
+  open,
+  reapButton,
+  row,
+  rows,
+  toasts,
+  updateBanner,
+} from "./helpers";
 
 /**
  * The seam these tests do not reach: `invoke`, the tray, the shortcut, the Taskline event,
@@ -47,4 +59,38 @@ test("`?update=1` shows the update banner; Update walks it through to Restarting
   await expect(banner).toHaveAttribute("data-phase", "downloading");
   await expect(banner).toContainText("Restarting…");
   await expect(banner.getByRole("button")).toHaveCount(0);
+});
+
+/**
+ * The browser-only seam of WP-23: `?stdio=1` adds two portless (`port: 0`, `stdio`) agent/browser
+ * zombies (`MCP` + `Playwright`) so `stdio` inspection and bulk reaping are covered end to end.
+ */
+test("`?stdio=1` shows stdio MCP and Playwright zombies in the board, inspector, and Reap flow", async ({
+  page,
+}) => {
+  await page.goto("/?stdio=1");
+  await expect(rows(page)).toHaveCount(MOCK_PORT_COUNT + 2);
+
+  await navItem(page, "zombie").click();
+  await expect(rows(page)).toHaveCount(4);
+
+  const stdioRows = row(page, 0);
+  await expect(stdioRows).toHaveCount(2);
+  await expect(stdioRows.first()).toContainText("stdio");
+
+  await stdioRows.first().click();
+  const panel = inspector(page);
+  await expect(panel).toContainText("no listening socket (stdio or background worker)");
+  await expect(panel).toContainText("[STDIO / NO PORT]");
+  await expect(panel.getByRole("button", { name: "Watch" })).toBeDisabled();
+  await expect(panel.getByRole("button", { name: "Open in browser" })).toBeDisabled();
+
+  await reapButton(page).click();
+  await expect(confirmDialog(page)).toContainText("Reap 4 zombies?");
+  await confirmDialog(page).getByRole("button", { name: "Reap them" }).click();
+  await expect(rows(page)).toHaveCount(0);
+
+  await navItem(page, "taskline").click();
+  await expect(eventOfKind(page, "zombieReaped")).toHaveCount(4);
+  await expect(eventOfKind(page, "zombieReaped").first()).toContainText("an orphaned background process");
 });

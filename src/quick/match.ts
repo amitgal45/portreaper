@@ -33,11 +33,20 @@ enum Rank {
 }
 
 function rankOf(e: PortEntry, q: string): Rank | null {
-  const port = String(e.port);
-  if (port === q) return Rank.ExactPort;
-  if (port.startsWith(q)) return Rank.PortPrefix;
+  if (e.port > 0) {
+    const port = String(e.port);
+    if (port === q) return Rank.ExactPort;
+    if (port.startsWith(q)) return Rank.PortPrefix;
+  }
   if (String(e.pid) === q) return Rank.ExactPid;
-  const haystacks = [e.processName, e.project?.name ?? "", e.project?.branch ?? "", e.command];
+  const haystacks = [
+    e.processName,
+    e.framework ?? "",
+    e.project?.name ?? "",
+    e.project?.branch ?? "",
+    e.command,
+    e.port === 0 ? "stdio" : "",
+  ];
   return haystacks.some((h) => h.toLowerCase().includes(q)) ? Rank.Name : null;
 }
 
