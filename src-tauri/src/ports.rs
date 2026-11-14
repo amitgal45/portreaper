@@ -426,11 +426,13 @@ pub fn classify_bind(address: &str) -> BindScope {
 
 /// A process whose parent died is re-parented to launchd (pid 1). That is the signature of a dev
 /// server whose terminal closed, but also of every daemon launchd starts on purpose; owner and the
-/// executable's location tell them apart.
+/// executable's location tell them apart. A macOS GUI app (Spotify, Slack, Ollama.app) is launchd's
+/// child too, because LaunchServices starts it; an exe inside a `.app` bundle is never a lost
+/// terminal's server.
 pub fn is_orphan(parent_pid: Option<u32>, exe: Option<&str>, user: Option<&str>, current_user: Option<&str>) -> bool {
     let reparented = matches!(parent_pid, None | Some(1));
     let mine = user.is_some() && user == current_user;
-    reparented && mine && !exe.is_some_and(is_system_path)
+    reparented && mine && !exe.is_some_and(is_system_path) && !is_app_bundle(exe)
 }
 
 /// Whether killing this process deserves a second confirmation. An unknown owner counts as
@@ -669,6 +671,9 @@ mod tests {
         assert!(!is_orphan(Some(4242), Some("/opt/homebrew/bin/node"), me, me));
         // no exe known: nothing says it is a system process
         assert!(is_orphan(Some(1), None, me, me));
+        // a GUI app LaunchServices started is launchd's child by design, in /Applications or ~/Applications
+        assert!(!is_orphan(Some(1), Some("/Applications/Spotify.app/Contents/MacOS/Spotify"), me, me));
+        assert!(!is_orphan(Some(1), Some("/Users/amit/Applications/Ollama.app/Contents/Resources/ollama"), me, me));
     }
 
     #[test]

@@ -1108,6 +1108,29 @@ mod tests {
         assert_eq!(model.orphans_label(), "Kill lost-terminal servers (2)");
     }
 
+    /// An entry flagged the way the core flags it: launchd's child, owned by the current user.
+    fn launchd_child(port: u16, pid: u32, process: &str, exe: &str) -> PortEntry {
+        let me = Some("amit");
+        let mut e = entry(port, Protocol::Tcp, "127.0.0.1", pid, process);
+        e.parent_pid = Some(1);
+        e.exe = Some(exe.into());
+        e.user = me.map(str::to_string);
+        e.orphan = crate::ports::is_orphan(e.parent_pid, e.exe.as_deref(), e.user.as_deref(), me);
+        e.protected = crate::ports::is_protected(&e.process_name, e.exe.as_deref(), e.user.as_deref(), me);
+        e
+    }
+
+    #[test]
+    fn a_macos_app_reparented_to_launchd_is_not_a_lost_terminal_server() {
+        let spotify = launchd_child(57621, 30, "Spotify", "/Applications/Spotify.app/Contents/MacOS/Spotify");
+        let model = shortcuts_model(&[spotify]);
+        assert!(model.orphans.is_empty(), "Kill lost-terminal servers must never kill Spotify");
+        assert_eq!(model.orphans_label(), "Kill lost-terminal servers");
+        // control: the same construction over a dev server still counts, so the test can fail
+        let node = launchd_child(3000, 31, "node", "/opt/homebrew/bin/node");
+        assert_eq!(shortcuts_model(&[node]).orphans, [31]);
+    }
+
     #[test]
     fn preferences_sits_between_check_for_updates_and_start_at_login() {
         let labels: Vec<&str> = FOOTER.iter().map(|i| i.label()).collect();
