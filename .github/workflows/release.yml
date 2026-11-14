@@ -1,10 +1,11 @@
 name: Release
 
 # A `vX.Y.Z` tag builds the macOS app, signs the updater bundle with the minisign key in the
-# repository's secrets, and publishes a GitHub Release carrying the .dmg, the .app.tar.gz with its
-# .sig, and the latest.json the running app checks (`plugins.updater.endpoints` in
-# src-tauri/tauri.conf.json). The recipe that gets here is in CLAUDE.md: a `## X.Y.Z` section at
-# the top of CHANGELOG.md, the three version fields bumped in one commit, then the tag.
+# `release` environment's secrets, and publishes a GitHub Release carrying the .dmg, the
+# .app.tar.gz with its .sig, and the latest.json the running app checks
+# (`plugins.updater.endpoints` in src-tauri/tauri.conf.json). The recipe that gets here is in
+# CLAUDE.md: a `## X.Y.Z` section at the top of CHANGELOG.md, the three version fields bumped in
+# one commit, then the tag.
 on:
   push:
     tags: ["v*"]
@@ -16,6 +17,12 @@ jobs:
   release:
     name: Build, sign and publish (macOS)
     runs-on: macos-latest
+    # The signing secrets live in the `release` environment, not in the repository. The
+    # environment admits only `v*` tags and waits for the owner's approval, so a workflow on a
+    # branch, or a tag nobody approved, cannot read them. A repository secret is readable by
+    # every workflow a collaborator pushes to any branch. The run pauses here until the owner
+    # approves it under Actions → the run → Review deployments.
+    environment: release
     steps:
       - uses: actions/checkout@v4
 
@@ -106,7 +113,7 @@ jobs:
             [ -n "${!name}" ] || missing="$missing $name"
           done
           if [ -n "$missing" ]; then
-            echo "::error::repository secrets missing:$missing. Set them (CLAUDE.md, Signing) before tagging; an unsigned release opens as damaged." >&2
+            echo "::error::release environment secrets missing:$missing. Set them (CLAUDE.md, Signing) before tagging; an unsigned release opens as damaged." >&2
             exit 1
           fi
 

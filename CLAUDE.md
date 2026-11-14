@@ -42,25 +42,31 @@ Part of: PortReaper (`~/work/portreaper`). Startup-wide rules come from the pare
   2. Bump `version` in `package.json`, `src-tauri/tauri.conf.json` and `src-tauri/Cargo.toml` in
      one commit (`src/lib/version-parity.test.ts` fails on a mismatch; run `cargo build` so
      `Cargo.lock` follows), and let the owner merge it.
-  3. On `main`: `git tag vX.Y.Z && git push origin vX.Y.Z`. `.github/workflows/release.yml`
-     refuses a tag that does not match the app version, then builds, signs and publishes the
-     release with the `.dmg`, the `.app.tar.gz` + `.sig` and `latest.json`.
+  3. On `main`: `git tag vX.Y.Z && git push origin vX.Y.Z`. Only the owner can create a `v*` tag
+     (the `release tags` ruleset). `.github/workflows/release.yml` then waits for the owner's
+     approval of the `release` environment (Actions → the run → Review deployments), refuses a
+     tag that does not match the app version, and builds, signs and publishes the release with
+     the `.dmg`, the `.app.tar.gz` + `.sig` and `latest.json`.
 - `createUpdaterArtifacts` lives in `src-tauri/tauri.release.conf.json`, which only the release
   job merges in (`--config`): with it on, the Tauri CLI refuses to build without the private key,
   and CI's unsigned `pnpm tauri build --bundles app` has none. Keep it out of `tauri.conf.json`.
-- The signing key. Private: `~/.tauri/portreaper.key`, and in the repository's Actions secrets
-  `TAURI_SIGNING_PRIVATE_KEY` / `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` (empty). Public:
+- The signing key. Private: `~/.tauri/portreaper.key`, and in the `release` environment's secrets
+  `TAURI_SIGNING_PRIVATE_KEY` (the key has no password; `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` is
+  left unset and resolves to empty). Public:
   `~/.tauri/portreaper.key.pub`, pasted into `tauri.conf.json`. Never commit, print, copy or move
   the private key; an app built with a different key cannot verify these releases, and a lost
   key means every installed app stops updating until it is reinstalled by hand.
 - Signing: release builds are signed with the owner's Developer ID and notarized by Apple. The six
-  `APPLE_*` repository secrets (`APPLE_CERTIFICATE` = the `.p12` as base64, `APPLE_CERTIFICATE_PASSWORD`,
+  `APPLE_*` secrets (`APPLE_CERTIFICATE` = the `.p12` as base64, `APPLE_CERTIFICATE_PASSWORD`,
   `APPLE_SIGNING_IDENTITY` = `Developer ID Application: <name> (<team id>)`, `APPLE_ID`,
   `APPLE_PASSWORD` = an app-specific password, `APPLE_TEAM_ID`) go to tauri-action's env; the
   Tauri bundler imports the certificate into a throwaway keychain, signs with the hardened
   runtime, notarizes with `notarytool` and staples the ticket. `release.yml` refuses to run with
   any of the six missing: a bundle the CLI does not sign opens as "damaged" on Apple Silicon.
-  CI's PR build stays ad-hoc (`APPLE_SIGNING_IDENTITY: "-"`), because fork PRs get no secrets.
+  The signing secrets (the six `APPLE_*` and `TAURI_SIGNING_PRIVATE_KEY`) are `release`
+  environment secrets, never repository secrets: a repository secret is readable by any
+  workflow a collaborator (the agents' bot account included) pushes to any branch, while the
+  environment admits only `v*` tags and the owner's approval. CI's PR build stays ad-hoc (`APPLE_SIGNING_IDENTITY: "-"`) and uses no secret.
   Setting or renewing the secrets (the certificate expires after five years):
   `ops/runbooks/apple-signing.md` in the meta-repo runs `ops/scripts/apple-secrets.sh`. The
   certificate's private key lives in the owner's login keychain; never export, print or commit
