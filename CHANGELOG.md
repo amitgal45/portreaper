@@ -5,10 +5,6 @@ section whose heading matches the tag (`v0.2.0` → `## 0.2.0`) into the GitHub 
 app shows it in its update dialog. Add a section for every release before tagging it
 (the recipe is in `CLAUDE.md`).
 
-## Unreleased
-
-- Reap zombies and the Quick strip no longer treat macOS apps as lost-terminal servers.
-
 ## 0.4.0
 
 - **Agent & MCP Zombie Reaper (WP-23):** Detects orphaned background dev and agent processes that
