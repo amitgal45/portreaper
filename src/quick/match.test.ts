@@ -54,6 +54,23 @@ describe("rankMatches", () => {
     expect(ports("nothing here")).toEqual([]);
   });
 
+  it("matches stdio and framework on portless (port: 0) orphans without matching query '0' as a port", () => {
+    const mcp = entry({
+      port: 0,
+      pid: 61204,
+      address: "stdio",
+      processName: "node",
+      command: "npx -y @modelcontextprotocol/server-filesystem /Users/amit/work",
+      orphan: true,
+      category: "ai",
+      framework: "MCP",
+    });
+    const list = [...MOCK_ENTRIES, mcp];
+    expect(rankMatches(list, "stdio").map((e) => e.pid)).toEqual([61204]);
+    expect(rankMatches(list, "mcp").map((e) => e.pid)).toEqual([61204]);
+    expect(rankMatches(list, "0").map((e) => e.pid)).not.toContain(61204);
+  });
+
   it("caps the list at the limit", () => {
     const entries = Array.from({ length: 10 }, (_, i) => entry({ port: 3000 + i, pid: 100 + i }));
     expect(rankMatches(entries, "3")).toHaveLength(6);

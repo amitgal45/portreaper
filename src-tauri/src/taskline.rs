@@ -79,18 +79,30 @@ impl Log {
         let port = entry.port;
         let (kind, message, duration_ms) = match outcome {
             KillOutcome::Killed { graceful, waited_ms, .. } => {
-                let (kind, message) = match (kind_override, request.force, *graceful) {
-                    (Some(EventKind::ZombieReaped), _, _) => {
+                let (kind, message) = match (kind_override, request.force, *graceful, port == 0) {
+                    (Some(EventKind::ZombieReaped), _, _, true) => {
+                        (EventKind::ZombieReaped, format!("Reaped {name} ({pid}), an orphaned background process."))
+                    }
+                    (Some(EventKind::ZombieReaped), _, _, false) => {
                         (EventKind::ZombieReaped, format!("Reaped {name} ({pid}), a lost-terminal server on port {port}."))
                     }
-                    (_, true, _) => (EventKind::ForceKilled, format!("Force-killed {name} ({pid}). Port {port} is free.")),
-                    (_, false, false) => (
+                    (_, true, _, true) => (EventKind::ForceKilled, format!("Force-killed {name} ({pid}).")),
+                    (_, true, _, false) => (EventKind::ForceKilled, format!("Force-killed {name} ({pid}). Port {port} is free.")),
+                    (_, false, false, true) => (
+                        EventKind::ForceKilled,
+                        format!("Killed {name} ({pid}) with SIGKILL after it ignored SIGTERM."),
+                    ),
+                    (_, false, false, false) => (
                         EventKind::ForceKilled,
                         format!("Killed {name} ({pid}) with SIGKILL after it ignored SIGTERM. Port {port} is free."),
                     ),
-                    (_, false, true) => (EventKind::PortFreed, format!("Killed {name} ({pid}). Port {port} is free.")),
+                    (_, false, true, true) => (EventKind::PortFreed, format!("Killed {name} ({pid}).")),
+                    (_, false, true, false) => (EventKind::PortFreed, format!("Killed {name} ({pid}). Port {port} is free.")),
                 };
                 (kind, message, *waited_ms)
+            }
+            KillOutcome::NotFound { .. } if port == 0 => {
+                (EventKind::PortFreed, format!("{name} ({pid}) was already gone."), millis(elapsed))
             }
             KillOutcome::NotFound { .. } => {
                 (EventKind::PortFreed, format!("{name} ({pid}) was already gone. Port {port} is free."), millis(elapsed))
@@ -112,7 +124,7 @@ impl Log {
             }
             _ => None,
         };
-        if killed {
+        if killed && entry.port > 0 {
             self.recently_freed.insert(
                 (entry.port, entry.protocol),
                 FreedMark { at: Instant::now(), old_pid: pid, old_name: name.to_string() },
@@ -176,7 +188,11 @@ impl Log {
 
     /// Records that `source`'s process is running again as `pid`.
     pub fn record_relaunch(&mut self, source: &TasklineEvent, pid: u32, elapsed: Duration) -> TasklineEvent {
-        let message = format!("Relaunched {} on port {} (new pid {pid}).", source.process_name, source.port);
+        let message = if source.port == 0 {
+            format!("Relaunched {} (new pid {pid}).", source.process_name)
+        } else {
+            format!("Relaunched {} on port {} (new pid {pid}).", source.process_name, source.port)
+        };
         let event = TasklineEvent {
             id: self.take_id(),
             at_ms: now_ms(),
@@ -813,5 +829,43 @@ mod tests {
         assert!(!event.relaunchable);
         assert_eq!(log.events().iter().map(|e| e.id).collect::<Vec<_>>(), [event.id, kill.id]);
         assert!(log.source(kill.id).unwrap().1.is_some(), "the original can be relaunched again");
+    }
+
+    #[test]
+    fn a_portless_orphan_kill_never_mentions_port_zero_or_records_a_collision() {
+        let mut log = Log::default();
+        let mut e = entry(0, 61204, "mcp-server-filesystem");
+        e.address = "stdio".into();
+        e.orphan = true;
+        e.category = Category::Ai;
+        e.framework = Some("MCP".into());
+
+        let reaped = log.record_kill(
+            &e,
+            Some(&argv("mcp-server-filesystem")),
+            &request(61204, false),
+            &killed(61204, true),
+            ELAPSED,
+            Some(EventKind::ZombieReaped),
+        );
+        assert_eq!(reaped.kind, EventKind::ZombieReaped);
+        assert_eq!(reaped.message, "Reaped mcp-server-filesystem (61204), an orphaned background process.");
+
+        let graceful = log.record_kill(&e, Some(&argv("mcp-server-filesystem")), &request(61204, false), &killed(61204, true), ELAPSED, None);
+        assert_eq!(graceful.message, "Killed mcp-server-filesystem (61204).");
+
+        let forced = log.record_kill(&e, Some(&argv("mcp-server-filesystem")), &request(61204, true), &killed(61204, false), ELAPSED, None);
+        assert_eq!(forced.message, "Force-killed mcp-server-filesystem (61204).");
+
+        let escalated = log.record_kill(&e, Some(&argv("mcp-server-filesystem")), &request(61204, false), &killed(61204, false), ELAPSED, None);
+        assert_eq!(escalated.message, "Killed mcp-server-filesystem (61204) with SIGKILL after it ignored SIGTERM.");
+
+        let gone = log.record_kill(&e, None, &request(61204, false), &KillOutcome::NotFound { pid: 61204 }, ELAPSED, None);
+        assert_eq!(gone.message, "mcp-server-filesystem (61204) was already gone.");
+
+        // Another portless orphan appearing later is not a port-0 collision.
+        let mut next = e.clone();
+        next.pid = 70001;
+        assert!(log.observe(&[next]).is_empty());
     }
 }

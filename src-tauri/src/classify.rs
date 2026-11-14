@@ -58,6 +58,12 @@ const BY_SERVICE: &[Rule] = &[
 /// Dev tools, by the name `project::detect_tool` gives them (or the process name, when a tool
 /// renames its process, as `next-server` does).
 const BY_TOOL: &[Rule] = &[
+    Rule { needles: &["mcp", "mcp-server", "mcp_server", "fastmcp"], category: Category::Ai, framework: Some("MCP") },
+    Rule { needles: &["playwright", "chrome-headless-shell", "headless_shell", "puppeteer"], category: Category::Web, framework: Some("Playwright") },
+    Rule { needles: &["vitest"], category: Category::Web, framework: Some("Vitest") },
+    Rule { needles: &["jest"], category: Category::Web, framework: Some("Jest") },
+    Rule { needles: &["esbuild"], category: Category::Web, framework: Some("esbuild") },
+    Rule { needles: &["rust-analyzer"], category: Category::Api, framework: Some("rust-analyzer") },
     Rule { needles: &["next"], category: Category::Web, framework: Some("Next.js") },
     Rule { needles: &["vite"], category: Category::Web, framework: Some("Vite") },
     Rule { needles: &["nuxt"], category: Category::Web, framework: Some("Nuxt") },
@@ -99,7 +105,7 @@ fn decide(
 ) -> (Category, Option<&'static str>) {
     let name = process_name.to_lowercase();
     let exe_file = exe.and_then(|e| Path::new(e).file_name()).map(|f| f.to_string_lossy().to_lowercase());
-    let tool = tool.map(str::to_lowercase);
+    let tool = tool.map(str::to_lowercase).or_else(|| crate::project::detect_tool(command));
     let subjects = [Some(name.as_str()), exe_file.as_deref(), tool.as_deref()];
     let matches = |rule: &Rule| rule.needles.iter().any(|needle| subjects.iter().flatten().any(|s| named(s, needle)));
 
@@ -266,6 +272,15 @@ mod tests {
     #[test]
     fn classification_table() {
         let cases = [
+            // agent, MCP, headless browser & dev worker tools (including port 0 / stdio)
+            tcp(0, Some("mcp"), "node", NODE, "npx -y @modelcontextprotocol/server-filesystem /w", (Ai, Some("MCP"))),
+            tcp(0, None, "node", NODE, "node /w/node_modules/@modelcontextprotocol/server-postgres/dist/index.js", (Ai, Some("MCP"))),
+            tcp(0, None, "mcp-server-git", Some("/Users/amit/.local/bin/mcp-server-git"), "mcp-server-git", (Ai, Some("MCP"))),
+            tcp(0, Some("playwright"), "chrome-headless-shell", Some("/Users/amit/Library/Caches/ms-playwright/chrome-headless-shell"), "chrome-headless-shell --headless", (Web, Some("Playwright"))),
+            tcp(0, Some("vitest"), "node (vitest 1)", NODE, "node /w/node_modules/.bin/vitest", (Web, Some("Vitest"))),
+            tcp(0, Some("jest"), "node", NODE, "node /w/node_modules/.bin/jest", (Web, Some("Jest"))),
+            tcp(0, Some("esbuild"), "esbuild", Some("/w/node_modules/@esbuild/darwin-arm64/bin/esbuild"), "esbuild --service=0.24.0 --ping", (Web, Some("esbuild"))),
+            tcp(0, Some("rust-analyzer"), "rust-analyzer", Some("/Users/amit/.cargo/bin/rust-analyzer"), "rust-analyzer", (Api, Some("rust-analyzer"))),
             // by tool: the tool wins over the port
             tcp(3000, Some("next"), "node", NODE, "node /w/shop/node_modules/.bin/next dev", (Web, Some("Next.js"))),
             tcp(8080, Some("next"), "next-server (v15)", NODE, "next-server", (Web, Some("Next.js"))),

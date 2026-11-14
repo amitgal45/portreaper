@@ -108,9 +108,12 @@ export function describeOutcomes(
   entries: PortEntry[],
   outcomes: KillOutcome[],
 ): QuickResult["text"] {
-  if (outcomes.length === 0) return `:${port} is already free`;
+  if (outcomes.length === 0) return port === 0 ? "Already gone" : `:${port} is already free`;
   const bad = outcomes.find((o) => o.status !== "killed");
-  if (!bad) return `Freed :${port} · ${outcomes.map((o) => who(entries, o.pid)).join(", ")}`;
+  if (!bad) {
+    const names = outcomes.map((o) => who(entries, o.pid)).join(", ");
+    return port === 0 ? `Killed ${names}` : `Freed :${port} · ${names}`;
+  }
   switch (bad.status) {
     case "refused":
       return `Did not kill ${who(entries, bad.pid)}: ${bad.reason}`;
@@ -119,7 +122,7 @@ export function describeOutcomes(
     case "notFound":
       return `${who(entries, bad.pid)} is already gone`;
     default:
-      return `Could not free :${port}`;
+      return port === 0 ? "Could not kill process" : `Could not free :${port}`;
   }
 }
 
@@ -326,7 +329,10 @@ export function useQuick(api: PortApi, options: UseQuickOptions = {}) {
     busy.value = true;
     let outcomes: KillOutcome[] | null = null;
     try {
-      outcomes = await api.freePort(entry.port, force);
+      outcomes =
+        entry.port === 0
+          ? [await api.killProcess({ pid: entry.pid, force })]
+          : await api.freePort(entry.port, force);
     } catch (err) {
       console.error("freePort failed", err);
     } finally {

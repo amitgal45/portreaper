@@ -291,6 +291,38 @@ describe("useQuick: Enter", () => {
     await vi.advanceTimersByTimeAsync(0);
     expect(quick.result.value?.text).toBe(":8080 is already free");
   });
+
+  it("kills a portless (port: 0 / stdio) orphan by pid via killProcess and reports Killed without :0", async () => {
+    const mcp: PortEntry = {
+      ...(MOCK_ENTRIES[0] as PortEntry),
+      port: 0,
+      pid: 61204,
+      address: "stdio",
+      processName: "mcp-server-filesystem",
+      command: "mcp-server-filesystem /Users/amit/work",
+      orphan: true,
+      protected: false,
+      category: "ai",
+      framework: "MCP",
+    };
+    const api = createMockApi([...MOCK_ENTRIES, mcp]);
+    const killProcess = vi.spyOn(api, "killProcess");
+    const freePort = vi.spyOn(api, "freePort");
+    const quick = await loaded(api);
+    quick.query.value = "stdio";
+    await nextTick();
+    expect(quick.selected.value?.pid).toBe(61204);
+
+    quick.handleKey(key("Enter"));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(killProcess).toHaveBeenCalledWith({ pid: 61204, force: false });
+    expect(freePort).not.toHaveBeenCalled();
+    expect(quick.result.value).toEqual({
+      key: "61204:0:tcp",
+      text: "Killed mcp-server-filesystem (61204)",
+      ok: true,
+    });
+  });
 });
 
 describe("useQuick: a protected entry", () => {

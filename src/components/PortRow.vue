@@ -60,13 +60,15 @@ const pills = computed<Pill[]>(() => {
   const e = props.entry;
   const out: Pill[] = [];
   if (e.orphan) {
+    const zombieHint =
+      e.port === 0
+        ? "its agent or terminal exited; an orphaned background process"
+        : "its terminal is gone; a dev server nobody is using";
     out.push({
       key: "zombie",
       label: "Zombie",
       tone: "bg-orange-tint text-orange-ink",
-      hint: isZombie(e)
-        ? "its terminal is gone; a dev server nobody is using"
-        : "its terminal is gone, but it is protected: Reap leaves it alone",
+      hint: isZombie(e) ? zombieHint : "its terminal is gone, but it is protected: Reap leaves it alone",
     });
   }
   if (isPublic(e)) {
@@ -135,10 +137,11 @@ watch(
   >
     <span
       class="truncate font-mono text-[15px] font-semibold tracking-tight tabular-nums"
-      :class="collision ? 'text-orange-ink' : 'text-ink'"
-      :title="collision ? 'A new process took this port right after PortReaper freed it' : undefined"
+      :class="collision ? 'text-orange-ink' : entry.port === 0 ? 'text-ink-2' : 'text-ink'"
+      :title="collision ? 'A new process took this port right after PortReaper freed it' : entry.port === 0 ? 'No listening socket (stdio or background worker)' : undefined"
     >
-      {{ entry.port }}<span v-if="entry.protocol === 'udp'" class="ml-1 text-[10px] font-normal text-ink-3">udp</span>
+      <template v-if="entry.port === 0">stdio</template>
+      <template v-else>{{ entry.port }}<span v-if="entry.protocol === 'udp'" class="ml-1 text-[10px] font-normal text-ink-3">udp</span></template>
     </span>
 
     <!-- A container's port names the container, and says so where the pid would be (WP-20). -->
@@ -217,11 +220,11 @@ watch(
               @click.stop
             >
               <DropdownMenuItem :class="menuItem" @select="actions.inspect(entry)">Inspect</DropdownMenuItem>
-              <DropdownMenuItem :class="menuItem" data-action="watch" @select="actions.watch(entry)">
-                {{ watched ? `Stop watching :${entry.port}` : `Watch :${entry.port}` }}
+              <DropdownMenuItem :class="menuItem" data-action="watch" :disabled="entry.port === 0" @select="actions.watch(entry)">
+                {{ entry.port === 0 ? "Watch port" : watched ? `Stop watching :${entry.port}` : `Watch :${entry.port}` }}
               </DropdownMenuItem>
-              <DropdownMenuItem :class="menuItem" :disabled="entry.protocol !== 'tcp'" @select="actions.openInBrowser(entry)">
-                Open localhost:{{ entry.port }}
+              <DropdownMenuItem :class="menuItem" :disabled="entry.port === 0 || entry.protocol !== 'tcp'" @select="actions.openInBrowser(entry)">
+                {{ entry.port === 0 ? "Open in browser" : `Open localhost:${entry.port}` }}
               </DropdownMenuItem>
               <DropdownMenuItem :class="menuItem" @select="actions.copyKill(entry)">Copy kill -9 {{ entry.pid }}</DropdownMenuItem>
               <DropdownMenuItem :class="menuItem" :disabled="!entry.command" @select="actions.copyCommand(entry)">

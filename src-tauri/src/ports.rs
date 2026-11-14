@@ -67,6 +67,28 @@ pub const PROTECTED_NAMES: &[&str] = &[
 /// in `docker ps` (WP-20). Matched like [`PROTECTED_NAMES`]; every one of them is in that list.
 pub const DOCKER_NAMES: &[&str] = &["com.docker.backend", "com.docker.vpnkit", "vpnkit", "docker-proxy", "dockerd", "docker"];
 
+/// Explicit agent, MCP, headless browser, test runner, and dev-server tools that can leak as
+/// portless (`stdio` or worker) orphans when an IDE, agent session, or terminal exits (WP-23).
+pub const ORPHAN_DEV_TOOLS: &[&str] = &[
+    "mcp",
+    "playwright",
+    "puppeteer",
+    "vitest",
+    "jest",
+    "esbuild",
+    "rust-analyzer",
+    "vite",
+    "next",
+    "nuxt",
+    "nest",
+    "remix",
+    "astro",
+    "storybook",
+    "webpack",
+    "tsx",
+    "ts-node",
+];
+
 /// How many parents [`tree`] follows at most. A real chain on macOS is under ten links; a longer
 /// one is a loop in what sysinfo reported, and the walk must end either way.
 const MAX_TREE_HOPS: usize = 16;
@@ -96,16 +118,44 @@ pub(crate) fn listing() -> Result<Listing, PortsError> {
     let raw = listeners::get_all().map_err(|e| PortsError::Listeners(e.to_string()))?;
     let sockets = merge_sockets(raw);
 
-    let mut pids: Vec<Pid> = sockets.iter().map(|s| Pid::from_u32(s.pid)).collect();
-    pids.sort_unstable();
-    pids.dedup();
-    // A fresh `System` knows nothing; the targeted refresh fills in only the pids we are about to
-    // show. Caching it across polls would save little and risk showing a pid's previous owner.
+    let mut socket_pids: Vec<Pid> = sockets.iter().map(|s| Pid::from_u32(s.pid)).collect();
+    socket_pids.sort_unstable();
+    socket_pids.dedup();
+
+    // A fresh `System` knows nothing. First do a cheap pass (parent + uid only) to spot candidate
+    // orphans (parent == 1, owned by current user, not holding a listening socket), then refresh
+    // full details (`cmd`, `cwd`, `exe`, `memory`) only for socket holders and orphan candidates.
     let mut system = System::new();
-    system.refresh_processes_specifics(ProcessesToUpdate::Some(&pids), true, details_refresh());
+    system.refresh_processes_specifics(
+        ProcessesToUpdate::All,
+        true,
+        ProcessRefreshKind::nothing().with_user(UpdateKind::Always),
+    );
+
+    let raw_uid = unsafe { libc::getuid() };
+    let current_uid = Uid::try_from(raw_uid as usize).ok();
+    let mut orphan_pids: Vec<Pid> = system
+        .processes()
+        .iter()
+        .filter(|(&pid, proc)| {
+            let p = pid.as_u32();
+            p > 1
+                && matches!(proc.parent().map(|pp| pp.as_u32()), None | Some(1))
+                && proc.user_id() == current_uid.as_ref()
+                && socket_pids.binary_search(&pid).is_err()
+        })
+        .map(|(&pid, _)| pid)
+        .collect();
+    orphan_pids.sort_unstable_by_key(|p| p.as_u32());
+
+    let mut detail_pids = socket_pids.clone();
+    detail_pids.extend_from_slice(&orphan_pids);
+    detail_pids.sort_unstable();
+    detail_pids.dedup();
+    system.refresh_processes_specifics(ProcessesToUpdate::Some(&detail_pids), false, details_refresh());
 
     let users = users();
-    let current_user = user_name(users, unsafe { libc::getuid() });
+    let current_user = user_name(users, raw_uid);
 
     let mut details: HashMap<u32, ProcessDetails> = HashMap::new();
     let mut entries: Vec<PortEntry> = sockets
@@ -142,6 +192,54 @@ pub(crate) fn listing() -> Result<Listing, PortsError> {
             }
         })
         .collect();
+
+    // Append portless (`port: 0`, `address: "stdio"`) orphaned agent/MCP/browser/test processes
+    // sorted by pid after the socket entries (WP-23).
+    for pid in orphan_pids {
+        let p = pid.as_u32();
+        let placeholder = Socket {
+            pid: p,
+            port: 0,
+            protocol: Protocol::Tcp,
+            bind: BindScope::Loopback,
+            address: "stdio".into(),
+            process_name: String::new(),
+            path: String::new(),
+        };
+        let d = ProcessDetails::gather(&placeholder, &system, users, current_user);
+        if !d.orphan || d.protected || !is_reapable_orphan(&d.name, d.exe.as_deref(), &d.command, d.project.as_ref()) {
+            continue;
+        }
+        let tool = d.project.as_ref().and_then(|proj| proj.tool.as_deref());
+        let (category, framework) =
+            crate::classify::classify(0, Protocol::Tcp, tool, &d.name, d.exe.as_deref(), &d.command);
+        if matches!(category, Category::Db | Category::System) {
+            continue;
+        }
+        entries.push(PortEntry {
+            port: 0,
+            protocol: Protocol::Tcp,
+            bind: BindScope::Loopback,
+            address: "stdio".into(),
+            pid: p,
+            process_name: d.name.clone(),
+            command: d.command.clone(),
+            cwd: d.cwd.clone(),
+            exe: d.exe.clone(),
+            user: d.user.clone(),
+            memory_bytes: d.memory_bytes,
+            started_at: d.started_at,
+            parent_pid: d.parent_pid,
+            orphan: true,
+            project: d.project.clone(),
+            protected: false,
+            category,
+            framework,
+            container: None,
+        });
+        details.insert(p, d);
+    }
+
     // One `docker ps` (cached 5 s in `docker`) when Docker holds a port; none at all otherwise.
     if entries.iter().any(|e| is_docker_process(&e.process_name, e.exe.as_deref())) {
         attach_containers(&mut entries, &crate::docker::containers());
@@ -347,6 +445,37 @@ pub fn is_protected(process_name: &str, exe: Option<&str>, user: Option<&str>, c
     named_any(process_name, exe, PROTECTED_NAMES)
 }
 
+/// Whether `exe` lives inside a macOS `.app` bundle (`/Applications/*.app/Contents/...` or
+/// `~/Applications/*.app/Contents/...`). GUI app helpers are often re-parented to launchd and must
+/// never be flagged as portless agent/dev zombies.
+pub fn is_app_bundle(exe: Option<&str>) -> bool {
+    exe.is_some_and(|path| path.contains(".app/Contents/"))
+}
+
+/// Whether a portless (`port == 0`) process that already passed [`is_orphan`] and [`!is_protected`]
+/// is an orphaned agent/MCP/headless-browser/dev-worker process that PortReaper should surface.
+pub fn is_reapable_orphan(
+    process_name: &str,
+    exe: Option<&str>,
+    command: &str,
+    project: Option<&ProjectInfo>,
+) -> bool {
+    if is_app_bundle(exe) {
+        return false;
+    }
+    let tool = project
+        .and_then(|p| p.tool.as_deref())
+        .map(str::to_string)
+        .or_else(|| crate::project::detect_tool(command));
+    if let Some(t) = tool.as_deref() {
+        if ORPHAN_DEV_TOOLS.contains(&t) {
+            return true;
+        }
+    }
+    let name = process_name.to_ascii_lowercase();
+    ORPHAN_DEV_TOOLS.iter().any(|&t| name == t || name.starts_with(&format!("{t}-")))
+}
+
 /// Whether the lowercased process name or the executable's file name is one of `names`.
 fn named_any(process_name: &str, exe: Option<&str>, names: &[&str]) -> bool {
     let name = process_name.to_lowercase();
@@ -540,6 +669,68 @@ mod tests {
         assert!(!is_orphan(Some(4242), Some("/opt/homebrew/bin/node"), me, me));
         // no exe known: nothing says it is a system process
         assert!(is_orphan(Some(1), None, me, me));
+    }
+
+    #[test]
+    fn reapable_orphan_accepts_mcp_playwright_and_dev_workers_and_rejects_app_bundles_and_shells() {
+        let node = Some("/opt/homebrew/bin/node");
+        // MCP stdio servers
+        assert!(is_reapable_orphan(
+            "node",
+            node,
+            "node /Users/amit/.npm/_npx/123/node_modules/.bin/mcp-server-filesystem /Users/amit/work",
+            None
+        ));
+        assert!(is_reapable_orphan(
+            "node",
+            node,
+            "npx -y @modelcontextprotocol/server-postgres",
+            None
+        ));
+        assert!(is_reapable_orphan(
+            "mcp-server-git",
+            Some("/Users/amit/.local/bin/mcp-server-git"),
+            "",
+            None
+        ));
+        // Headless browser & test runners
+        assert!(is_reapable_orphan(
+            "chrome-headless-shell",
+            Some("/Users/amit/Library/Caches/ms-playwright/chromium_headless_shell-1148/chrome-mac/headless_shell"),
+            "headless_shell --headless",
+            None
+        ));
+        assert!(is_reapable_orphan(
+            "node (vitest 1)",
+            node,
+            "node /Users/amit/work/app/node_modules/.bin/vitest",
+            None
+        ));
+        assert!(is_reapable_orphan(
+            "esbuild",
+            Some("/Users/amit/work/app/node_modules/@esbuild/darwin-arm64/bin/esbuild"),
+            "esbuild --service=0.24.0 --ping",
+            None
+        ));
+        assert!(is_reapable_orphan(
+            "rust-analyzer",
+            Some("/Users/amit/.cargo/bin/rust-analyzer"),
+            "rust-analyzer",
+            None
+        ));
+        // Rejects macOS .app bundle helpers even when their command mentions node or mcp
+        assert!(!is_reapable_orphan(
+            "Cursor Helper (Plugin)",
+            Some("/Applications/Cursor.app/Contents/Frameworks/Cursor Helper (Plugin).app/Contents/MacOS/Cursor Helper (Plugin)"),
+            "node mcp-server",
+            None
+        ));
+        assert!(is_app_bundle(Some("/Applications/Raycast.app/Contents/MacOS/Raycast")));
+        assert!(!is_app_bundle(node));
+        // Rejects generic shells, editors, and bare node scripts with no dev/agent tool signature
+        assert!(!is_reapable_orphan("zsh", Some("/bin/zsh"), "-zsh", None));
+        assert!(!is_reapable_orphan("tmux", Some("/opt/homebrew/bin/tmux"), "tmux new-session", None));
+        assert!(!is_reapable_orphan("node", node, "node scripts/backup.js", None));
     }
 
     #[test]
@@ -774,5 +965,55 @@ mod tests {
             }
         }
         panic!("could not bind an IPv4/IPv6 pair on one port");
+    }
+
+    #[test]
+    fn list_sees_and_reaps_a_spawned_stdio_mcp_orphan() {
+        use std::process::{Command, Stdio};
+
+        // Spawn a short-lived parent shell that starts a backgrounded child carrying
+        // `@modelcontextprotocol/server-test` in its argv, prints its PID, and exits at once
+        // so launchd (pid 1) adopts the child.
+        let output = Command::new("/bin/sh")
+            .args([
+                "-c",
+                "(exec -a @modelcontextprotocol/server-test /bin/sleep 30) >/dev/null 2>&1 </dev/null & echo $!",
+            ])
+            .stdout(Stdio::piped())
+            .output()
+            .expect("spawn detached mcp-server child");
+        let orphan_pid: u32 = String::from_utf8_lossy(&output.stdout).trim().parse().expect("valid child pid");
+
+        // Give the parent a brief moment to exit so launchd (pid 1) is the parent.
+        std::thread::sleep(std::time::Duration::from_millis(80));
+
+        let entries = list().unwrap();
+        let portless: Vec<_> = entries.iter().filter(|e| e.port == 0).collect();
+        println!("Found {} portless (stdio) orphans on machine:", portless.len());
+        for p in &portless {
+            println!(
+                "  - PID {} | {} | framework={:?} | category={:?} | project={:?} | RAM={} MB | cmd={}",
+                p.pid,
+                p.process_name,
+                p.framework,
+                p.category,
+                p.project.as_ref().map(|proj| &proj.name),
+                p.memory_bytes / (1024 * 1024),
+                p.command
+            );
+        }
+
+        let found = entries.iter().find(|e| e.pid == orphan_pid);
+        // Clean up the child we spawned before asserting so we never leak it even if an assertion fails.
+        let outcome = crate::kill::kill(&crate::model::KillRequest { pid: orphan_pid, force: false });
+        assert!(matches!(outcome, crate::model::KillOutcome::Killed { .. }), "expected Killed outcome: {outcome:?}");
+
+        let entry = found.expect("our detached stdio MCP child must be listed as a port 0 orphan");
+        assert_eq!(entry.port, 0);
+        assert_eq!(entry.address, "stdio");
+        assert!(entry.orphan);
+        assert!(!entry.protected);
+        assert_eq!(entry.category, Category::Ai);
+        assert_eq!(entry.framework.as_deref(), Some("MCP"));
     }
 }

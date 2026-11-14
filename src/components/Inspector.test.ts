@@ -183,4 +183,24 @@ describe("Inspector", () => {
     expect(processTree).toHaveBeenCalledWith(51022);
     expect(text()).toContain("[LISTENING ON :5173]");
   });
+
+  it("renders a portless (port: 0 / stdio) orphan with stdio badge, disables Watch and Open in browser", async () => {
+    const mcp: PortEntry = {
+      ...byPort(5174),
+      port: 0,
+      pid: 61204,
+      address: "stdio",
+      processName: "mcp-server-filesystem",
+      category: "ai",
+      framework: "MCP",
+    };
+    const { wrapper } = await mountInspector(mcp, { api: createMockApi([...MOCK_ENTRIES, mcp]) });
+    const t = text();
+    expect(t).toContain("stdio");
+    expect(t).not.toContain(":0");
+    expect(t).toContain("no listening socket (stdio or background worker)");
+    expect(t).toContain("[STDIO / NO PORT]");
+    expect(wrapper.get("button[aria-label='Watch']").attributes("disabled")).toBeDefined();
+    expect(button(/Open in browser/)?.attributes("disabled")).toBeDefined();
+  });
 });
