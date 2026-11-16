@@ -4,6 +4,10 @@
 //! Every kill looks its entry up before killing (one `ports::listing()`), because afterwards
 //! there is nothing left to describe, then kills and records through `taskline`. A pid the
 //! listing does not have (it died, or it holds no port) is killed and not recorded.
+//!
+//! The hidden ports (`crate::hidden`) are left out of what the UI is shown (`list_ports`,
+//! `watched_ports`) and of the one bulk kill here (`reap_zombies`). `kill_process` and
+//! `free_port` are explicit requests and stay as they are: nothing in the UI offers a hidden port.
 
 use tauri::AppHandle;
 
@@ -14,12 +18,14 @@ use crate::model::{
 use crate::ports::Listing;
 use crate::tray::{info, warn};
 
+/// Every listening port the user did not hide. The Taskline and the watches look at the whole
+/// listing first: collisions and watch baselines need the truth, hidden ports included.
 #[tauri::command]
 pub fn list_ports(app: AppHandle) -> Result<Vec<PortEntry>, String> {
     let entries = crate::ports::list().map_err(|e| e.to_string())?;
     crate::taskline::observe(&app, &entries);
     crate::watch::observe(&app, &entries);
-    Ok(entries)
+    Ok(crate::hidden::visible(entries, &crate::hidden::hidden_ports(&app)))
 }
 
 #[tauri::command]
@@ -47,12 +53,14 @@ pub fn app_version(app: AppHandle) -> String {
     app.package_info().version.to_string()
 }
 
-/// Kills every lost-terminal, unprotected process. One outcome per pid, each recorded as
-/// `zombieReaped`.
+/// Kills every lost-terminal, unprotected process on a port the user did not hide. One outcome
+/// per pid, each recorded as `zombieReaped`. A zombie that holds only hidden ports is left
+/// running: a bulk kill never reaches what the user cannot see.
 #[tauri::command]
 pub fn reap_zombies(app: AppHandle) -> Result<Vec<KillOutcome>, String> {
     let listing = crate::ports::listing().map_err(|e| e.to_string())?;
-    let zombie = |e: &PortEntry| e.orphan && !e.protected;
+    let hidden = crate::hidden::hidden_ports(&app);
+    let zombie = |e: &PortEntry| e.orphan && !e.protected && !crate::hidden::is_hidden(e.port, &hidden);
     let pids = distinct_pids(&listing, zombie);
     Ok(pids
         .into_iter()
@@ -116,7 +124,8 @@ pub fn set_settings(app: AppHandle, settings: Settings) -> Result<Settings, Stri
     crate::settings::update(&app, settings)
 }
 
-/// Every watched port with its current state (WP-18), after one fresh listing.
+/// Every watched port with its current state (WP-18), after one fresh listing. A watch on a
+/// hidden port is left out; it stays stored, and comes back when the port is shown again.
 #[tauri::command]
 pub fn watched_ports(app: AppHandle) -> Vec<WatchedPort> {
     crate::watch::list(&app)

@@ -4,6 +4,7 @@ import {
   type EventKind,
   type KillOutcome,
   type KillRequest,
+  MAX_HIDDEN_PORTS,
   type PortApi,
   type PortEntry,
   type ProcessNode,
@@ -58,6 +59,16 @@ function classifyMock(port: number): { category: Category; framework: string | n
   };
   const hit = table[port];
   return hit ? { category: hit[0], framework: hit[1] } : { category: "other", framework: null };
+}
+
+/**
+ * `hidden::normalize` in the core: whole port numbers 1–65535 only (the core's `u16` refuses the
+ * rest, and port 0 is a portless entry, never hidden), sorted, once each, the lowest
+ * `MAX_HIDDEN_PORTS` kept.
+ */
+function normalizeHiddenPorts(ports: readonly number[]): number[] {
+  const valid = ports.filter((port) => Number.isInteger(port) && port >= 1 && port <= 65_535);
+  return [...new Set(valid)].sort((a, b) => a - b).slice(0, MAX_HIDDEN_PORTS);
 }
 
 function entry(partial: Partial<PortEntry> & Pick<PortEntry, "port" | "pid" | "processName">): PortEntry {
@@ -315,12 +326,18 @@ export function createMockApi(seed: PortEntry[] = MOCK_ENTRIES): PortApi {
   let nextPid = 60000;
   // The preferences live for the page: the view (WP-17b) is testable without the core. The card
   // is dismissed by default so the existing flows see no card; `?onboarding=1` brings it back.
-  let settings: Settings = { ...DEFAULT_SETTINGS, onboardingDone: true };
-  // Watches (WP-18): a set of port+protocol; the state is read off the entries when asked.
+  let settings: Settings = { ...DEFAULT_SETTINGS, onboardingDone: true, hiddenPorts: [] };
+  // A copy out, so a caller that changes the array changes nothing here.
+  const copySettings = (): Settings => ({ ...settings, hiddenPorts: [...settings.hiddenPorts] });
+  // Hidden ports, as the core hides them: by number, TCP and UDP alike; port 0 never.
+  const hidden = (port: number) => port !== 0 && settings.hiddenPorts.includes(port);
+  // Watches (WP-18): a set of port+protocol; the state is read off the entries when asked. A
+  // watch on a hidden port stays in the set and is left out of every answer, as in the core.
   const watches = new Map<string, { port: number; protocol: Protocol; sinceMs: number }>();
   const watchKey = (port: number, protocol: Protocol) => `${protocol}:${port}`;
   const watched = (): WatchedPort[] =>
     [...watches.values()]
+      .filter((w) => !hidden(w.port))
       .sort((a, b) => a.port - b.port)
       .map((w) => {
         const holder = entries.find((e) => e.port === w.port && e.protocol === w.protocol);
@@ -399,7 +416,7 @@ export function createMockApi(seed: PortEntry[] = MOCK_ENTRIES): PortApi {
     return { status: "killed", pid: request.pid, graceful: !request.force, waitedMs };
   };
   return {
-    listPorts: async () => entries.map((e) => ({ ...e })),
+    listPorts: async () => entries.filter((e) => !hidden(e.port)).map((e) => ({ ...e })),
     killProcess: async (request) => kill(request),
     freePort: async (port, force) => {
       const pids = [...new Set(entries.filter((e) => e.port === port).map((e) => e.pid))];
@@ -426,7 +443,8 @@ export function createMockApi(seed: PortEntry[] = MOCK_ENTRIES): PortApi {
       events.length = 0;
     },
     reapZombies: async () => {
-      const zombies = entries.filter((e) => e.orphan && !e.protected);
+      // A bulk kill never reaches what the user cannot see: a hidden zombie is left running.
+      const zombies = entries.filter((e) => e.orphan && !e.protected && !hidden(e.port));
       return zombies.map((z) => {
         const outcome = kill({ pid: z.pid, force: false });
         const ev = events[0];
@@ -469,10 +487,14 @@ export function createMockApi(seed: PortEntry[] = MOCK_ENTRIES): PortApi {
     // after a moment, and the banner reads "Restarting…" because nothing restarts here.
     checkForUpdates: async () => {},
     installUpdate: () => new Promise<void>((resolve) => setTimeout(resolve, MOCK_INSTALL_MS)),
-    getSettings: async () => ({ ...settings }),
+    getSettings: async () => copySettings(),
     setSettings: async (next) => {
-      settings = { ...next, refreshMs: Math.min(30_000, Math.max(1_000, next.refreshMs)) };
-      return { ...settings };
+      settings = {
+        ...next,
+        refreshMs: Math.min(30_000, Math.max(1_000, next.refreshMs)),
+        hiddenPorts: normalizeHiddenPorts(next.hiddenPorts),
+      };
+      return copySettings();
     },
     watchedPorts: async () => watched(),
     watchPort: async (port, protocol) => {

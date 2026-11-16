@@ -165,6 +165,14 @@ describe("the v0.3 payload guards", () => {
     expect(isSettings(null)).toBe(false);
   });
 
+  it("isSettings wants hiddenPorts as a list of numbers", () => {
+    expect(isSettings({ ...DEFAULT_SETTINGS, hiddenPorts: [5000, 7000] })).toBe(true);
+    expect(isSettings({ ...DEFAULT_SETTINGS, hiddenPorts: "5000" })).toBe(false);
+    expect(isSettings({ ...DEFAULT_SETTINGS, hiddenPorts: ["5000"] })).toBe(false);
+    const { hiddenPorts: _dropped, ...withoutHidden } = DEFAULT_SETTINGS;
+    expect(isSettings(withoutHidden)).toBe(false);
+  });
+
   it("isWatchedPort accepts both states and rejects a missing sinceMs", () => {
     const free = {
       port: 3000,

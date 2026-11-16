@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { createMockApi, MOCK_ENTRIES } from "./mock";
+import { MAX_HIDDEN_PORTS } from "../types";
+import { createMockApi, MOCK_ENTRIES, MOCK_STDIO_ZOMBIES } from "./mock";
 
 describe("mock api", () => {
   it("lists a believable machine", async () => {
@@ -126,5 +127,66 @@ describe("mock api v0.3", () => {
       kind: "forceKilled",
       message: "Killed container shop-db. Port 5433 is free.",
     });
+  });
+});
+
+describe("mock api: hidden ports", () => {
+  it("leaves a hidden port out of the list by number and keeps the stdio entries; unhidden, it is back", async () => {
+    const api = createMockApi([...MOCK_ENTRIES, ...MOCK_STDIO_ZOMBIES]);
+    const all = await api.listPorts();
+    expect((await api.getSettings()).hiddenPorts).toEqual([]);
+
+    // 0, a duplicate, a number out of range and a fraction: the mock normalizes like the core.
+    const saved = await api.setSettings({
+      ...(await api.getSettings()),
+      hiddenPorts: [7000, 5173, 0, 5173, 70_000, 1.5],
+    });
+    expect(saved.hiddenPorts).toEqual([5173, 7000]);
+    expect((await api.getSettings()).hiddenPorts).toEqual([5173, 7000]);
+
+    const shown = await api.listPorts();
+    expect(shown.some((e) => e.port === 5173 || e.port === 7000)).toBe(false);
+    expect(shown).toHaveLength(all.length - 2);
+    expect(shown.filter((e) => e.port === 0).map((e) => e.pid)).toEqual([74910, 74911]);
+
+    await api.setSettings({ ...(await api.getSettings()), hiddenPorts: [] });
+    expect(await api.listPorts()).toEqual(all);
+  });
+
+  it("keeps at most MAX_HIDDEN_PORTS, the lowest, and hands out a copy", async () => {
+    const api = createMockApi();
+    const seventy = Array.from({ length: 70 }, (_, i) => 70 - i);
+    const saved = await api.setSettings({ ...(await api.getSettings()), hiddenPorts: seventy });
+    expect(saved.hiddenPorts).toEqual(Array.from({ length: MAX_HIDDEN_PORTS }, (_, i) => i + 1));
+
+    saved.hiddenPorts.push(3000);
+    (await api.getSettings()).hiddenPorts.push(3000);
+    expect((await api.getSettings()).hiddenPorts).toHaveLength(MAX_HIDDEN_PORTS);
+    expect((await api.listPorts()).some((e) => e.port === 3000)).toBe(true);
+  });
+
+  it("reaps around a hidden zombie and leaves it running", async () => {
+    const api = createMockApi();
+    await api.setSettings({ ...(await api.getSettings()), hiddenPorts: [5174] });
+    const outcomes = await api.reapZombies();
+    expect(outcomes.map((o) => o.pid)).toEqual([18402]);
+    expect((await api.tasklineEvents()).map((e) => e.port)).toEqual([4000]);
+
+    await api.setSettings({ ...(await api.getSettings()), hiddenPorts: [] });
+    const left = await api.listPorts();
+    expect(left.find((e) => e.port === 5174)).toMatchObject({ pid: 39871, orphan: true });
+    expect(left.some((e) => e.pid === 18402)).toBe(false);
+  });
+
+  it("leaves a hidden port out of the watches and keeps the watch for when it is shown again", async () => {
+    const api = createMockApi();
+    await api.watchPort(3000, "tcp");
+    await api.watchPort(5173, "tcp");
+    await api.setSettings({ ...(await api.getSettings()), hiddenPorts: [5173] });
+    expect((await api.watchedPorts()).map((w) => w.port)).toEqual([3000]);
+    expect((await api.watchPort(8080, "tcp")).map((w) => w.port)).toEqual([3000, 8080]);
+
+    await api.setSettings({ ...(await api.getSettings()), hiddenPorts: [] });
+    expect((await api.watchedPorts()).map((w) => w.port)).toEqual([3000, 5173, 8080]);
   });
 });
