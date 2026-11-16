@@ -5,9 +5,22 @@ name: Release
 # .sig, and the latest.json the running app checks (`plugins.updater.endpoints` in
 # src-tauri/tauri.conf.json). The recipe that gets here is in CLAUDE.md: a `## X.Y.Z` section at
 # the top of CHANGELOG.md, the three version fields bumped in one commit, then the tag.
+#
+# Once the release is published, the `tap` job writes the Homebrew cask for it
+# (packaging/homebrew/portreaper.rb with the version and the published DMG's SHA-256) to
+# Casks/portreaper.rb in amitgal45/homebrew-tap, with the TAP_TOKEN secret. A manual run
+# (Actions > Release > Run workflow) with `tag` set to an existing release builds and publishes
+# nothing: it only rewrites the tap from that release, to backfill one or to retry after a failed
+# `tap` job.
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "An existing release tag (vX.Y.Z) whose DMG the tap should point at"
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -15,6 +28,8 @@ permissions:
 jobs:
   release:
     name: Build, sign and publish (macOS)
+    # A tag push only; a manual run rewrites the tap and builds nothing.
+    if: github.event_name == 'push'
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -110,6 +125,25 @@ jobs:
             exit 1
           fi
 
+      # The `tap` job below writes the cask with the TAP_TOKEN secret once the release is out.
+      # Check the token before the build, not after: a release that cannot reach the tap would
+      # publish a DMG the cask does not know, and `brew` would keep installing the previous one.
+      # This proves the token can read the tap; a token without write access still fails in the
+      # `tap` job, which a manual run with `tag` then retries. The token is in this step's env and
+      # in the tap job's write step only; no action ever receives it.
+      - name: The tap token must reach amitgal45/homebrew-tap
+        env:
+          GH_TOKEN: ${{ secrets.TAP_TOKEN }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::error::the TAP_TOKEN secret is not set. Store a fine-grained token for amitgal45/homebrew-tap with Contents: Read and write as the TAP_TOKEN repository secret, then re-run this workflow; nothing was published." >&2
+            exit 1
+          fi
+          if ! gh api repos/amitgal45/homebrew-tap --jq .full_name; then
+            echo "::error::TAP_TOKEN cannot reach amitgal45/homebrew-tap. Store a fine-grained token for that repository with Contents: Read and write as the TAP_TOKEN repository secret, then re-run this workflow; nothing was published." >&2
+            exit 1
+          fi
+
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -129,3 +163,126 @@ jobs:
           prerelease: false
           includeUpdaterJson: true
           args: --config src-tauri/tauri.release.conf.json --target universal-apple-darwin
+
+  # Writes Casks/portreaper.rb in amitgal45/homebrew-tap for the release: the cask template with
+  # the version and the SHA-256 of the DMG the release published (scripts/bump-cask.mjs). After a
+  # tag push it runs once `release` has published. On a manual run `release` is skipped, and
+  # `needs` alone would skip this job too; hence the explicit condition.
+  tap:
+    name: Update the Homebrew tap
+    needs: release
+    if: ${{ !cancelled() && (github.event_name == 'workflow_dispatch' || needs.release.result == 'success') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      # The tag pushed, or the `tag` input of a manual run. Both reach the script through env
+      # only, and nothing else is accepted, since the tag goes into a download pattern, a commit
+      # message and the cask.
+      - name: Resolve the tag
+        id: tag
+        env:
+          EVENT: ${{ github.event_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          if [ "$EVENT" = "workflow_dispatch" ]; then
+            tag="$INPUT_TAG"
+          else
+            tag="$REF_NAME"
+          fi
+          re='^v[0-9]+\.[0-9]+\.[0-9]+$'
+          if ! [[ "$tag" =~ $re ]]; then
+            echo "::error::the tag must be vX.Y.Z, got $(printf '%q' "$tag")" >&2
+            exit 1
+          fi
+          {
+            echo "tag=$tag"
+            echo "version=${tag#v}"
+          } >> "$GITHUB_OUTPUT"
+
+      # The template and the script from the commit this run is for: the tag's on a tag push, the
+      # chosen branch's (main) on a manual run. Not the tag's on a manual run: tags before the
+      # first one with this job (v0.4.0) have neither scripts/bump-cask.mjs nor a template the
+      # script accepts, and a backfill of them must still work. No credentials are kept on disk.
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      # No pnpm: scripts/bump-cask.mjs has no dependencies.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      # The cask's sha256 is the hash of what users download: the DMG asset the release
+      # published, not a rebuild. GitHub records its own SHA-256 of every uploaded asset
+      # (`digest`); when it has one, the two must agree, which catches a corrupted or swapped
+      # download. Older assets may carry none; then the downloaded file's hash is used as is.
+      - name: Hash the published DMG
+        id: dmg
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.tag.outputs.tag }}
+          VERSION: ${{ steps.tag.outputs.version }}
+        run: |
+          name="PortReaper_${VERSION}_universal.dmg"
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern "$name" --dir "$RUNNER_TEMP/dmg"
+          sha="$(sha256sum "$RUNNER_TEMP/dmg/$name" | cut -d' ' -f1)"
+          # Two steps, not one pipeline: without pipefail a failed API call would read as "no digest".
+          assets="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" --jq '.assets[] | [.name, (.digest // "")] | @tsv')"
+          digest="$(printf '%s\n' "$assets" | awk -F'\t' -v n="$name" '$1 == n { print $2 }')"
+          case "$digest" in
+            "" | null)
+              echo "::notice::GitHub has no digest for $name; using the downloaded file's SHA-256 $sha unchecked"
+              ;;
+            "sha256:$sha")
+              echo "$name: SHA-256 $sha, the same as GitHub's digest"
+              ;;
+            *)
+              echo "::error::$name: the downloaded file's SHA-256 is $sha, but GitHub's digest is $digest" >&2
+              exit 1
+              ;;
+          esac
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+      - name: Build the cask
+        env:
+          VERSION: ${{ steps.tag.outputs.version }}
+          SHA: ${{ steps.dmg.outputs.sha }}
+        run: node scripts/bump-cask.mjs packaging/homebrew/portreaper.rb "$VERSION" "$SHA" > "$RUNNER_TEMP/portreaper.rb"
+
+      # Through the Contents API rather than git: no clone, no credentials on disk, and one commit
+      # per release. TAP_TOKEN is in this step's env only (and in the release job's check); no
+      # action ever receives it.
+      - name: Write Casks/portreaper.rb to amitgal45/homebrew-tap
+        env:
+          GH_TOKEN: ${{ secrets.TAP_TOKEN }}
+          VERSION: ${{ steps.tag.outputs.version }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::error::the TAP_TOKEN secret is not set. Store a fine-grained token for amitgal45/homebrew-tap with Contents: Read and write as the TAP_TOKEN repository secret, then run Release by hand with this tag." >&2
+            exit 1
+          fi
+          api=repos/amitgal45/homebrew-tap/contents/Casks/portreaper.rb
+          # The current file's blob sha, which the API needs to replace it; none on the first write,
+          # which creates the file.
+          current=""
+          blob='^[0-9a-f]{40}$'
+          if found="$(gh api "$api" --jq .sha)" && [[ "$found" =~ $blob ]]; then
+            current="$found"
+          else
+            echo "No readable Casks/portreaper.rb in the tap; writing it as a new file."
+          fi
+          # The same cask already there (a re-run): stop rather than make an empty commit.
+          if [ -n "$current" ]; then
+            gh api "$api" --jq .content | base64 -d > "$RUNNER_TEMP/tap-current.rb"
+            if cmp -s "$RUNNER_TEMP/tap-current.rb" "$RUNNER_TEMP/portreaper.rb"; then
+              echo "::notice::Casks/portreaper.rb in amitgal45/homebrew-tap is already the cask for $VERSION; nothing to write"
+              exit 0
+            fi
+          fi
+          args=(-X PUT "$api" -f message="portreaper $VERSION" -f content="$(base64 -w0 < "$RUNNER_TEMP/portreaper.rb")")
+          if [ -n "$current" ]; then
+            args+=(-f sha="$current")
+          fi
+          gh api "${args[@]}" --jq .commit.html_url
