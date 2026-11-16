@@ -3,14 +3,22 @@
 // strip. System Settings' idiom on the Board's tokens: grouped rows on bg-surface cards, 13 px
 // labels in text-ink, 12 px help in text-ink-2, toggles, a segmented control for the refresh
 // rate and the shortcut recorders. Every control saves at once through `patch`; the row says
-// "Saved" for a moment, or in red why the core refused (a shortcut another app owns).
+// "Saved" for a moment, or in red why the core refused (a shortcut another app owns). Hidden
+// ports are chips with a × and a field to add one; the field says in red why it will not take a
+// number before anything is sent.
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { X } from "lucide-vue-next";
 import { SwitchRoot, SwitchThumb } from "reka-ui";
-import { ref } from "vue";
+import { computed, ref } from "vue";
 import { isTauri, useApi } from "../api";
-import type { SettingsPatch } from "../composables/useSettings";
+import {
+  isHideablePort,
+  type SettingsPatch,
+  withHiddenPort,
+  withoutHiddenPort,
+} from "../composables/useSettings";
 import { formatChord } from "../lib/shortcut";
-import { DEFAULT_SETTINGS, type Settings } from "../types";
+import { DEFAULT_SETTINGS, MAX_HIDDEN_PORTS, type Settings } from "../types";
 import ShortcutRecorder from "./ShortcutRecorder.vue";
 
 const props = defineProps<{
@@ -103,6 +111,49 @@ async function openRepository() {
   else window.open(REPOSITORY_URL, "_blank", "noopener");
 }
 
+/** The Hidden ports field, as typed. */
+const draft = ref("");
+/** Why the typed number was not hidden (not a port, or hidden already); cleared by the next key. */
+const draftProblem = ref<string | null>(null);
+const portInput = ref<HTMLInputElement | null>(null);
+
+/** The core keeps at most `MAX_HIDDEN_PORTS`: Hide is off until one is shown again. */
+const hiddenFull = computed(() => props.settings.hiddenPorts.length >= MAX_HIDDEN_PORTS);
+const hiddenHelp = computed(() => {
+  const chord = formatChord(props.settings.quickShortcut);
+  const what = `Left out of the list, the menu bar, ${chord} and the bulk kills. macOS's AirPlay Receiver holds 5000 and 7000.`;
+  if (!hiddenFull.value) return what;
+  return `${what} ${MAX_HIDDEN_PORTS} is the most: show one again to hide another.`;
+});
+
+function onDraft(event: Event) {
+  draft.value = (event.target as HTMLInputElement).value;
+  draftProblem.value = null;
+}
+
+/** Hide and Enter: hides the typed port, or says under the row why not. */
+function hideDraft() {
+  if (hiddenFull.value) return;
+  const port = Number(draft.value.trim());
+  if (!isHideablePort(port)) {
+    draftProblem.value = "Enter a port from 1 to 65535.";
+    return;
+  }
+  if (props.settings.hiddenPorts.includes(port)) {
+    draftProblem.value = `Port ${port} is already hidden.`;
+    return;
+  }
+  draft.value = "";
+  draftProblem.value = null;
+  emit("patch", { field: "hiddenPorts", value: withHiddenPort(props.settings.hiddenPorts, port) });
+}
+
+/** A chip's ×: the port shows again. The focus moves to the field, since its × is gone. */
+function showAgain(port: number) {
+  emit("patch", { field: "hiddenPorts", value: withoutHiddenPort(props.settings.hiddenPorts, port) });
+  portInput.value?.focus();
+}
+
 const labelId = (field: keyof Settings) => `pref-${field}`;
 
 const heading = "px-1 pb-1.5 text-[11px] font-semibold uppercase tracking-wide text-ink-3";
@@ -118,6 +169,12 @@ const thumb =
   "block h-[18px] w-[18px] translate-x-0.5 rounded-full bg-white shadow-sm transition-transform data-[state=checked]:translate-x-[16px]";
 const button =
   "inline-flex h-7 items-center gap-1.5 whitespace-nowrap rounded-md border border-line-strong bg-surface px-2.5 text-[12px] font-medium text-ink outline-none enabled:hover:bg-hover focus-visible:ring-2 focus-visible:ring-brand/40 disabled:opacity-60";
+const portField =
+  "h-7 w-[88px] rounded-md border border-line bg-canvas px-2 font-mono text-[12px] text-ink tabular-nums outline-none placeholder:font-sans placeholder:text-ink-3 focus:border-line-strong focus:ring-2 focus:ring-brand/20";
+const chip =
+  "inline-flex h-[22px] items-center gap-0.5 whitespace-nowrap rounded-full border border-line bg-canvas pr-0.5 pl-2 font-mono text-[12px] text-ink-2 tabular-nums";
+const chipRemove =
+  "flex h-[18px] w-[18px] items-center justify-center rounded-full text-ink-3 outline-none hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-brand/40";
 </script>
 
 <template>
@@ -189,6 +246,61 @@ const button =
                   @click="emit('patch', { field: 'refreshMs', value: ms })"
                 >
                   {{ ms / 1000 }} s
+                </button>
+              </div>
+            </div>
+
+            <div :class="row" data-row="hiddenPorts">
+              <div class="min-w-0 flex-1">
+                <div class="flex items-center gap-2">
+                  <span :id="labelId('hiddenPorts')" :class="label">Hidden ports</span>
+                  <span :class="[savedMark, saved.has('hiddenPorts') ? 'opacity-100' : 'opacity-0']" aria-hidden="true">Saved</span>
+                </div>
+                <p :class="help">{{ hiddenHelp }}</p>
+                <ul
+                  v-if="settings.hiddenPorts.length > 0"
+                  data-hidden-ports
+                  :aria-labelledby="labelId('hiddenPorts')"
+                  class="mt-2 flex flex-wrap gap-1.5"
+                >
+                  <li v-for="port in settings.hiddenPorts" :key="port" :data-hidden-port="port" :class="chip">
+                    :{{ port }}
+                    <button
+                      type="button"
+                      :aria-label="`Show port ${port} again`"
+                      :title="`Show port ${port} again`"
+                      :class="chipRemove"
+                      @click="showAgain(port)"
+                    >
+                      <X :size="12" :stroke-width="2" aria-hidden="true" />
+                    </button>
+                  </li>
+                </ul>
+                <p v-if="draftProblem ?? error.hiddenPorts" :class="errorLine" role="alert">
+                  {{ draftProblem ?? error.hiddenPorts }}
+                </p>
+              </div>
+              <!-- Enter is the field's: prevented here, so the list's Enter (kill the selection) never sees it. -->
+              <div data-pref="hiddenPorts" class="flex shrink-0 items-center gap-2">
+                <input
+                  ref="portInput"
+                  type="number"
+                  min="1"
+                  max="65535"
+                  step="1"
+                  autocomplete="off"
+                  placeholder="Port"
+                  aria-label="Port to hide"
+                  :aria-invalid="draftProblem ? 'true' : undefined"
+                  :value="draft"
+                  :class="portField"
+                  @input="onDraft"
+                  @keydown.enter.prevent="hideDraft"
+                  @keydown.up.stop
+                  @keydown.down.stop
+                />
+                <button type="button" data-action="hide-port" :class="button" :disabled="hiddenFull" @click="hideDraft">
+                  Hide
                 </button>
               </div>
             </div>

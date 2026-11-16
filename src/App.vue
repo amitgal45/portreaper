@@ -32,13 +32,13 @@ import { useInspector } from "./composables/useInspector";
 import { useKeyboard } from "./composables/useKeyboard";
 import { useKillFlow } from "./composables/useKillFlow";
 import { usePorts } from "./composables/usePorts";
-import { demoOnboarding, useSettings } from "./composables/useSettings";
+import { demoOnboarding, type SettingsPatch, useSettings } from "./composables/useSettings";
 import { useTaskline } from "./composables/useTaskline";
 import { useToasts } from "./composables/useToasts";
 import { selectFromTray, useTrayListener } from "./composables/useTray";
 import { demoUpdate, useUpdate } from "./composables/useUpdate";
 import { provideWatched, useWatch } from "./composables/useWatch";
-import type { PortEntry } from "./types";
+import { MAX_HIDDEN_PORTS, type PortEntry } from "./types";
 
 const api = provideApi();
 // The preferences (WP-17b): the poll interval and the Kill base read from them; in a browser,
@@ -128,6 +128,33 @@ async function thenRefreshTaskline(action: Promise<void>) {
   await taskline.refresh();
 }
 
+/**
+ * The hidden ports changed and the core took it: the list, its counts and the watches follow now,
+ * not on the next poll. The watches too, or a hidden watched port would show as free.
+ */
+async function followHiddenPorts() {
+  await Promise.all([ports.refresh(), watchStore.refresh()]);
+}
+
+/** A Preferences control. A change to the hidden ports shows outside Preferences at once. */
+async function patchSettings(change: SettingsPatch) {
+  if ((await settings.patch(change)) && change.field === "hiddenPorts") await followHiddenPorts();
+}
+
+/** The row menu's Hide :PORT: the row leaves the list at once, and the toast says where it went. */
+async function hide(entry: PortEntry) {
+  const port = entry.port;
+  if (await settings.hidePort(port)) {
+    await followHiddenPorts();
+    toasts.push(`Port ${port} hidden · Preferences lists it`);
+    return;
+  }
+  // Full is refused before the core is asked; otherwise the core said why, or it was port 0.
+  const full = prefs.value.hiddenPorts.length >= MAX_HIDDEN_PORTS;
+  const why = full ? `${MAX_HIDDEN_PORTS} ports are hidden already` : settings.error.hiddenPorts;
+  toasts.push(why ? `Could not hide port ${port}: ${why}` : `Could not hide port ${port}.`, "error");
+}
+
 // A Kill button hands over its ⌥ state; the preference is the base and ⌥ flips it either way.
 provideActions({
   select: (entry) => ports.select(entry),
@@ -144,6 +171,7 @@ provideActions({
   copyCommand: (entry) => void leave(copyText(entry.command), "Copied the command line"),
   revealFolder: (entry) => void leave(revealFolder(entry.project?.root ?? ""), null),
   watch: (target) => void watchStore.toggle(target),
+  hide: (entry) => void hide(entry),
   defaultForce: () => prefs.value.defaultForce,
 });
 provideWatched(watchStore.isWatched);
@@ -313,7 +341,7 @@ onUnmounted(() => {
           :error="settings.error"
           :saved="settings.saved"
           :version="version"
-          @patch="(p) => settings.patch(p)"
+          @patch="(p) => void patchSettings(p)"
         />
         <!-- In the flow, between the table and the status line: the table shrinks while toasts are up. -->
         <ToastList :toasts="toasts.toasts.value" @dismiss="toasts.dismiss" />
@@ -325,6 +353,7 @@ onUnmounted(() => {
           :scan-ms="scanMs"
           :version="version"
           :error="error"
+          :hidden="prefs.hiddenPorts.length"
         />
       </section>
 

@@ -334,6 +334,38 @@ describe("App: preferences (WP-17b)", () => {
     expect(wrapper.get("[data-pref='notifications']").attributes("aria-checked")).toBe("false");
   });
 
+  it("Hide :7000 in the row menu: the row leaves at once, a toast says where it went, the status line counts it; × brings it back", async () => {
+    const { wrapper, api } = await mountApp();
+    const airplay = () => wrapper.find("[role='row'][data-port='7000']");
+    await airplay().get("button[aria-label='More']").trigger("click");
+    await flushPromises();
+    const hide = document.body.querySelector<HTMLElement>("[role='menu'] [data-action='hide']");
+    expect(hide?.textContent?.trim()).toBe("Hide :7000");
+    hide?.click();
+    await flushPromises();
+
+    expect(airplay().exists()).toBe(false);
+    expect(rowsOf(wrapper)).toHaveLength(N - 1);
+    expect(wrapper.text()).toContain("Port 7000 hidden · Preferences lists it");
+    expect(wrapper.get("footer").text()).toContain(`${N - 1} ports`);
+    expect(wrapper.get("footer [data-hidden-count]").text()).toBe("· 1 hidden");
+    expect((await api.getSettings()).hiddenPorts).toEqual([7000]);
+
+    // Preferences lists it; its × shows it again, and the list has it before the next poll.
+    await nav(wrapper, "settings").trigger("click");
+    await flushPromises();
+    expect(wrapper.findAll("[data-hidden-port]").map((c) => c.text())).toEqual([":7000"]);
+    await wrapper.get("button[aria-label='Show port 7000 again']").trigger("click");
+    await flushPromises();
+    expect((await api.getSettings()).hiddenPorts).toEqual([]);
+    expect(wrapper.find("[data-hidden-port]").exists()).toBe(false);
+    expect(wrapper.find("footer [data-hidden-count]").exists()).toBe(false);
+    expect(wrapper.get("footer").text()).toContain(`${N} ports`);
+    await nav(wrapper, "all").trigger("click");
+    expect(rowsOf(wrapper)).toHaveLength(N);
+    expect(airplay().exists()).toBe(true);
+  });
+
   it("Kill sends SIGKILL at once: ↩ forces the selection and ⌘⌫ is the graceful one", async () => {
     const api = createMockApi();
     await api.setSettings({ ...(await api.getSettings()), defaultForce: true });
