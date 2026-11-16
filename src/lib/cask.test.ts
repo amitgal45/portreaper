@@ -1,4 +1,5 @@
 /// <reference types="node" />
+import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -90,5 +91,29 @@ describe("bumpCask", () => {
     const none = template.replace(`${shaLine}\n`, "");
     expect(none).not.toBe(template);
     expect(() => bumpCask(none, "0.5.0", sha)).toThrow(/exactly one `sha256 .*` line, found 0/);
+  });
+});
+
+/** `node scripts/bump-cask.mjs <args>`, the way the release workflow's `cask` job runs it. */
+function cli(...args: string[]) {
+  return spawnSync(process.execPath, ["scripts/bump-cask.mjs", ...args], { cwd: root, encoding: "utf8" });
+}
+
+describe("scripts/bump-cask.mjs on the command line", () => {
+  it("prints the bumped cask and exits 0", () => {
+    const run = cli("packaging/homebrew/portreaper.rb", "0.5.0", sha);
+    expect(run.status).toBe(0);
+    expect(run.stdout).toBe(bumpCask(template, "0.5.0", sha));
+  });
+
+  it("exits 2 with the usage on wrong arguments, and 1 with the reason on a refusal", () => {
+    const usage = cli("packaging/homebrew/portreaper.rb", "0.5.0");
+    expect(usage.status).toBe(2);
+    expect(usage.stdout).toBe("");
+    expect(usage.stderr).toMatch(/^usage: node scripts\/bump-cask\.mjs <template> <version> <sha256>/);
+    const refused = cli("packaging/homebrew/portreaper.rb", "v0.5.0", sha);
+    expect(refused.status).toBe(1);
+    expect(refused.stdout).toBe("");
+    expect(refused.stderr).toMatch(/^bump-cask: version must be X\.Y\.Z/);
   });
 });

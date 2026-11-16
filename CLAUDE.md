@@ -45,6 +45,12 @@ Part of: PortReaper (`~/work/portreaper`). Startup-wide rules come from the pare
   3. On `main`: `git tag vX.Y.Z && git push origin vX.Y.Z`. `.github/workflows/release.yml`
      refuses a tag that does not match the app version, then builds, signs and publishes the
      release with the `.dmg`, the `.app.tar.gz` + `.sig` and `latest.json`.
+  4. The same run then writes `Casks/portreaper.rb` in `amitgal45/homebrew-tap` (the `cask` and
+     `tap` jobs) from `packaging/homebrew/portreaper.rb`, the template, with the new version and
+     the published DMG's SHA-256. It needs the `TAP_TOKEN` repository secret: a fine-grained
+     token for that one repository with Contents: Read and write. Without a working token the
+     run stops before building (`tap-token` job). A failed tap write is retried with a manual
+     run of Release from `main` with `tag` set; that also backfills an older release.
 - `createUpdaterArtifacts` lives in `src-tauri/tauri.release.conf.json`, which only the release
   job merges in (`--config`): with it on, the Tauri CLI refuses to build without the private key,
   and CI's unsigned `pnpm tauri build --bundles app` has none. Keep it out of `tauri.conf.json`.
