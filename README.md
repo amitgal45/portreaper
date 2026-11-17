@@ -88,8 +88,8 @@ query, hides the strip.
   time before dying, in the window and in the strip alike. A process protected on one of its
   ports asks on all of them, since a kill takes the whole process.
 - **Hidden ports.** Some ports are always there and never the one you want to free: macOS's
-  AirPlay Receiver listens on 5000 and 7000. Add a port in Preferences → General → Hidden ports, or choose
-  "Hide :5000" in a row's menu. A hidden port is left out of the list, the search, ⌘⇧K, the menu
+  AirPlay Receiver listens on 5000 and 7000. Add a port in Preferences → General → Hidden ports,
+  or choose "Hide :5000" in a row's menu. A hidden port is left out of the list, the search, ⌘⇧K, the menu
   bar's count and every bulk kill; the status line says how many are hidden.
 - **One window, one search box.** Light and dark, following macOS. Grouped by project, filtered
   by category pill, keyboard driven (↑ ↓ Enter ⌘⌫ Esc, type a port number to search), refreshed
@@ -124,10 +124,11 @@ by project), `lsof -i` and `kill` in a terminal, the `kill-port` npm package, an
 | License and price | MIT, free | MIT, free | Built in | MIT | Built in |
 
 LeftOpen also does things PortReaper does not: fixed `*.localhost` URLs through Portless, a
-"Copy Setup Prompt for AI", sounds, and a Chinese translation. With `sudo`, `lsof` also sees other users' processes in full;
-PortReaper never asks for `sudo` and shows them as far as the kernel lets a normal user see.
+"Copy Setup Prompt for AI", sounds, and a Chinese translation. With `sudo`, `lsof` also sees
+other users' processes in full; PortReaper never asks for `sudo` and shows them as far as the
+kernel lets a normal user see.
 
-Compared on 2026-11-16 with LeftOpen v0.5.8, from its README and source. Corrections welcome:
+Compared on 2026-11-17 with LeftOpen v0.5.8, from its README and source. Corrections welcome:
 [open an issue](https://github.com/amitgal45/portreaper/issues).
 
 ## Install
@@ -241,8 +242,8 @@ macOS's own processes, such as ControlCenter on AirPlay's 5000, get no command: 
 system process. Hide the port instead (next question).
 
 **How do I get AirPlay's 5000 and 7000 out of the list?**
-Hide them: Preferences (⌘,) → General → Hidden ports, add 5000 and 7000, or choose "Hide :5000" in the
-row's menu. A hidden port stays out of the list, the search, ⌘⇧K, the menu bar's count and every
+Hide them in Preferences → General → Hidden ports (⌘, opens Preferences): add 5000 and 7000, or
+choose "Hide :5000" in the row's menu. A hidden port stays out of the list, the search, ⌘⇧K, the menu bar's count and every
 bulk kill until you remove it; the status line says how many are hidden.
 
 ## License
