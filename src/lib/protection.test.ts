@@ -1,7 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { MOCK_ENTRIES } from "../api/mock";
 import type { LaunchdJob, PortEntry } from "../types";
-import { guessCurrentUser, launchdHint, protectionReason, restartsText } from "./protection";
+import {
+  guessCurrentUser,
+  jobText,
+  launchdHint,
+  offeredStopCommand,
+  protectionReason,
+  restartsText,
+} from "./protection";
 
 const byPort = (port: number): PortEntry => {
   const found = MOCK_ENTRIES.find((e) => e.port === port);
@@ -133,6 +140,29 @@ describe("restartsText and launchdHint", () => {
       system: false,
     };
     expect(launchdHint(job)).toBe("started by launchd (com.example.agent): launchd may start it again");
+  });
+
+  it("call a system job a system process, as the kill dialog and the strip do", () => {
+    const apple = controlCenter.launchd as LaunchdJob;
+    expect(jobText(apple)).toBe("a system process");
+    expect(jobText({ ...apple, restarts: true })).toBe("a system process");
+    expect(launchdHint(apple)).toBe("started by launchd (com.apple.controlcenter): a system process");
+    expect(jobText(byPort(11434).launchd as LaunchdJob)).toBe("a kill is undone within seconds");
+  });
+});
+
+describe("offeredStopCommand", () => {
+  it("hands over the core's command, never one for a system job, and nothing without a job", () => {
+    const ollama = byPort(11434).launchd as LaunchdJob;
+    expect(offeredStopCommand(ollama)).toBe("brew services stop ollama");
+    // A buggy core that sent a command for ControlCenter: nothing is offered.
+    const disable =
+      "launchctl disable gui/501/com.apple.controlcenter && launchctl bootout gui/501/com.apple.controlcenter";
+    const apple = controlCenter.launchd as LaunchdJob;
+    expect(offeredStopCommand({ ...apple, stopCommand: disable })).toBeNull();
+    expect(offeredStopCommand(apple)).toBeNull();
+    expect(offeredStopCommand(null)).toBeNull();
+    expect(offeredStopCommand(undefined)).toBeNull();
   });
 });
 

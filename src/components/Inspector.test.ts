@@ -196,6 +196,9 @@ describe("Inspector", () => {
     const { wrapper } = await mountInspector(controlCenter, { api, reason: "a system process" });
     const card = wrapper.get("[data-section='launchd']");
     expect(card.text()).toContain("com.apple.controlcenter");
+    // The card calls it what the dialog and the strip do, not a job launchd may start again.
+    expect(card.text()).toContain("a system process");
+    expect(card.text()).not.toContain("launchd may start it again");
     expect(card.find("button").exists()).toBe(false);
     // No button mentions launchctl; the only copy verbs left are the process's own: its command line and kill -9.
     expect(button(/launchctl/)).toBeNull();
@@ -212,6 +215,18 @@ describe("Inspector", () => {
       launchd: { ...apple, restarts: true },
     });
     expect(restarting.get("[data-section='launchd']").text()).toContain("com.apple.controlcenter");
+    expect(restarting.get("[data-section='launchd']").text()).not.toContain("undone within seconds");
+    expect(button(/launchctl/)).toBeNull();
+    restarting.unmount();
+
+    // A buggy core that sent a disable command for it: the card still offers nothing to copy.
+    const disable =
+      "launchctl disable gui/501/com.apple.controlcenter && launchctl bootout gui/501/com.apple.controlcenter";
+    const { wrapper: buggy } = await mountInspector({
+      ...controlCenter,
+      launchd: { ...apple, restarts: true, stopCommand: disable },
+    });
+    expect(buggy.get("[data-section='launchd']").find("button").exists()).toBe(false);
     expect(button(/launchctl/)).toBeNull();
   });
 

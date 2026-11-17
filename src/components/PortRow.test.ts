@@ -209,6 +209,34 @@ describe("PortRow", () => {
     plain.unmount();
   });
 
+  it("ControlCenter on :5000, a system job: Protected, and the launchd chip calls it a system process too", () => {
+    const exe = "/System/Library/CoreServices/ControlCenter.app/Contents/MacOS/ControlCenter";
+    const controlCenter: PortEntry = {
+      ...byPort(7000),
+      port: 5000,
+      pid: 635,
+      processName: "ControlCenter",
+      command: exe,
+      exe,
+      parentPid: 1,
+      protected: true,
+      launchd: {
+        label: "com.apple.controlcenter",
+        restarts: true,
+        brew: null,
+        stopCommand: null,
+        system: true,
+      },
+    };
+    const row = mountRow(controlCenter, spies(), { reason: "a system process" });
+    expect(row.find("[data-badge='zombie']").exists()).toBe(false);
+    const hints = hintsOf(row);
+    expect(hints).toContain("a system process — asks before killing");
+    expect(hints).toContain("started by launchd (com.apple.controlcenter): a system process");
+    expect(hints.join(" ")).not.toContain("undone within seconds");
+    row.unmount();
+  });
+
   it("draws the brand mark for a known stack, a text pill for an unknown one, nothing otherwise", () => {
     const actions = spies();
     const next = mountRow(byPort(3000), actions);

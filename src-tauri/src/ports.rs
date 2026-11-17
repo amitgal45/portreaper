@@ -433,12 +433,13 @@ pub(crate) fn is_system_job(label: &str, exe: Option<&str>) -> bool {
     crate::launchd::is_apple_label(label) || exe.is_some_and(is_system_path)
 }
 
-/// Drops the job's stop command when the job is a system one (`system`, [`is_system_job`]), or when
-/// nobody knows its process's exe. Disabling a piece of macOS could keep it from loading at the
-/// next login, and an exe nobody knows could be one of them. The rest of the job stays: the
-/// process is still no orphan, and what a kill does to it is still worth saying.
+/// Drops the job's stop command when the job is a system one (`system`, or [`is_system_job`] on its
+/// label and `exe`, so the rule holds even for a job whose flag was not set yet), or when nobody
+/// knows its process's exe. Disabling a piece of macOS could keep it from loading at the next
+/// login, and an exe nobody knows could be one of them. The rest of the job stays: the process is
+/// still no orphan, and what a kill does to it is still worth saying.
 fn withhold_stop_command(job: &mut LaunchdJob, exe: Option<&str>) {
-    if job.system || exe.is_none() {
+    if job.system || exe.is_none() || is_system_job(&job.label, exe) {
         job.stop_command = None;
     }
 }
@@ -1258,6 +1259,9 @@ mod tests {
         assert_eq!(offered(true, Some(CONTROL_CENTER_EXE)), None, "a piece of macOS");
         assert_eq!(offered(true, Some("/opt/homebrew/bin/x")), None, "a system job, wherever it runs");
         assert_eq!(offered(false, None), None, "an exe nobody knows could be a piece of macOS");
+        // On its own too: a job whose flag was never set, run from the system's folders, loses it.
+        assert_eq!(offered(false, Some(CONTROL_CENTER_EXE)), None, "the system rule, flag or not");
+        assert_eq!(offered(false, Some("/usr/libexec/x")), None, "the system rule, flag or not");
         assert_eq!(
             offered(false, Some("/opt/homebrew/Cellar/ollama/0.13.0/bin/ollama")).as_deref(),
             Some("brew services stop ollama"),
