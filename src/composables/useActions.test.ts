@@ -40,8 +40,10 @@ const spies: UiActions = {
   openInBrowser: noop,
   copyKill: noop,
   copyCommand: noop,
+  copyStopCommand: noop,
   revealFolder: noop,
   watch: noop,
+  hide: noop,
 };
 
 describe("killLabels", () => {
