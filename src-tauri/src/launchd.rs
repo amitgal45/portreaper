@@ -21,8 +21,10 @@
 //! set back), and a failed answer waits out the refresh. Per job, its plist at
 //! `~/Library/LaunchAgents/<label>.plist` (Homebrew's convention, and where a user's own agents
 //! live), at most [`MAX_PLIST_BYTES`], opened once and without blocking, for its `KeepAlive`.
-//! Not macOS, no answer in time, a non-zero exit: no jobs, and the listing behaves
-//! as before; the first such failure of a run is a warning.
+//! Not macOS, no answer in time, a non-zero exit: no answer ([`running_jobs`] is `None`), which is
+//! not the same as no jobs. Until one comes, the listing calls none of launchd's children lost
+//! (`ports::hold_orphans_while_jobs_unknown`): a job nobody can name must not fall into a bulk
+//! kill that launchd undoes. The first such failure of a run is a warning.
 //!
 //! Nothing is ever run but `/bin/launchctl list`: an absolute path, a fixed argument, no shell.
 //! Nothing from a label or a plist reaches a command line PortReaper runs. The stop command
@@ -83,9 +85,11 @@ const MAX_FORMULA_LEN: usize = 100;
 /// while it is younger than [`REFRESH`] and still fresh for `triggers` (pid and start time, unix
 /// seconds, of every process of the user's that launchd parents and that would read as lost:
 /// `ports::is_refetch_trigger`): none of them that it does not name started since it was asked
-/// for ([`needs_refetch`]). Else a new answer, once per call. Empty when `launchctl` is not there
-/// (not macOS), did not answer in time, or failed ([`fetch`]): a listing then behaves as before.
-pub fn running_jobs(triggers: &[(u32, u64)]) -> HashMap<u32, String> {
+/// for ([`needs_refetch`]). Else a new answer, once per call. `None` when `launchctl` gave no
+/// answer: it is not there (not macOS), did not answer in time, or failed ([`fetch`]). The jobs are
+/// then unknown, not none: the listing holds launchd's children back from the orphans until an
+/// answer comes (`ports::hold_orphans_while_jobs_unknown`).
+pub fn running_jobs(triggers: &[(u32, u64)]) -> Option<HashMap<u32, String>> {
     static CACHE: Cache = Cache::new();
     // Dated before `launchctl` runs: a process that starts while it runs counts as newer. The
     // same second bounds the start times that count: a later one is a clock that was set back.
@@ -126,9 +130,9 @@ fn unix_now() -> u64 {
 }
 
 /// One `launchctl list`, parsed; `None` when it gave no answer ([`list_answer`]). The cache keeps
-/// that as no jobs, so a `brew services` job reads as a lost process again: the first failure of
-/// a run says so on stderr, and later ones do not, or a missing `launchctl` would warn at every
-/// listing.
+/// that as no answer, and while it stands no process launchd parents reads as lost, so none is
+/// reaped (`ports::hold_orphans_while_jobs_unknown`): the first failure of a run says so on
+/// stderr, and later ones do not, or a missing `launchctl` would warn at every listing.
 fn fetch() -> Option<HashMap<u32, String>> {
     static WARNED: AtomicBool = AtomicBool::new(false);
     let ran = crate::docker::run(LAUNCHCTL, &["list".into()], &OsString::from(LIST_PATH), LIST_TIMEOUT);
@@ -138,7 +142,8 @@ fn fetch() -> Option<HashMap<u32, String>> {
             if !WARNED.swap(true, Ordering::Relaxed) {
                 crate::tray::warn(format_args!(
                     "launchctl list gave no jobs ({why}): launchd jobs cannot be told apart from lost \
-                     processes, so a brew service may show as a zombie (later failures are not logged)"
+                     processes; until launchctl answers, no process launchd parents is reaped (later \
+                     failures are not logged)"
                 ));
             }
             None
@@ -401,8 +406,8 @@ pub(crate) fn for_link(job: &LaunchdJob, link: Link) -> LaunchdJob {
 pub(crate) struct Answer {
     at: Instant,
     fetched_at: u64,
-    /// `false` when `launchctl` gave no answer ([`fetch`]): `jobs` is then empty, and the answer
-    /// is never stale before [`REFRESH`] ([`needs_refetch`]).
+    /// `false` when `launchctl` gave no answer ([`fetch`]): `jobs` is then empty, the cache gives
+    /// `None` for it, and the answer is never stale before [`REFRESH`] ([`needs_refetch`]).
     ok: bool,
     jobs: HashMap<u32, String>,
 }
@@ -419,28 +424,28 @@ impl Cache {
         Self { inner: Mutex::new(None) }
     }
 
-    /// The cached map when it is younger than [`REFRESH`] at `now` and `stale`, given the cached
-    /// answer, says it is not; else what `fetch` returns (`None`: no answer, cached as no jobs and
-    /// not `ok`), cached as of `now` and `unix_now`.
+    /// The cached answer when it is younger than [`REFRESH`] at `now` and `stale`, given the cached
+    /// answer, says it is not; else what `fetch` returns, cached as of `now` and `unix_now`. Either
+    /// way `None` when `launchctl` gave no answer (cached as no jobs and not `ok`): an empty map is
+    /// an answer that names no job.
     pub fn get_fresh(
         &self,
         now: Instant,
         unix_now: u64,
         fetch: impl FnOnce() -> Option<HashMap<u32, String>>,
         stale: impl FnOnce(&Answer) -> bool,
-    ) -> HashMap<u32, String> {
+    ) -> Option<HashMap<u32, String>> {
         // A thread that panicked while holding the cache leaves a usable map behind.
         let mut slot = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
         if let Some(answer) = slot.as_ref() {
             if now.saturating_duration_since(answer.at) < REFRESH && !stale(answer) {
-                return answer.jobs.clone();
+                return answer.ok.then(|| answer.jobs.clone());
             }
         }
         let fetched = fetch();
-        let ok = fetched.is_some();
-        let jobs = fetched.unwrap_or_default();
-        *slot = Some(Answer { at: now, fetched_at: unix_now, ok, jobs: jobs.clone() });
-        jobs
+        let jobs = fetched.clone().unwrap_or_default();
+        *slot = Some(Answer { at: now, fetched_at: unix_now, ok: fetched.is_some(), jobs });
+        fetched
     }
 }
 
@@ -959,44 +964,53 @@ mod tests {
         let fresh = |_: &Answer| false;
         let t0 = Instant::now();
         let secs = Duration::from_secs;
-        assert_eq!(cache.get_fresh(t0, 100, fetch, fresh)[&4242u32], "call-1");
+        assert_eq!(cache.get_fresh(t0, 100, fetch, fresh).expect("an answer")[&4242u32], "call-1");
         let again = cache.get_fresh(t0 + secs(4), 104, fetch, |answer: &Answer| {
             assert_eq!(answer.fetched_at, 100, "the unix second the answer was asked for");
             assert!(answer.ok, "launchctl answered");
             assert_eq!(answer.jobs[&4242u32], "call-1");
             false
         });
-        assert_eq!(again[&4242u32], "call-1", "same map within 5 s");
+        assert_eq!(again.expect("an answer from memory")[&4242u32], "call-1", "same map within 5 s");
         assert_eq!(calls.load(Ordering::SeqCst), 1);
 
         // Stale within the refresh: asked again at once, and dated as of this ask.
-        assert_eq!(cache.get_fresh(t0 + secs(4), 104, fetch, |_: &Answer| true)[&4242u32], "call-2");
+        assert_eq!(cache.get_fresh(t0 + secs(4), 104, fetch, |_: &Answer| true).expect("an answer")[&4242u32], "call-2");
         assert_eq!(calls.load(Ordering::SeqCst), 2);
         let dated = cache.get_fresh(t0 + secs(5), 105, || panic!("still fresh"), |answer: &Answer| {
             assert_eq!(answer.fetched_at, 104);
             false
         });
-        assert_eq!(dated[&4242u32], "call-2", "the refresh counts from the last ask");
-        assert_eq!(cache.get_fresh(t0 + secs(4) + REFRESH, 109, fetch, fresh)[&4242u32], "call-3", "refreshed after 5 s");
+        assert_eq!(dated.expect("an answer from memory")[&4242u32], "call-2", "the refresh counts from the last ask");
+        assert_eq!(
+            cache.get_fresh(t0 + secs(4) + REFRESH, 109, fetch, fresh).expect("an answer")[&4242u32],
+            "call-3",
+            "refreshed after 5 s"
+        );
         assert_eq!(calls.load(Ordering::SeqCst), 3);
 
-        // An empty answer is cached like any other.
+        // An empty answer is cached like any other, and is an answer: it names no job.
         let cache = Cache::new();
-        assert!(cache.get_fresh(t0, 100, || Some(HashMap::new()), fresh).is_empty());
-        assert!(cache.get_fresh(t0 + secs(1), 101, || panic!("must not be asked again"), fresh).is_empty());
+        assert_eq!(cache.get_fresh(t0, 100, || Some(HashMap::new()), fresh), Some(HashMap::new()));
+        assert_eq!(
+            cache.get_fresh(t0 + secs(1), 101, || panic!("must not be asked again"), fresh),
+            Some(HashMap::new()),
+            "from memory, still an answer"
+        );
 
         // No answer (not macOS, a timeout): cached as no jobs and as no answer, so `needs_refetch`
-        // lets it wait out the refresh (no retry storm); asked again after it.
+        // lets it wait out the refresh (no retry storm), and the listing is told the jobs are
+        // unknown (`None`), not that there are none; asked again after it.
         let cache = Cache::new();
-        assert!(cache.get_fresh(t0, 100, || None, fresh).is_empty());
+        assert_eq!(cache.get_fresh(t0, 100, || None, fresh), None, "no answer is not an empty one");
         let failed = cache.get_fresh(t0 + secs(1), 101, || panic!("must not be asked again"), |answer: &Answer| {
             assert!(!answer.ok, "the cache knows launchctl gave no answer");
             assert!(answer.jobs.is_empty());
             assert_eq!(answer.fetched_at, 100);
             false
         });
-        assert!(failed.is_empty());
+        assert_eq!(failed, None, "from memory, still no answer");
         let retried = cache.get_fresh(t0 + REFRESH, 105, || Some(HashMap::from([(32014u32, OLLAMA.to_string())])), fresh);
-        assert_eq!(retried[&32014u32], OLLAMA, "asked again after the refresh");
+        assert_eq!(retried.expect("an answer at last")[&32014u32], OLLAMA, "asked again after the refresh");
     }
 }

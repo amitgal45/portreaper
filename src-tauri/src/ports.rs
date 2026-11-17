@@ -28,6 +28,9 @@
 //! first unless its own job's plist says a kill keeps it down ([`apply_launchd`]). One that runs
 //! from the system's folders, or from an exe nobody knows, is offered no stop command
 //! ([`withhold_stop_command`]; Apple's jobs get none in the first place: `launchd::stop_command`).
+//! When `launchctl` gives no answer (not macOS, a timeout, a failure), the jobs are unknown, not
+//! none: then no process launchd parents is an orphan in that listing, and none is listed
+//! portless ([`hold_orphans_while_jobs_unknown`]), so no zombie reap reaches a job nobody named.
 
 use std::collections::HashMap;
 use std::net::IpAddr;
@@ -176,14 +179,16 @@ pub(crate) fn listing() -> Result<Listing, PortsError> {
     // as lost ([`is_refetch_trigger`], from the exe the detail refresh just read) go with their
     // start times, so one that started since the cached answer (a job launchd just restarted,
     // with a new pid) makes it ask again; a new app, XPC service or piece of macOS does not.
-    // PortReaper itself is never a job it reports (`launchd::without_own`).
+    // PortReaper itself is never a job it reports (`launchd::without_own`). `answer` is `None` when
+    // `launchctl` gave no answer: the jobs are unknown ([`hold_orphans_while_jobs_unknown`]). With
+    // no child of launchd's to ask about, there is no job: an answer that names none.
     let launchd_children: Vec<_> = detail_pids
         .iter()
         .filter_map(|&pid| system.process(pid))
         .filter(|p| p.parent().map(|pp| pp.as_u32()) == Some(1) && p.user_id() == current_uid.as_ref())
         .collect();
-    let jobs = if launchd_children.is_empty() {
-        HashMap::new()
+    let answer: Option<HashMap<u32, String>> = if launchd_children.is_empty() {
+        Some(HashMap::new())
     } else {
         let triggers: Vec<(u32, u64)> = launchd_children
             .iter()
@@ -194,8 +199,10 @@ pub(crate) fn listing() -> Result<Listing, PortsError> {
             })
             .map(|p| (p.pid().as_u32(), p.start_time()))
             .collect();
-        crate::launchd::without_own(crate::launchd::running_jobs(&triggers), std::process::id())
+        crate::launchd::running_jobs(&triggers).map(|jobs| crate::launchd::without_own(jobs, std::process::id()))
     };
+    let no_jobs: HashMap<u32, String> = HashMap::new();
+    let jobs: &HashMap<u32, String> = answer.as_ref().unwrap_or(&no_jobs);
     let home = std::env::var_os("HOME");
     let home = home.as_deref().map(Path::new);
     // One description per job and listing: its plist is read once however many sockets it has.
@@ -203,7 +210,7 @@ pub(crate) fn listing() -> Result<Listing, PortsError> {
     // runs from (`job_for_entry`); `exe` is the one the entry shows.
     let mut described: HashMap<String, LaunchdJob> = HashMap::new();
     let mut launchd_of = |pid: u32, exe: Option<&str>| -> Option<LaunchdJob> {
-        let (label, link) = crate::launchd::job_of(pid, &jobs, |p| parent_of(&system, p))?;
+        let (label, link) = crate::launchd::job_of(pid, jobs, |p| parent_of(&system, p))?;
         let job = described
             .entry(label.to_string())
             .or_insert_with(|| crate::launchd::describe(label, home, raw_uid));
@@ -248,13 +255,19 @@ pub(crate) fn listing() -> Result<Listing, PortsError> {
             entry
         })
         .collect();
+    // No answer from launchctl: launchd's children keep their rows, but none is an orphan.
+    hold_orphans_while_jobs_unknown(&mut entries, answer.as_ref());
 
     // Append portless (`port: 0`, `address: "stdio"`) orphaned agent/MCP/browser/test processes
     // sorted by pid after the socket entries (WP-23).
     for pid in orphan_pids {
         let p = pid.as_u32();
         // A job, or a job's child, is where it is on purpose, not lost.
-        if crate::launchd::job_of(p, &jobs, |pp| parent_of(&system, pp)).is_some() {
+        if crate::launchd::job_of(p, jobs, |pp| parent_of(&system, pp)).is_some() {
+            continue;
+        }
+        // No answer from launchctl: launchd's child may be a job, and is listed here only as lost.
+        if held_while_jobs_unknown(parent_of(&system, p), answer.as_ref()) {
             continue;
         }
         let placeholder = Socket {
@@ -351,6 +364,25 @@ fn apply_launchd(entry: &mut PortEntry, job: Option<LaunchdJob>) {
         entry.protected = true;
     }
     entry.launchd = Some(job);
+}
+
+/// Whether a process is held back from the orphans because `launchctl` gave no answer (`jobs` is
+/// `None`): its parent is launchd (pid 1), which parents every job it runs, and without an answer
+/// a `brew services` job (ollama) has exactly a lost dev server's signature ([`is_orphan`]). A
+/// parent nobody knows (`None`) or a living one is no job's, and stays as it was; an answer, even
+/// one that names no job, holds nothing back.
+fn held_while_jobs_unknown(parent_pid: Option<u32>, jobs: Option<&HashMap<u32, String>>) -> bool {
+    jobs.is_none() && parent_pid == Some(1)
+}
+
+/// Clears `orphan` on every entry [`held_while_jobs_unknown`] holds back. An orphan gets the
+/// Zombie mark, ⌘⇧K's zombie tier, Reap zombies and the tray's "Kill lost-terminal servers", and
+/// a job killed that way is started again by launchd; until `launchctl` answers, nobody can tell
+/// a job from a lost process. The row stays, and every other field with it.
+fn hold_orphans_while_jobs_unknown(entries: &mut [PortEntry], jobs: Option<&HashMap<u32, String>>) {
+    for entry in entries.iter_mut().filter(|e| held_while_jobs_unknown(e.parent_pid, jobs)) {
+        entry.orphan = false;
+    }
 }
 
 /// The job as the entry of a process carries it: as `launchd::for_link` has it for the
@@ -1199,6 +1231,56 @@ mod tests {
         let carried = job_for_entry(&built, link, entry.exe.as_deref());
         apply_launchd(&mut entry, Some(carried));
         assert_eq!(entry.launchd, Some(expected));
+    }
+
+    /// [`brew_service`] under `parent_pid`, with `orphan` as WP-1's rule has it there.
+    fn brew_service_under(parent_pid: Option<u32>) -> PortEntry {
+        let mut e = PortEntry { parent_pid, ..brew_service() };
+        e.orphan = is_orphan(e.parent_pid, e.exe.as_deref(), e.user.as_deref(), Some("amit"));
+        e
+    }
+
+    #[test]
+    fn with_no_answer_from_launchctl_launchds_children_keep_their_rows_but_are_no_orphans() {
+        let service = brew_service();
+        assert!(service.orphan, "WP-1's rule alone calls the brew service a zombie");
+        let unknown_parent = brew_service_under(None);
+        assert!(unknown_parent.orphan, "a parent nobody knows reads as lost too");
+        let living = brew_service_under(Some(4242));
+        assert!(!living.orphan);
+        let all = vec![service.clone(), unknown_parent.clone(), living.clone(), control_center()];
+
+        // No answer: launchd's child may be a job nobody named, so it is no orphan, and only that changes.
+        let mut held = all.clone();
+        hold_orphans_while_jobs_unknown(&mut held, None);
+        assert_eq!(held.len(), all.len(), "every row stays");
+        assert_eq!(held[0], PortEntry { orphan: false, ..service.clone() }, "no Zombie mark, no zombie reap");
+        assert_eq!(held[1], unknown_parent, "launchd parents every job: a parent nobody knows is no job's");
+        assert_eq!(held[2], living, "a living parent's child is no job's either");
+        assert_eq!(held[3], control_center(), "launchd's child that was no orphan stays as it was");
+
+        // An answer, even one that names no job, holds nothing back.
+        let mut answered = all.clone();
+        hold_orphans_while_jobs_unknown(&mut answered, Some(&HashMap::new()));
+        assert_eq!(answered, all);
+        let ollama = HashMap::from([(32014u32, "homebrew.mxcl.ollama".to_string())]);
+        let mut named = all.clone();
+        hold_orphans_while_jobs_unknown(&mut named, Some(&ollama));
+        assert_eq!(named, all, "what an answer names is `apply_launchd`'s business");
+    }
+
+    #[test]
+    fn with_no_answer_from_launchctl_no_child_of_launchds_is_listed_as_a_portless_orphan() {
+        // The portless loop's test, per candidate (parent 1 or a parent nobody knows).
+        let empty: HashMap<u32, String> = HashMap::new();
+        let ollama = HashMap::from([(32014u32, "homebrew.mxcl.ollama".to_string())]);
+        assert!(held_while_jobs_unknown(Some(1), None), "launchd's child may be a job nobody named");
+        assert!(!held_while_jobs_unknown(None, None), "a parent nobody knows: listed as before");
+        assert!(!held_while_jobs_unknown(Some(4242), None), "a living parent: as before");
+        for answer in [&empty, &ollama] {
+            assert!(!held_while_jobs_unknown(Some(1), Some(answer)), "an answer holds nothing back");
+            assert!(!held_while_jobs_unknown(None, Some(answer)));
+        }
     }
 
     #[test]
