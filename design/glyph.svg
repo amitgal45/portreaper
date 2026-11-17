@@ -1,17 +1,4 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
-  <!--
-    PortReaper glyph, "Prismatic Cut Socket": the socket of icon.svg, cut by the same arc, in one
-    colour (white) on transparent, no plate. The single-colour layer for macOS 26's tinted and
-    clear appearances: Icon Composer takes it as the foreground and tints it itself, so only the
-    shape matters. Same coordinates as icon.svg, so it lines up with the plate.
-  -->
-  <defs>
-    <mask id="cut" maskUnits="userSpaceOnUse" x="0" y="0" width="1024" height="1024">
-      <rect width="1024" height="1024" fill="#fff"/>
-      <path d="M388 892 Q398 475 636 132" fill="none" stroke="#000" stroke-width="88"/>
-    </mask>
-  </defs>
-
-  <path d="M184 258 A24 24 0 0 1 208 234 H816 A24 24 0 0 1 840 258 V646 A24 24 0 0 1 816 670 H730 V766 A24 24 0 0 1 706 790 H318 A24 24 0 0 1 294 766 V670 H208 A24 24 0 0 1 184 646 Z M280 330 V574 H390 V694 H634 V574 H744 V330 Z"
-        fill="#FFFFFF" fill-rule="evenodd" mask="url(#cut)"/>
+  <!-- PortReaper foreground glyph layer (1024x1024) for macOS 26 Icon Composer. -->
+  <path d="M166 264 A26 26 0 0 1 192 238 H492.4 Q465.6 291.7 442.2 346 H278 V566 H368.1 Q353.3 683 347.9 802 H294 A26 26 0 0 1 268 776 V674 H192 A26 26 0 0 1 166 648 Z M669.8 218 H830 A26 26 0 0 1 856 244 V630 A26 26 0 0 1 830 656 H756 V756 A26 26 0 0 1 730 782 H499.1 Q503.8 728 512.7 674 H648 V546 H746 V326 H613.2 Q639.7 271.7 669.8 218 Z" fill="#FF4528"/>
 </svg>

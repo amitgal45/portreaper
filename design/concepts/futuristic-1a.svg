@@ -1,0 +1,140 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+    
+  <defs>
+    <clipPath id="squircle-f1a">
+      <rect x="100" y="100" width="824" height="824" rx="185"/>
+    </clipPath>
+
+    <!-- Anodized Obsidian-to-Void base gradient -->
+    <linearGradient id="bg-grad-f1a" x1="15%" y1="8%" x2="85%" y2="95%">
+      <stop offset="0%" stop-color="#1E222D"/>
+      <stop offset="45%" stop-color="#111319"/>
+      <stop offset="100%" stop-color="#07080B"/>
+    </linearGradient>
+
+    <!-- Top-left studio light sheen on squircle -->
+    <radialGradient id="top-sheen-f1a" cx="28%" cy="14%" r="65%">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.09"/>
+      <stop offset="55%" stop-color="#FFFFFF" stop-opacity="0.02"/>
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- Subsurface neon aura -->
+    <radialGradient id="aura-1-f1a" cx="512" cy="512" r="390" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FF4528" stop-opacity="0.34"/>
+      <stop offset="50%" stop-color="#A78BFA" stop-opacity="0.14"/>
+      <stop offset="100%" stop-color="#0A0B0E" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- Specular glass rim gradient -->
+    <linearGradient id="rim-grad-f1a" x1="20%" y1="0%" x2="80%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.42"/>
+      <stop offset="30%" stop-color="#FF4528" stop-opacity="0.28"/>
+      <stop offset="70%" stop-color="#A78BFA" stop-opacity="0.22"/>
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0.08"/>
+    </linearGradient>
+
+    <!-- Soft volumetric drop shadow + neon bloom -->
+    <filter id="drop-glow-f1a" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="22" stdDeviation="24" flood-color="#000000" flood-opacity="0.65"/>
+      <feDropShadow dx="0" dy="4" stdDeviation="16" flood-color="#FF4528" flood-opacity="0.28"/>
+    </filter>
+
+    <filter id="neon-bloom-f1a" x="-35%" y="-35%" width="170%" height="170%">
+      <feGaussianBlur stdDeviation="18" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Outer squircle shadow on canvas -->
+  <rect x="100" y="114" width="824" height="824" rx="185" fill="#000000" fill-opacity="0.28"/>
+
+  <!-- Main squircle plate -->
+  <g clip-path="url(#squircle-f1a)">
+    <rect x="100" y="100" width="824" height="824" fill="url(#bg-grad-f1a)"/>
+    <rect x="100" y="100" width="824" height="824" fill="url(#aura-1-f1a)"/>
+    <rect x="100" y="100" width="824" height="824" fill="url(#top-sheen-f1a)"/>
+
+    <!-- Subtle cmux/Antigravity precision radar & cartesian micro-grid -->
+    <g stroke="#FFFFFF" stroke-opacity="0.035" stroke-width="1.5" fill="none">
+      <circle cx="512" cy="512" r="180"/>
+      <circle cx="512" cy="512" r="290"/>
+      <circle cx="512" cy="512" r="400"/>
+      <line x1="100" y1="330" x2="924" y2="330"/>
+      <line x1="100" y1="512" x2="924" y2="512"/>
+      <line x1="100" y1="694" x2="924" y2="694"/>
+      <line x1="330" y1="100" x2="330" y2="924"/>
+      <line x1="512" y1="100" x2="512" y2="924"/>
+      <line x1="694" y1="100" x2="694" y2="924"/>
+    </g>
+  </g>
+
+  <!-- Apple macOS 26 specular inner rim highlight -->
+  <rect x="103" y="103" width="818" height="818" rx="182" fill="none" stroke="url(#rim-grad-f1a)" stroke-width="6"/>
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="none" stroke="#050608" stroke-width="2" stroke-opacity="0.6"/>
+  
+    <defs>
+      <linearGradient id="sock-metal-f1a" x1="20%" y1="0%" x2="80%" y2="100%">
+        <stop offset="0%" stop-color="#FF6B4A"/>
+        <stop offset="45%" stop-color="#FF4528"/>
+        <stop offset="100%" stop-color="#B81D3A"/>
+      </linearGradient>
+      <linearGradient id="sock-rim-f1a" x1="0%" y1="0%" x2="0%" y2="100%">
+        <stop offset="0%" stop-color="#FFD2C4" stop-opacity="0.85"/>
+        <stop offset="40%" stop-color="#FF4528" stop-opacity="0.2"/>
+        <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0.15"/>
+      </linearGradient>
+      <linearGradient id="chamber-grad-f1a" x1="50%" y1="0%" x2="50%" y2="100%">
+        <stop offset="0%" stop-color="#07080C"/>
+        <stop offset="65%" stop-color="#12141F"/>
+        <stop offset="100%" stop-color="#1E162B"/>
+      </linearGradient>
+      <linearGradient id="ghost-glass-f1a" x1="30%" y1="5%" x2="75%" y2="98%">
+        <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.95"/>
+        <stop offset="28%" stop-color="#FF9A3C" stop-opacity="0.92"/>
+        <stop offset="68%" stop-color="#FF4528" stop-opacity="0.90"/>
+        <stop offset="100%" stop-color="#A78BFA" stop-opacity="0.88"/>
+      </linearGradient>
+      <linearGradient id="ghost-edge-f1a" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.95"/>
+        <stop offset="50%" stop-color="#FF9A3C" stop-opacity="0.6"/>
+        <stop offset="100%" stop-color="#4EA1FF" stop-opacity="0.8"/>
+      </linearGradient>
+      <linearGradient id="pin-grad-f1a" x1="0%" y1="0%" x2="0%" y2="100%">
+        <stop offset="0%" stop-color="#FFD166"/>
+        <stop offset="100%" stop-color="#FF4528"/>
+      </linearGradient>
+    </defs>
+
+    <!-- Sculpted 3D Coral-Metal Socket Frame -->
+    <g filter="url(#drop-glow-f1a)">
+      <path d="M176 254 A34 34 0 0 1 210 220 H814 A34 34 0 0 1 848 254 V634 A34 34 0 0 1 814 668 H752 V764 A34 34 0 0 1 718 798 H306 A34 34 0 0 1 272 764 V668 H210 A34 34 0 0 1 176 634 Z" fill="url(#sock-metal-f1a)" stroke="url(#sock-rim-f1a)" stroke-width="5"/>
+    </g>
+
+    <!-- Recessed Dark Obsidian Port Cavity -->
+    <path d="M236 292 A22 22 0 0 1 258 270 H766 A22 22 0 0 1 788 292 V596 A22 22 0 0 1 766 618 H696 V724 A20 20 0 0 1 676 744 H348 A20 20 0 0 1 328 724 V618 H258 A22 22 0 0 1 236 596 Z" fill="url(#chamber-grad-f1a)" stroke="#2D2338" stroke-width="4"/>
+
+    <!-- Subtle RJ45 Gold/Coral Contact Pins at top of port cavity -->
+    <g fill="url(#pin-grad-f1a)" opacity="0.65">
+      <rect x="336" y="272" width="14" height="36" rx="7"/>
+      <rect x="384" y="272" width="14" height="44" rx="7"/>
+      <rect x="432" y="272" width="14" height="32" rx="7"/>
+      <rect x="480" y="272" width="14" height="28" rx="7"/>
+      <rect x="530" y="272" width="14" height="28" rx="7"/>
+      <rect x="578" y="272" width="14" height="32" rx="7"/>
+      <rect x="626" y="272" width="14" height="44" rx="7"/>
+      <rect x="674" y="272" width="14" height="36" rx="7"/>
+    </g>
+
+    <!-- Glowing Holographic Faceless Ghost Wisp inside the Port -->
+    <g filter="url(#neon-bloom-f1a)">
+      <path d="M346 472 A166 166 0 0 1 678 472 L692 624 C694 656 664 672 634 672 C602 672 598 608 572 608 C546 608 542 672 512 672 C482 672 478 608 452 608 C426 608 422 672 390 672 C360 672 330 656 332 624 Z" fill="#FF4528" fill-opacity="0.28"/>
+    </g>
+    <path d="M346 472 A166 166 0 0 1 678 472 L692 624 C694 656 664 672 634 672 C602 672 598 608 572 608 C546 608 542 672 512 672 C482 672 478 608 452 608 C426 608 422 672 390 672 C360 672 330 656 332 624 Z" fill="url(#ghost-glass-f1a)" stroke="url(#ghost-edge-f1a)" stroke-width="6"/>
+
+    <!-- Specular Liquid-Glass Highlight Arc on Ghost Dome -->
+    <path d="M382 448 A134 134 0 0 1 618 386" fill="none" stroke="#FFFFFF" stroke-width="10" stroke-linecap="round" stroke-opacity="0.65"/>
+  </svg>

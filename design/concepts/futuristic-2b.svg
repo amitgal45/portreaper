@@ -1,0 +1,109 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+    
+  <defs>
+    <clipPath id="squircle-f2b">
+      <rect x="100" y="100" width="824" height="824" rx="185"/>
+    </clipPath>
+
+    <!-- Anodized Obsidian-to-Void base gradient -->
+    <linearGradient id="bg-grad-f2b" x1="15%" y1="8%" x2="85%" y2="95%">
+      <stop offset="0%" stop-color="#1E222D"/>
+      <stop offset="45%" stop-color="#111319"/>
+      <stop offset="100%" stop-color="#07080B"/>
+    </linearGradient>
+
+    <!-- Top-left studio light sheen on squircle -->
+    <radialGradient id="top-sheen-f2b" cx="28%" cy="14%" r="65%">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.09"/>
+      <stop offset="55%" stop-color="#FFFFFF" stop-opacity="0.02"/>
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- Subsurface neon aura -->
+    <radialGradient id="aura-1-f2b" cx="480" cy="480" r="390" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#A78BFA" stop-opacity="0.34"/>
+      <stop offset="50%" stop-color="#FF4528" stop-opacity="0.14"/>
+      <stop offset="100%" stop-color="#0A0B0E" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- Specular glass rim gradient -->
+    <linearGradient id="rim-grad-f2b" x1="20%" y1="0%" x2="80%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.42"/>
+      <stop offset="30%" stop-color="#A78BFA" stop-opacity="0.28"/>
+      <stop offset="70%" stop-color="#FF4528" stop-opacity="0.22"/>
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0.08"/>
+    </linearGradient>
+
+    <!-- Soft volumetric drop shadow + neon bloom -->
+    <filter id="drop-glow-f2b" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="22" stdDeviation="24" flood-color="#000000" flood-opacity="0.65"/>
+      <feDropShadow dx="0" dy="4" stdDeviation="16" flood-color="#A78BFA" flood-opacity="0.28"/>
+    </filter>
+
+    <filter id="neon-bloom-f2b" x="-35%" y="-35%" width="170%" height="170%">
+      <feGaussianBlur stdDeviation="18" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Outer squircle shadow on canvas -->
+  <rect x="100" y="114" width="824" height="824" rx="185" fill="#000000" fill-opacity="0.28"/>
+
+  <!-- Main squircle plate -->
+  <g clip-path="url(#squircle-f2b)">
+    <rect x="100" y="100" width="824" height="824" fill="url(#bg-grad-f2b)"/>
+    <rect x="100" y="100" width="824" height="824" fill="url(#aura-1-f2b)"/>
+    <rect x="100" y="100" width="824" height="824" fill="url(#top-sheen-f2b)"/>
+
+    <!-- Subtle cmux/Antigravity precision radar & cartesian micro-grid -->
+    <g stroke="#FFFFFF" stroke-opacity="0.035" stroke-width="1.5" fill="none">
+      <circle cx="512" cy="512" r="180"/>
+      <circle cx="512" cy="512" r="290"/>
+      <circle cx="512" cy="512" r="400"/>
+      <line x1="100" y1="330" x2="924" y2="330"/>
+      <line x1="100" y1="512" x2="924" y2="512"/>
+      <line x1="100" y1="694" x2="924" y2="694"/>
+      <line x1="330" y1="100" x2="330" y2="924"/>
+      <line x1="512" y1="100" x2="512" y2="924"/>
+      <line x1="694" y1="100" x2="694" y2="924"/>
+    </g>
+  </g>
+
+  <!-- Apple macOS 26 specular inner rim highlight -->
+  <rect x="103" y="103" width="818" height="818" rx="182" fill="none" stroke="url(#rim-grad-f2b)" stroke-width="6"/>
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="none" stroke="#050608" stroke-width="2" stroke-opacity="0.6"/>
+  
+    <defs>
+      <linearGradient id="rib-coral-f2b" x1="85%" y1="10%" x2="10%" y2="90%">
+        <stop offset="0%" stop-color="#FFB74D"/>
+        <stop offset="45%" stop-color="#FF4528"/>
+        <stop offset="100%" stop-color="#E11D48"/>
+      </linearGradient>
+      <linearGradient id="rib-violet-f2b" x1="90%" y1="15%" x2="15%" y2="85%">
+        <stop offset="0%" stop-color="#38BDF8" stop-opacity="0.88"/>
+        <stop offset="50%" stop-color="#A78BFA" stop-opacity="0.82"/>
+        <stop offset="100%" stop-color="#FF4528" stop-opacity="0.75"/>
+      </linearGradient>
+      <linearGradient id="sock-grad-f2b" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="#FF784E"/>
+        <stop offset="60%" stop-color="#FF4528"/>
+        <stop offset="100%" stop-color="#9333EA"/>
+      </linearGradient>
+    </defs>
+
+    <!-- Overlapping Translucent Glass Crescent Ribbons -->
+    <g filter="url(#drop-glow-f2b)">
+      <path d="M764 276 C560 192 346 244 260 406 C202 516 212 652 276 764 C272 626 322 500 416 408 C512 314 636 270 764 276 Z" fill="url(#rib-violet-f2b)" stroke="#E0E7FF" stroke-opacity="0.45" stroke-width="3.5"/>
+      <path d="M804 244 C568 124 304 176 206 364 C136 498 154 668 246 802 C226 640 274 490 384 382 C492 274 642 224 804 244 Z" fill="url(#rib-coral-f2b)" stroke="#FFFFFF" stroke-opacity="0.55" stroke-width="4.5"/>
+    </g>
+
+    <!-- Ringed Ethernet Port Socket in Lower-Right Pocket -->
+    <g filter="url(#drop-glow-f2b)">
+      <path d="M428 466 A26 26 0 0 1 454 440 H806 A26 26 0 0 1 832 466 V676 A26 26 0 0 1 806 702 H750 V768 A26 26 0 0 1 724 794 H536 A26 26 0 0 1 510 768 V702 H454 A26 26 0 0 1 428 676 Z M518 528 V628 H742 V528 Z" fill="url(#sock-grad-f2b)" fill-rule="evenodd" stroke="#FFD6C9" stroke-opacity="0.6" stroke-width="4.5"/>
+      <!-- Subtle glowing emerald/azure freed-port indicator bar inside the hollow -->
+      <rect x="556" y="566" width="148" height="24" rx="12" fill="#4EA1FF" fill-opacity="0.45" stroke="#BAE6FD" stroke-opacity="0.7" stroke-width="2"/>
+    </g>
+  </svg>

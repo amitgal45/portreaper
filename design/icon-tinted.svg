@@ -1,26 +1,17 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
-  <!--
-    PortReaper app icon, "Prismatic Cut Socket" (3B), tinted / clear appearance (macOS 26): how the
-    icon looks once macOS takes it to one colour. The glyph of glyph.svg in white on a slate plate,
-    the glass panel kept, no gradients and no bloom (macOS draws its own). A preview, and the
-    reference for an Icon Composer `.icon` file, which uses glyph.svg as its layer. Not rendered
-    by `pnpm icons` (design/README.md, "Appearances").
-  -->
+  <!-- PortReaper app icon — Tinted/Clear appearance (macOS 26 Icon Composer). -->
   <defs>
-    <mask id="cut" maskUnits="userSpaceOnUse" x="0" y="0" width="1024" height="1024">
-      <rect width="1024" height="1024" fill="#fff"/>
-      <path d="M388 892 Q398 475 636 132" fill="none" stroke="#000" stroke-width="88"/>
-    </mask>
-    <linearGradient id="plate-fill" gradientUnits="userSpaceOnUse" x1="0" y1="100" x2="0" y2="924">
-      <stop offset="0" stop-color="#3A4250"/>
-      <stop offset="1" stop-color="#232933"/>
+    <linearGradient id="glass-plate" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#283548" stop-opacity="0.88"/>
+      <stop offset="100%" stop-color="#161E2B" stop-opacity="0.92"/>
+    </linearGradient>
+    <linearGradient id="glass-rim" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.45"/>
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0.12"/>
     </linearGradient>
   </defs>
-
-  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#plate-fill)"/>
-  <path d="M280 330 V574 H390 V694 H634 V574 H744 V330 Z"
-        fill="#FFFFFF" fill-opacity="0.06" stroke="#FFFFFF" stroke-opacity="0.12" stroke-width="2"/>
-  <path d="M184 258 A24 24 0 0 1 208 234 H816 A24 24 0 0 1 840 258 V646 A24 24 0 0 1 816 670 H730 V766 A24 24 0 0 1 706 790 H318 A24 24 0 0 1 294 766 V670 H208 A24 24 0 0 1 184 646 Z M280 330 V574 H390 V694 H634 V574 H744 V330 Z"
-        fill="#F2F3F5" fill-rule="evenodd" mask="url(#cut)"/>
-  <rect x="101" y="101" width="822" height="822" rx="184" fill="none" stroke="#FFFFFF" stroke-opacity="0.18" stroke-width="2"/>
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#glass-plate)"/>
+  <rect x="103" y="103" width="818" height="818" rx="182" fill="none" stroke="url(#glass-rim)" stroke-width="6"/>
+  <rect x="252" y="298" width="520" height="296" rx="44" fill="#F2F3F5" fill-opacity="0.08" stroke="#F2F3F5" stroke-opacity="0.18" stroke-width="3"/>
+  <path d="M166 264 A26 26 0 0 1 192 238 H492.4 Q465.6 291.7 442.2 346 H278 V566 H368.1 Q353.3 683 347.9 802 H294 A26 26 0 0 1 268 776 V674 H192 A26 26 0 0 1 166 648 Z M669.8 218 H830 A26 26 0 0 1 856 244 V630 A26 26 0 0 1 830 656 H756 V756 A26 26 0 0 1 730 782 H499.1 Q503.8 728 512.7 674 H648 V546 H746 V326 H613.2 Q639.7 271.7 669.8 218 Z" fill="#F2F3F5"/>
 </svg>
