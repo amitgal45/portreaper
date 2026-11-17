@@ -6,24 +6,24 @@
  * holds that), so the "tokens only" rule of `contrast.test.ts` keeps its teeth everywhere else.
  */
 export const APP_ICON = {
-  /** Tactical Obsidian: the plate. */
-  plate: "#121316",
-  /** The glass panel in the socket's opening (drawn at 6 %). */
-  glass: "#FFFFFF",
-  /** The left piece, the one the cut swept: Neon Amber to Signal Coral, top to bottom. */
-  warm: ["#FF9A3C", "#FF4528"],
-  /** The right piece: Azure to Violet, top to bottom. */
-  cool: ["#4EA1FF", "#A78BFA"],
+  /** The plate, top-left to bottom-right: Anodized Obsidian, Tactical Obsidian, Void Black. */
+  plate: ["#1E222D", "#121316", "#0A0B0E"],
+  /** The left bracket (`prism-left`): amber, Signal Coral, rose. */
+  warm: ["#FFB74D", "#FF4528", "#E11D48"],
+  /** The right bracket (`prism-right`): Azure, Violet, Signal Coral. */
+  cool: ["#4EA1FF", "#A78BFA", "#FF4528"],
+  /** The frosted-glass echo plate in the socket's cavity (`echo-glass`): white to violet. */
+  glass: ["#FFFFFF", "#A78BFA"],
 } as const;
 
-/** The socket: a bold ring with the latch tab below (outer boundary, then the opening), even-odd. */
-export const SOCKET =
-  "M184 258 A24 24 0 0 1 208 234 H816 A24 24 0 0 1 840 258 V646 A24 24 0 0 1 816 670 H730 V766 A24 24 0 0 1 706 790 H318 A24 24 0 0 1 294 766 V670 H208 A24 24 0 0 1 184 646 Z M280 330 V574 H390 V694 H634 V574 H744 V330 Z";
-/** The socket's opening, where the glass panel sits. */
-export const OPENING = "M280 330 V574 H390 V694 H634 V574 H744 V330 Z";
-/** The cut: one quadratic arc, stroked 88 px wide with square ends through the mask. */
-export const CUT = "M388 892 Q398 475 636 132";
-/** Everything left of the cut's centreline (the warm piece); the straight runs lie off the glyph. */
-export const LEFT = "M0 0 H680 L636 132 Q398 475 388 892 L380 1024 H0 Z";
-/** Everything right of it (the cool piece): the same boundary, so the two cover the glyph once. */
-export const RIGHT = "M1024 0 H680 L636 132 Q398 475 388 892 L380 1024 H1024 Z";
+/**
+ * The left bracket: the socket's left half, cut by the tapered scythe arc and sheared along it.
+ * Two separate paths, no mask: the gap is in the geometry.
+ */
+export const LEFT_BRACKET =
+  "M166 264 A26 26 0 0 1 192 238 H492.4 Q465.6 291.7 442.2 346 H278 V566 H368.1 Q353.3 683 347.9 802 H294 A26 26 0 0 1 268 776 V674 H192 A26 26 0 0 1 166 648 Z";
+/** The right bracket, displaced up and right along the cut. */
+export const RIGHT_BRACKET =
+  "M669.8 218 H830 A26 26 0 0 1 856 244 V630 A26 26 0 0 1 830 656 H756 V756 A26 26 0 0 1 730 782 H499.1 Q503.8 728 512.7 674 H648 V546 H746 V326 H613.2 Q639.7 271.7 669.8 218 Z";
+/** The echo plate in the socket's cavity, as a rounded rectangle. */
+export const ECHO = { x: 252, y: 298, width: 520, height: 296, rx: 44 } as const;

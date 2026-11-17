@@ -4,7 +4,7 @@ import { relative, resolve } from "node:path";
 import { mount } from "@vue/test-utils";
 import { describe, expect, it } from "vitest";
 import { defineComponent, h } from "vue";
-import { APP_ICON, CUT, LEFT, OPENING, RIGHT, SOCKET } from "../lib/app-icon";
+import { APP_ICON, ECHO, LEFT_BRACKET, RIGHT_BRACKET } from "../lib/app-icon";
 import AppMark from "./AppMark.vue";
 
 // Vitest runs from the project root; import.meta.url is rewritten under happy-dom, so anchor on cwd.
@@ -13,54 +13,60 @@ const read = (path: string) => readFileSync(resolve(root, path), "utf8");
 const urlRef = /^url\(#(.+)\)$/;
 
 describe("AppMark", () => {
-  it("draws the plate and the socket in two pieces, warm left and cool right, hidden from assistive technology", () => {
+  it("draws the plate, the echo plate and the two brackets, warm left and cool right, hidden from assistive technology", () => {
     const wrapper = mount(AppMark);
     const svg = wrapper.get("svg[data-app-mark]");
     expect(svg.attributes("aria-hidden")).toBe("true");
     expect(svg.attributes("viewBox")).toBe("100 100 824 824");
-    expect(svg.get("rect[rx]").attributes("fill")).toBe(APP_ICON.plate);
-    const pieces = svg.findAll("g[mask] > path[clip-path]");
-    expect(pieces).toHaveLength(2);
-    const stops = (gradient: string) =>
-      svg.findAll(`linearGradient[id="${gradient}"] stop`).map((s) => s.attributes("stop-color"));
-    const fillOf = (piece: (typeof pieces)[number]) => piece.attributes("fill")?.match(urlRef)?.[1] ?? "";
-    const [left, right] = pieces;
-    expect(left && stops(fillOf(left))).toEqual([...APP_ICON.warm]);
-    expect(right && stops(fillOf(right))).toEqual([...APP_ICON.cool]);
+    const stops = (fill: string | undefined) =>
+      svg
+        .findAll(`linearGradient[id="${fill?.match(urlRef)?.[1]}"] stop`)
+        .map((s) => s.attributes("stop-color"));
+    expect(stops(svg.get("rect[rx='185']").attributes("fill"))).toEqual([...APP_ICON.plate]);
+    expect(svg.get(`rect[width='${ECHO.width}']`).attributes("rx")).toBe(String(ECHO.rx));
+    const [left, right] = svg.findAll("path");
+    expect(left?.attributes("d")).toBe(LEFT_BRACKET);
+    expect(right?.attributes("d")).toBe(RIGHT_BRACKET);
+    expect(stops(left?.attributes("fill"))).toEqual([...APP_ICON.warm]);
+    expect(stops(right?.attributes("fill"))).toEqual([...APP_ICON.cool]);
   });
 
-  it("gives every mark on a page its own ids, so two never share a gradient, a clip or the cut", () => {
+  it("gives every mark on a page its own ids, so two never share a gradient", () => {
     const Two = defineComponent({ render: () => h("div", [h(AppMark), h(AppMark)]) });
     const wrapper = mount(Two);
     const ids = wrapper.findAll("[id]").map((el) => el.attributes("id"));
-    expect(ids.length).toBe(10);
+    expect(ids.length).toBe(8);
     expect(new Set(ids).size).toBe(ids.length);
     // Every reference points at an id of its own mark.
     for (const svg of wrapper.findAll("svg[data-app-mark]")) {
       const own = new Set(svg.findAll("[id]").map((el) => el.attributes("id")));
       const refs = svg
-        .findAll("[mask], [fill], [clip-path]")
-        .flatMap((el) => ["mask", "fill", "clip-path"].map((a) => el.attributes(a)?.match(urlRef)?.[1]))
+        .findAll("[fill]")
+        .map((el) => el.attributes("fill")?.match(urlRef)?.[1])
         .filter((ref): ref is string => ref !== undefined);
-      expect(refs.length).toBe(5);
+      expect(refs.length).toBe(4);
       for (const ref of refs) expect(own.has(ref)).toBe(true);
     }
   });
 });
 
 describe("the app icon's sources", () => {
-  it("lib/app-icon.ts and design/icon.svg agree on the gradients", () => {
+  it("lib/app-icon.ts and design/icon.svg agree on the plate, the brackets and the echo plate", () => {
     const icon = read("design/icon.svg");
     const stopsOf = (id: string) => {
       const gradient =
         icon.match(new RegExp(`<linearGradient id="${id}"[\\s\\S]*?</linearGradient>`))?.[0] ?? "";
       return [...gradient.matchAll(/stop-color="(#[0-9A-Fa-f]{6})"/g)].map((m) => m[1]);
     };
-    expect(stopsOf("warm")).toEqual([...APP_ICON.warm]);
-    expect(stopsOf("cool")).toEqual([...APP_ICON.cool]);
+    expect(stopsOf("bg-grad")).toEqual([...APP_ICON.plate]);
+    expect(stopsOf("prism-left")).toEqual([...APP_ICON.warm]);
+    expect(stopsOf("prism-right")).toEqual([...APP_ICON.cool]);
+    expect(stopsOf("echo-glass")).toEqual([...APP_ICON.glass]);
+    const { x, y, width, height, rx } = ECHO;
+    expect(icon).toContain(`<rect x="${x}" y="${y}" width="${width}" height="${height}" rx="${rx}"`);
   });
 
-  it("every design source draws the same socket, opening and cut as the in-app mark", () => {
+  it("every design source draws the same two brackets as the in-app mark", () => {
     for (const file of [
       "design/icon.svg",
       "design/icon-dark.svg",
@@ -68,14 +74,8 @@ describe("the app icon's sources", () => {
       "design/glyph.svg",
     ]) {
       const svg = read(file);
-      expect(svg, `${file}: the socket`).toContain(`"${SOCKET}"`);
-      expect(svg, `${file}: the cut`).toContain(`"${CUT}"`);
-    }
-    for (const file of ["design/icon.svg", "design/icon-dark.svg"]) {
-      const svg = read(file);
-      expect(svg, `${file}: the warm piece's clip`).toContain(`"${LEFT}"`);
-      expect(svg, `${file}: the cool piece's clip`).toContain(`"${RIGHT}"`);
-      expect(svg, `${file}: the glass`).toContain(`"${OPENING}"`);
+      expect(svg, `${file}: the left bracket`).toContain(LEFT_BRACKET);
+      expect(svg, `${file}: the right bracket`).toContain(RIGHT_BRACKET);
     }
   });
 
