@@ -12,13 +12,16 @@
 //!
 //! What is read: one `launchctl list` per [`REFRESH`] (pid → label, the caller's domain only:
 //! `gui/<uid>` for a GUI app), from whichever listing asks first (the [`Cache`]), with a
-//! [`LIST_TIMEOUT`]; and again at once when a process of the user's that launchd parents, and
-//! that the answer does not name, started since it was asked for ([`needs_refetch`]): a job
-//! launchd just started again (after Kill anyway, or a `brew services start`) has a pid the
-//! answer has never seen, and must not read as a lost process until the next refresh. Per job,
-//! its plist at `~/Library/LaunchAgents/<label>.plist` (Homebrew's convention, and where a user's
-//! own agents live), at most [`MAX_PLIST_BYTES`], opened once and without blocking, for its
-//! `KeepAlive`. Not macOS, no answer in time, a non-zero exit: no jobs, and the listing behaves
+//! [`LIST_TIMEOUT`]; and again at once when a process that would read as lost
+//! (`ports::is_refetch_trigger`: launchd's child, the user's, outside the system paths and any
+//! `.app`), and that the answer does not name, started since it was asked for ([`needs_refetch`]):
+//! a job launchd just started again (after Kill anyway, or a `brew services start`) has a pid the
+//! answer has never seen, and must not read as a lost process until the next refresh. A new app,
+//! XPC service or piece of macOS is no reason to ask again, nor is a start time after now (a clock
+//! set back), and a failed answer waits out the refresh. Per job, its plist at
+//! `~/Library/LaunchAgents/<label>.plist` (Homebrew's convention, and where a user's own agents
+//! live), at most [`MAX_PLIST_BYTES`], opened once and without blocking, for its `KeepAlive`.
+//! Not macOS, no answer in time, a non-zero exit: no jobs, and the listing behaves
 //! as before; the first such failure of a run is a warning.
 //!
 //! Nothing is ever run but `/bin/launchctl list`: an absolute path, a fixed argument, no shell.
@@ -73,26 +76,31 @@ const MAX_LABEL_LEN: usize = 255;
 const MAX_FORMULA_LEN: usize = 100;
 
 /// The running jobs of the user's domain, pid → label. The cached answer of one `launchctl list`
-/// while it is younger than [`REFRESH`] and still fresh for `launchd_children` (pid and start
-/// time, unix seconds, of every process of the user's that launchd parents): none of them that
-/// it does not name started at or after it was asked for ([`needs_refetch`]). Else a new answer,
-/// once per call. Empty when `launchctl` is not there (not macOS), did not answer in time, or
-/// failed ([`fetch`]): a listing then behaves as before.
-pub fn running_jobs(launchd_children: &[(u32, u64)]) -> HashMap<u32, String> {
+/// while it is younger than [`REFRESH`] and still fresh for `triggers` (pid and start time, unix
+/// seconds, of every process of the user's that launchd parents and that would read as lost:
+/// `ports::is_refetch_trigger`): none of them that it does not name started since it was asked
+/// for ([`needs_refetch`]). Else a new answer, once per call. Empty when `launchctl` is not there
+/// (not macOS), did not answer in time, or failed ([`fetch`]): a listing then behaves as before.
+pub fn running_jobs(triggers: &[(u32, u64)]) -> HashMap<u32, String> {
     static CACHE: Cache = Cache::new();
-    // Dated before `launchctl` runs: a process that starts while it runs counts as newer.
-    CACHE.get_fresh(Instant::now(), unix_now(), fetch, |fetched_at, jobs| {
-        needs_refetch(fetched_at, unmapped_starts(launchd_children, jobs))
+    // Dated before `launchctl` runs: a process that starts while it runs counts as newer. The
+    // same second bounds the start times that count: a later one is a clock that was set back.
+    let now = unix_now();
+    CACHE.get_fresh(Instant::now(), now, fetch, |answer| {
+        needs_refetch(answer.ok, answer.fetched_at, now, unmapped_starts(triggers, &answer.jobs))
     })
 }
 
-/// Whether an answer of `launchctl list` asked for at `fetched_at` (unix seconds) is stale: one
-/// of the processes launchd parents that it does not name started at or after that moment
-/// (`starts`, unix seconds). That is a job launchd started since, likely one it restarted with a
-/// new pid; the same second counts, because start times are whole seconds. A process older than
-/// the answer is one the answer saw, and not a job.
-pub(crate) fn needs_refetch(fetched_at: u64, starts: impl IntoIterator<Item = u64>) -> bool {
-    starts.into_iter().any(|started| started >= fetched_at)
+/// Whether the answer of `launchctl list` asked for at `fetched_at` (unix seconds) is stale at
+/// `now` (unix seconds): one of the would-be lost processes it does not name (`starts`, unix
+/// seconds) started at or after that moment, and not after `now`. That is a job launchd started
+/// since, likely one it restarted with a new pid; the same second counts, because start times are
+/// whole seconds. A process older than the answer is one the answer saw, and not a job; one that
+/// started after now is a clock that was set back, not news. A failed answer (`answered` false:
+/// no `launchctl`, no answer in time, a non-zero exit) is never stale: asked again at once, it
+/// would run, and fail, at every listing, so it waits out [`REFRESH`].
+pub(crate) fn needs_refetch(answered: bool, fetched_at: u64, now: u64, starts: impl IntoIterator<Item = u64>) -> bool {
+    answered && starts.into_iter().any(|started| (fetched_at..=now).contains(&started))
 }
 
 /// The start times of the `children` (pid, unix seconds) whose pid `jobs` does not name.
@@ -108,19 +116,20 @@ pub(crate) fn without_own(mut jobs: HashMap<u32, String>, own: u32) -> HashMap<u
     jobs
 }
 
-/// Now, in unix seconds; 0 for a clock before 1970, which only makes every answer stale.
+/// Now, in unix seconds; 0 for a clock before 1970.
 fn unix_now() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs())
 }
 
-/// One `launchctl list`, parsed. A failure is no jobs, so a `brew services` job reads as a lost
-/// process again: the first failure of a run says so on stderr, and later ones do not, or a
-/// missing `launchctl` would warn at every listing.
-fn fetch() -> HashMap<u32, String> {
+/// One `launchctl list`, parsed; `None` when it gave no answer ([`list_answer`]). The cache keeps
+/// that as no jobs, so a `brew services` job reads as a lost process again: the first failure of
+/// a run says so on stderr, and later ones do not, or a missing `launchctl` would warn at every
+/// listing.
+fn fetch() -> Option<HashMap<u32, String>> {
     static WARNED: AtomicBool = AtomicBool::new(false);
     let ran = crate::docker::run(LAUNCHCTL, &["list".into()], &OsString::from(LIST_PATH), LIST_TIMEOUT);
     match list_answer(ran) {
-        Ok(jobs) => jobs,
+        Ok(jobs) => Some(jobs),
         Err(why) => {
             if !WARNED.swap(true, Ordering::Relaxed) {
                 crate::tray::warn(format_args!(
@@ -128,7 +137,7 @@ fn fetch() -> HashMap<u32, String> {
                      processes, so a brew service may show as a zombie (later failures are not logged)"
                 ));
             }
-            HashMap::new()
+            None
         }
     }
 }
@@ -370,10 +379,13 @@ pub(crate) fn for_link(job: &LaunchdJob, link: Link) -> LaunchdJob {
 }
 
 /// One `launchctl list` answer: when it was taken (monotonic, for [`REFRESH`]; unix seconds, to
-/// compare with start times) and what it said.
-struct Answer {
+/// compare with start times), whether `launchctl` answered at all, and what it said.
+pub(crate) struct Answer {
     at: Instant,
     fetched_at: u64,
+    /// `false` when `launchctl` gave no answer ([`fetch`]): `jobs` is then empty, and the answer
+    /// is never stale before [`REFRESH`] ([`needs_refetch`]).
+    ok: bool,
     jobs: HashMap<u32, String>,
 }
 
@@ -389,25 +401,27 @@ impl Cache {
         Self { inner: Mutex::new(None) }
     }
 
-    /// The cached map when it is younger than [`REFRESH`] at `now` and `stale`, given the unix
-    /// second it was asked for and the map, says it is not; else what `fetch` returns, cached as
-    /// of `now` and `unix_now`.
+    /// The cached map when it is younger than [`REFRESH`] at `now` and `stale`, given the cached
+    /// answer, says it is not; else what `fetch` returns (`None`: no answer, cached as no jobs and
+    /// not `ok`), cached as of `now` and `unix_now`.
     pub fn get_fresh(
         &self,
         now: Instant,
         unix_now: u64,
-        fetch: impl FnOnce() -> HashMap<u32, String>,
-        stale: impl FnOnce(u64, &HashMap<u32, String>) -> bool,
+        fetch: impl FnOnce() -> Option<HashMap<u32, String>>,
+        stale: impl FnOnce(&Answer) -> bool,
     ) -> HashMap<u32, String> {
         // A thread that panicked while holding the cache leaves a usable map behind.
         let mut slot = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
         if let Some(answer) = slot.as_ref() {
-            if now.saturating_duration_since(answer.at) < REFRESH && !stale(answer.fetched_at, &answer.jobs) {
+            if now.saturating_duration_since(answer.at) < REFRESH && !stale(answer) {
                 return answer.jobs.clone();
             }
         }
-        let jobs = fetch();
-        *slot = Some(Answer { at: now, fetched_at: unix_now, jobs: jobs.clone() });
+        let fetched = fetch();
+        let ok = fetched.is_some();
+        let jobs = fetched.unwrap_or_default();
+        *slot = Some(Answer { at: now, fetched_at: unix_now, ok, jobs: jobs.clone() });
         jobs
     }
 }
@@ -838,19 +852,43 @@ mod tests {
     #[test]
     fn a_launchd_child_the_answer_does_not_name_and_that_started_since_asks_again() {
         let fetched: u64 = 1_700_000_100;
-        assert!(!needs_refetch(fetched, [fetched - 3600, fetched - 1]), "older: the answer saw them, and they are no job");
-        assert!(needs_refetch(fetched, [fetched]), "the same second: it may have started after launchctl answered");
-        assert!(needs_refetch(fetched, [fetched - 3600, fetched + 2]), "newer: a job launchd just started again");
-        assert!(!needs_refetch(fetched, std::iter::empty::<u64>()), "none");
+        let now = fetched + 10;
+        assert!(!needs_refetch(true, fetched, now, [fetched - 3600, fetched - 1]), "older: the answer saw them, and they are no job");
+        assert!(needs_refetch(true, fetched, now, [fetched]), "the same second: it may have started after launchctl answered");
+        assert!(needs_refetch(true, fetched, now, [fetched - 3600, fetched + 2]), "newer: a job launchd just started again");
+        assert!(needs_refetch(true, fetched, now, [now]), "this very second counts too");
+        assert!(!needs_refetch(true, fetched, now, std::iter::empty::<u64>()), "none");
 
         // Only the children the answer does not name count.
         let jobs = HashMap::from([(700u32, "sh.brew.ollama".to_string())]);
         let children = [(700u32, fetched + 5), (701, fetched - 10)];
         assert_eq!(unmapped_starts(&children, &jobs), [fetched - 10]);
-        assert!(!needs_refetch(fetched, unmapped_starts(&children, &jobs)), "the new one is a job it knows");
+        assert!(!needs_refetch(true, fetched, now, unmapped_starts(&children, &jobs)), "the new one is a job it knows");
         let children = [(700u32, fetched - 10), (702, fetched + 5)];
-        assert!(needs_refetch(fetched, unmapped_starts(&children, &jobs)), "a new pid it has never seen");
+        assert!(needs_refetch(true, fetched, now, unmapped_starts(&children, &jobs)), "a new pid it has never seen");
         assert!(unmapped_starts(&[], &jobs).is_empty());
+    }
+
+    #[test]
+    fn a_failed_answer_is_never_asked_again_before_the_refresh() {
+        let fetched: u64 = 1_700_000_100;
+        let now = fetched + 10;
+        // No `launchctl`, no answer in time, a non-zero exit: asked again at once, it would run,
+        // and fail, at every listing.
+        assert!(!needs_refetch(false, fetched, now, [fetched, fetched + 2, now]), "new starts after a failed answer");
+        assert!(!needs_refetch(false, fetched, now, std::iter::empty::<u64>()));
+        assert!(needs_refetch(true, fetched, now, [fetched + 2]), "the same start after a real answer asks again");
+    }
+
+    #[test]
+    fn a_start_time_after_now_is_no_reason_to_ask_again() {
+        let fetched: u64 = 1_700_000_100;
+        let now = fetched + 10;
+        // The clock was set back after these started: their start times lie ahead of it.
+        assert!(!needs_refetch(true, fetched, now, [now + 1, now + 3600]), "a start after now is a clock set back, not news");
+        assert!(needs_refetch(true, fetched, now, [now + 3600, fetched + 5]), "one that started in between still counts");
+        // Asked for before the clock went back an hour: no start is both since the answer and by now.
+        assert!(!needs_refetch(true, fetched, fetched - 3600, [fetched, fetched + 5, fetched - 3600]));
     }
 
     #[test]
@@ -859,34 +897,49 @@ mod tests {
         let calls = AtomicUsize::new(0);
         let fetch = || {
             let n = calls.fetch_add(1, Ordering::SeqCst) + 1;
-            HashMap::from([(4242u32, format!("call-{n}"))])
+            Some(HashMap::from([(4242u32, format!("call-{n}"))]))
         };
-        let fresh = |_: u64, _: &HashMap<u32, String>| false;
+        let fresh = |_: &Answer| false;
         let t0 = Instant::now();
         let secs = Duration::from_secs;
         assert_eq!(cache.get_fresh(t0, 100, fetch, fresh)[&4242u32], "call-1");
-        let again = cache.get_fresh(t0 + secs(4), 104, fetch, |fetched_at, jobs| {
-            assert_eq!(fetched_at, 100, "the unix second the answer was asked for");
-            assert_eq!(jobs[&4242u32], "call-1");
+        let again = cache.get_fresh(t0 + secs(4), 104, fetch, |answer: &Answer| {
+            assert_eq!(answer.fetched_at, 100, "the unix second the answer was asked for");
+            assert!(answer.ok, "launchctl answered");
+            assert_eq!(answer.jobs[&4242u32], "call-1");
             false
         });
         assert_eq!(again[&4242u32], "call-1", "same map within 5 s");
         assert_eq!(calls.load(Ordering::SeqCst), 1);
 
         // Stale within the refresh: asked again at once, and dated as of this ask.
-        assert_eq!(cache.get_fresh(t0 + secs(4), 104, fetch, |_, _| true)[&4242u32], "call-2");
+        assert_eq!(cache.get_fresh(t0 + secs(4), 104, fetch, |_: &Answer| true)[&4242u32], "call-2");
         assert_eq!(calls.load(Ordering::SeqCst), 2);
-        let dated = cache.get_fresh(t0 + secs(5), 105, || panic!("still fresh"), |fetched_at, _| {
-            assert_eq!(fetched_at, 104);
+        let dated = cache.get_fresh(t0 + secs(5), 105, || panic!("still fresh"), |answer: &Answer| {
+            assert_eq!(answer.fetched_at, 104);
             false
         });
         assert_eq!(dated[&4242u32], "call-2", "the refresh counts from the last ask");
         assert_eq!(cache.get_fresh(t0 + secs(4) + REFRESH, 109, fetch, fresh)[&4242u32], "call-3", "refreshed after 5 s");
         assert_eq!(calls.load(Ordering::SeqCst), 3);
 
-        // An empty answer (not macOS, a timeout) is cached like any other: no retry storm.
+        // An empty answer is cached like any other.
         let cache = Cache::new();
-        assert!(cache.get_fresh(t0, 100, HashMap::new, fresh).is_empty());
+        assert!(cache.get_fresh(t0, 100, || Some(HashMap::new()), fresh).is_empty());
         assert!(cache.get_fresh(t0 + secs(1), 101, || panic!("must not be asked again"), fresh).is_empty());
+
+        // No answer (not macOS, a timeout): cached as no jobs and as no answer, so `needs_refetch`
+        // lets it wait out the refresh (no retry storm); asked again after it.
+        let cache = Cache::new();
+        assert!(cache.get_fresh(t0, 100, || None, fresh).is_empty());
+        let failed = cache.get_fresh(t0 + secs(1), 101, || panic!("must not be asked again"), |answer: &Answer| {
+            assert!(!answer.ok, "the cache knows launchctl gave no answer");
+            assert!(answer.jobs.is_empty());
+            assert_eq!(answer.fetched_at, 100);
+            false
+        });
+        assert!(failed.is_empty());
+        let retried = cache.get_fresh(t0 + REFRESH, 105, || Some(HashMap::from([(32014u32, OLLAMA.to_string())])), fresh);
+        assert_eq!(retried[&32014u32], OLLAMA, "asked again after the refresh");
     }
 }

@@ -22,10 +22,10 @@
 //! that job (`launchd`), and so does a direct child of one (`launchd::MAX_JOB_HOPS`), with
 //! `restarts: None`: its parent, not launchd, decides whether it comes back. The jobs come from
 //! one `crate::launchd::running_jobs()` per listing that has a process of the user's that launchd
-//! parents, cached there, and asked again at once when one of those started since the cached
-//! answer (a job launchd just restarted, with a new pid). Such a process is never an orphan, so a
-//! portless one is never listed, and one whose own job launchd starts again after a kill
-//! (KeepAlive) is protected ([`apply_launchd`]).
+//! parents, cached there, and asked again at once when one of those that would read as lost
+//! ([`is_refetch_trigger`]) started since the cached answer (a job launchd just restarted, with a
+//! new pid). Such a process is never an orphan, so a portless one is never listed, and one whose
+//! own job launchd starts again after a kill (KeepAlive) is protected ([`apply_launchd`]).
 
 use std::collections::HashMap;
 use std::net::IpAddr;
@@ -168,21 +168,31 @@ pub(crate) fn listing() -> Result<Listing, PortsError> {
     let users = users();
     let current_user = user_name(users, raw_uid);
 
-    // launchd parents every job it runs: the user's processes it parents (socket holders and
-    // orphan candidates alike; a job's child is listed through its parent, which is one of them),
-    // with their start times, so one that started since the cached answer (a job launchd just
-    // restarted, with a new pid) makes it ask again. With none, there is no job to ask
-    // `launchctl` about. PortReaper itself is never a job it reports (`launchd::without_own`).
-    let launchd_children: Vec<(u32, u64)> = detail_pids
+    // launchd parents every job it runs: with no process of the user's that it parents (socket
+    // holders and orphan candidates alike; a job's child is listed through its parent, which is
+    // one of them), there is no job to ask `launchctl` about. Of those, the ones that would read
+    // as lost ([`is_refetch_trigger`], from the exe the detail refresh just read) go with their
+    // start times, so one that started since the cached answer (a job launchd just restarted,
+    // with a new pid) makes it ask again; a new app, XPC service or piece of macOS does not.
+    // PortReaper itself is never a job it reports (`launchd::without_own`).
+    let launchd_children: Vec<_> = detail_pids
         .iter()
         .filter_map(|&pid| system.process(pid))
         .filter(|p| p.parent().map(|pp| pp.as_u32()) == Some(1) && p.user_id() == current_uid.as_ref())
-        .map(|p| (p.pid().as_u32(), p.start_time()))
         .collect();
     let jobs = if launchd_children.is_empty() {
         HashMap::new()
     } else {
-        crate::launchd::without_own(crate::launchd::running_jobs(&launchd_children), std::process::id())
+        let triggers: Vec<(u32, u64)> = launchd_children
+            .iter()
+            .filter(|p| {
+                let exe = p.exe().map(|e| e.to_string_lossy());
+                let user = p.user_id().and_then(|uid| users.get_user_by_id(uid)).map(|u| u.name());
+                is_refetch_trigger(p.parent().map(|pp| pp.as_u32()), exe.as_deref(), user, current_user)
+            })
+            .map(|p| (p.pid().as_u32(), p.start_time()))
+            .collect();
+        crate::launchd::without_own(crate::launchd::running_jobs(&triggers), std::process::id())
     };
     let home = std::env::var_os("HOME");
     let home = home.as_deref().map(Path::new);
@@ -502,6 +512,22 @@ pub fn is_orphan(parent_pid: Option<u32>, exe: Option<&str>, user: Option<&str>,
     reparented && mine && !exe.is_some_and(is_system_path) && !is_app_bundle(exe)
 }
 
+/// Whether a new process of the listing makes it ask `launchctl list` again before the cached
+/// answer's refresh is up (`launchd::needs_refetch`): only launchd's child that [`is_orphan`]
+/// flags, the one that gets the Zombie mark and falls into the bulk reaps until the answer names
+/// it. A GUI app and its helpers (inside a `.app`; LaunchServices' `application.*` jobs, which
+/// the answer never names), a piece of macOS and another user's process are launchd's children
+/// too, but never read as lost whatever the answer says: a new one is no reason to run
+/// `launchctl`. A parent nobody knows is no job launchd started.
+fn is_refetch_trigger(
+    parent_pid: Option<u32>,
+    exe: Option<&str>,
+    user: Option<&str>,
+    current_user: Option<&str>,
+) -> bool {
+    parent_pid == Some(1) && is_orphan(parent_pid, exe, user, current_user)
+}
+
 /// Whether killing this process deserves a second confirmation. An unknown owner counts as
 /// another user: when we cannot tell whose it is, the safe answer is "ask".
 pub fn is_protected(process_name: &str, exe: Option<&str>, user: Option<&str>, current_user: Option<&str>) -> bool {
@@ -741,6 +767,22 @@ mod tests {
         // a GUI app LaunchServices started is launchd's child by design, in /Applications or ~/Applications
         assert!(!is_orphan(Some(1), Some("/Applications/Spotify.app/Contents/MacOS/Spotify"), me, me));
         assert!(!is_orphan(Some(1), Some("/Users/amit/Applications/Ollama.app/Contents/Resources/ollama"), me, me));
+    }
+
+    #[test]
+    fn only_a_would_be_zombie_makes_the_listing_ask_launchctl_again_early() {
+        let me = Some("amit");
+        // launchd's children that never read as lost, whatever launchctl says.
+        let helper = "/Applications/Slack.app/Contents/Frameworks/Slack Helper.app/Contents/MacOS/Slack Helper";
+        assert!(!is_refetch_trigger(Some(1), Some(helper), me, me), "a GUI app's helper, inside a .app");
+        let mdworker = "/System/Library/Frameworks/CoreServices.framework/Frameworks/Metadata.framework/Versions/A/Support/mdworker_shared";
+        assert!(!is_refetch_trigger(Some(1), Some(mdworker), me, me), "a system binary");
+        assert!(!is_refetch_trigger(Some(1), Some("/opt/homebrew/bin/node"), Some("root"), me), "another user's process");
+        // A brew service's binary: a Zombie until the answer names it.
+        assert!(is_refetch_trigger(Some(1), Some("/opt/homebrew/Cellar/ollama/0.13.0/bin/ollama"), me, me));
+        // Not launchd's child, or a parent nobody knows: no job launchd just started.
+        assert!(!is_refetch_trigger(Some(4242), Some("/opt/homebrew/bin/node"), me, me));
+        assert!(!is_refetch_trigger(None, Some("/opt/homebrew/bin/node"), me, me));
     }
 
     #[test]
@@ -1001,7 +1043,7 @@ mod tests {
     }
 
     #[test]
-    fn a_jobs_child_is_no_orphan_and_its_jobs_keep_alive_does_not_protect_it() {
+    fn a_jobs_child_carries_the_job_and_its_jobs_keep_alive_does_not_protect_it() {
         // A KeepAlive job (pid 500, launchd's child) and the server it forked (501): launchd
         // restarts the job, and whether the server comes back is the job's business.
         let jobs = HashMap::from([(500u32, "homebrew.mxcl.ollama".to_string())]);
@@ -1013,10 +1055,10 @@ mod tests {
         assert_eq!(carried.restarts, None);
         assert_eq!(carried.stop_command.as_deref(), Some("brew services stop ollama"), "stopping the job stops it");
 
+        // The server as WP-1's rule sees it under its living parent: no orphan to begin with.
         let mut child = PortEntry { pid: 501, parent_pid: Some(500), ..brew_service() };
-        assert!(child.orphan, "WP-1's rule as the fixture computed it");
+        child.orphan = is_orphan(Some(500), child.exe.as_deref(), child.user.as_deref(), Some("amit"));
         apply_launchd(&mut child, Some(carried.clone()));
-        assert!(!child.orphan);
         assert!(!child.protected, "its parent, not launchd, decides whether it comes back");
         assert_eq!(child.launchd, Some(carried));
 
