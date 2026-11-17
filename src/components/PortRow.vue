@@ -223,6 +223,10 @@ watch(
               <DropdownMenuItem :class="menuItem" data-action="watch" :disabled="entry.port === 0" @select="actions.watch(entry)">
                 {{ entry.port === 0 ? "Watch port" : watched ? `Stop watching :${entry.port}` : `Watch :${entry.port}` }}
               </DropdownMenuItem>
+              <!-- By number, TCP and UDP alike; a portless (stdio) row has no number to hide. -->
+              <DropdownMenuItem :class="menuItem" data-action="hide" :disabled="entry.port === 0" @select="actions.hide(entry)">
+                {{ entry.port === 0 ? "Hide port" : `Hide :${entry.port}` }}
+              </DropdownMenuItem>
               <DropdownMenuItem :class="menuItem" :disabled="entry.port === 0 || entry.protocol !== 'tcp'" @select="actions.openInBrowser(entry)">
                 {{ entry.port === 0 ? "Open in browser" : `Open localhost:${entry.port}` }}
               </DropdownMenuItem>

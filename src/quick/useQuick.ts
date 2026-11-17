@@ -1,4 +1,5 @@
 import { computed, getCurrentScope, onScopeDispose, ref, watch } from "vue";
+import { onSettingsChanged } from "../api/events";
 import { hideCurrentWindow } from "../api/window";
 import { guessCurrentUser, protectionReason } from "../lib/protection";
 import type { KillOutcome, PortApi, PortEntry } from "../types";
@@ -133,7 +134,9 @@ export function describeOutcomes(
  * `QuickApp.vue` renders it, tests drive it through `handleKey()` with `createMockApi()`. Call
  * `start()` on mount and `stop()` on unmount.
  *
- * Timing: the cached list paints at once; the first poll replaces it. After a successful kill
+ * Timing: the cached list paints at once; the first poll replaces it. The ports hidden in
+ * Preferences are read on start and followed after: their rows leave the strip, the cached ones
+ * included, as soon as the list is known or changes. After a successful kill
  * the result row shows for `resultMs` (180 ms), then the strip clears and hides, which is what
  * gives the terminal its focus back. A refusal or failure stays `failureMs` (2 s) and hides
  * nothing, so the user can read it and try ⌥Enter.
@@ -165,11 +168,33 @@ export function useQuick(api: PortApi, options: UseQuickOptions = {}) {
   const collisions = ref<ReadonlySet<number>>(new Set());
   /** pid → when it was reported killed; a poll started before that may still list it. */
   const tombstones = new Map<number, number>();
+  /**
+   * The ports hidden in Preferences, port 0 never: read once on start and followed through
+   * `settings:changed`. Until the first answer nothing is hidden, as with an unreadable store.
+   */
+  const hidden = ref<ReadonlySet<number>>(new Set());
+
+  /** `list` without the rows on a hidden port; `list` itself when nothing is hidden. */
+  function withoutHidden(list: PortEntry[]): PortEntry[] {
+    const ports = hidden.value;
+    if (ports.size === 0) return list;
+    return list.filter((e) => e.port === 0 || !ports.has(e.port));
+  }
 
   /** Every change to the list goes through here, so the cache never lags behind the screen. */
   function setEntries(list: PortEntry[]) {
     entries.value = list;
     cache?.write(list);
+  }
+
+  /**
+   * A new hidden list: its rows leave the strip and the cache at once, so neither the rows on
+   * screen nor the next strip painted from the cache shows them before a poll.
+   */
+  function followHidden(ports: readonly number[]) {
+    hidden.value = new Set(ports.filter((port) => port !== 0));
+    const shown = withoutHidden(entries.value);
+    if (shown.length !== entries.value.length) setEntries(shown);
   }
 
   // The last list paints before the first poll answers.
@@ -210,7 +235,7 @@ export function useQuick(api: PortApi, options: UseQuickOptions = {}) {
       const list = await api.listPorts();
       const now = Date.now();
       for (const [pid, at] of tombstones) if (now - at > tombstoneMs) tombstones.delete(pid);
-      setEntries(tombstones.size ? list.filter((e) => !tombstones.has(e.pid)) : list);
+      setEntries(withoutHidden(tombstones.size ? list.filter((e) => !tombstones.has(e.pid)) : list));
       error.value = null;
     } catch (err) {
       error.value = err instanceof Error ? err.message : String(err);
@@ -218,6 +243,19 @@ export function useQuick(api: PortApi, options: UseQuickOptions = {}) {
     } finally {
       inFlight = false;
       loaded.value = true;
+    }
+  }
+
+  // A `settings:changed` that lands while `getSettings` is out is newer than its answer.
+  let heardSettings = false;
+
+  /** Once per start: the hidden ports as the core has them. A failure hides nothing. */
+  async function readHidden(): Promise<void> {
+    try {
+      const settings = await api.getSettings();
+      if (!heardSettings) followHidden(settings.hiddenPorts);
+    } catch (err) {
+      console.error("getSettings failed", err);
     }
   }
 
@@ -434,11 +472,19 @@ export function useQuick(api: PortApi, options: UseQuickOptions = {}) {
 
   // Lifecycle
   const keyListener = handleKey as EventListener;
+  let offSettings: () => void = () => {};
 
   function start() {
     if (started) return;
     started = true;
+    heardSettings = false;
+    offSettings = onSettingsChanged((settings) => {
+      heardSettings = true;
+      followHidden(settings.hiddenPorts);
+    });
+    // The list first: the strip's first rows wait on nothing else.
     void refresh();
+    void readHidden();
     void refreshCollisions();
     target?.addEventListener("keydown", keyListener);
     target?.addEventListener("focus", onFocus);
@@ -449,6 +495,8 @@ export function useQuick(api: PortApi, options: UseQuickOptions = {}) {
   function stop() {
     if (!started) return;
     started = false;
+    offSettings();
+    offSettings = () => {};
     stopTimer();
     disarm();
     clearResultTimer();

@@ -201,6 +201,9 @@ pub struct Settings {
     pub notifications: bool,
     /// The first-run card was dismissed.
     pub onboarding_done: bool,
+    /// Ports left out of every list, count and bulk kill (AirPlay Receiver holds 5000 and 7000):
+    /// sorted, distinct, never 0, at most `crate::hidden::MAX_HIDDEN`.
+    pub hidden_ports: Vec<u16>,
 }
 
 impl Default for Settings {
@@ -214,6 +217,7 @@ impl Default for Settings {
             default_force: false,
             notifications: true,
             onboarding_done: false,
+            hidden_ports: Vec::new(),
         }
     }
 }
@@ -258,11 +262,17 @@ mod tests {
         assert_eq!(json["quickShortcut"], "CmdOrCtrl+Shift+K");
         assert_eq!(json["refreshMs"], 2000);
         assert_eq!(json["onboardingDone"], false);
+        assert_eq!(json["hiddenPorts"], serde_json::json!([]));
         // A store from 0.2.x has none of these keys: every missing field falls back to its default.
         let partial: Settings = serde_json::from_value(serde_json::json!({ "refreshMs": 5000 })).unwrap();
         assert_eq!(partial.refresh_ms, 5000);
         assert_eq!(partial.dock_icon, DockIcon::Show);
         assert_eq!(partial.quick_shortcut, "CmdOrCtrl+Shift+K");
+        assert!(partial.hidden_ports.is_empty());
+        // The contract reads the list as stored; `settings::merge_defaults` sorts it.
+        let hiding: Settings = serde_json::from_value(serde_json::json!({ "hiddenPorts": [7000, 5000] })).unwrap();
+        assert_eq!(hiding.hidden_ports, [7000, 5000]);
+        assert_eq!(hiding.refresh_ms, 2000);
 
         let watch = WatchedPort {
             port: 3000,

@@ -1,11 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { nextTick } from "vue";
+import { SETTINGS_CHANGED_EVENT } from "../api/events";
 import { createMockApi, MOCK_ENTRIES } from "../api/mock";
 import type { PortApi, PortEntry, TasklineEvent } from "../types";
 import { QUICK_CACHE_KEY, type QuickCache, useQuick } from "./useQuick";
 
 const { hideCurrentWindow } = vi.hoisted(() => ({ hideCurrentWindow: vi.fn(async () => false) }));
 vi.mock("../api/window", () => ({ hideCurrentWindow }));
+// The core's `settings:changed`, delivered by hand once a test plays the Tauri window.
+const { listen } = vi.hoisted(() => ({ listen: vi.fn() }));
+vi.mock("@tauri-apps/api/event", () => ({ listen }));
+const tauri = window as unknown as Record<string, unknown>;
 
 const key = (k: string, init: KeyboardEventInit = {}) =>
   new KeyboardEvent("keydown", { key: k, cancelable: true, ...init });
@@ -536,6 +541,28 @@ describe("useQuick: the cached list", () => {
     expect(fourth.loaded.value).toBe(false);
   });
 
+  it("a port hidden since the cache was written leaves the painted rows and the cache once getSettings answers, before any poll", async () => {
+    const api = createMockApi();
+    await api.setSettings({ ...(await api.getSettings()), hiddenPorts: [5173] });
+    // The first poll is still out the whole time: only the hidden list can take 5173 away.
+    const never = () => new Promise<PortEntry[]>(() => {});
+    const listPorts = vi.spyOn(api, "listPorts").mockImplementation(never);
+    const write = vi.fn();
+    const cache: QuickCache = { read: () => MOCK_ENTRIES.map((e) => ({ ...e })), write };
+    const quick = useQuick(api, { isVisible: () => false, cache });
+    expect(quick.matches.value.map((e) => e.port)).toEqual(PRESELECTED);
+
+    quick.start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(listPorts).toHaveBeenCalledTimes(1);
+    expect(quick.entries.value.some((e) => e.port === 5173)).toBe(false);
+    // The seventh, the 12-day-old Ollama, moves up into the six.
+    expect(quick.matches.value.map((e) => e.port)).toEqual([5174, 4000, 3000, 8080, 9335, 11434]);
+    expect(write).toHaveBeenCalledTimes(1);
+    expect(write.mock.calls[0]?.[0]).toHaveLength(MOCK_ENTRIES.length - 1);
+    quick.stop();
+  });
+
   it("a cached row is never resurrected after its kill", async () => {
     const api = createMockApi();
     const quick = await loaded(api);
@@ -545,5 +572,57 @@ describe("useQuick: the cached list", () => {
     await vi.advanceTimersByTimeAsync(180);
     const cached = JSON.parse(sessionStorage.getItem(QUICK_CACHE_KEY) ?? "[]") as PortEntry[];
     expect(cached.some((e) => e.pid === 48213)).toBe(false);
+  });
+});
+
+describe("useQuick: hidden ports", () => {
+  afterEach(() => {
+    listen.mockReset();
+    delete tauri.__TAURI_INTERNALS__;
+  });
+
+  it("follows settings:changed: a port hidden while the strip is up leaves it, the cache and every later poll at once", async () => {
+    tauri.__TAURI_INTERNALS__ = {};
+    const unlisten = vi.fn();
+    listen.mockResolvedValue(unlisten);
+    const api = createMockApi();
+    const base = await api.getSettings();
+    // The start's own read answers late, after the event: it must not undo what the event said.
+    let answer: (settings: Awaited<ReturnType<PortApi["getSettings"]>>) => void = () => {};
+    vi.spyOn(api, "getSettings").mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          answer = resolve;
+        }),
+    );
+    const quick = useQuick(api, { isVisible: () => false });
+    quick.start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(listen).toHaveBeenCalledTimes(1);
+    expect(listen.mock.calls[0]?.[0]).toBe(SETTINGS_CHANGED_EVENT);
+    expect(quick.entries.value.some((e) => e.port === 3000)).toBe(true);
+
+    const deliver = listen.mock.calls[0]?.[1] as (event: { payload: unknown }) => void;
+    deliver({ payload: { ...base, hiddenPorts: [3000] } });
+    expect(quick.entries.value.some((e) => e.port === 3000)).toBe(false);
+    const cached = JSON.parse(sessionStorage.getItem(QUICK_CACHE_KEY) ?? "[]") as PortEntry[];
+    expect(cached.some((e) => e.port === 3000)).toBe(false);
+
+    answer({ ...base, hiddenPorts: [] });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(quick.entries.value.some((e) => e.port === 3000)).toBe(false);
+    // This mock core was never told, so its next answer still lists :3000, like a poll that left
+    // before the change: the strip keeps it out.
+    await quick.refresh();
+    expect(quick.entries.value.some((e) => e.port === 3000)).toBe(false);
+    expect(quick.entries.value).toHaveLength(MOCK_ENTRIES.length - 1);
+
+    // Shown again: the next poll has it.
+    deliver({ payload: { ...base, hiddenPorts: [] } });
+    await quick.refresh();
+    expect(quick.entries.value.some((e) => e.port === 3000)).toBe(true);
+
+    quick.stop();
+    expect(unlisten).toHaveBeenCalledTimes(1);
   });
 });

@@ -2,7 +2,9 @@
 // The 30 px line under the table: the poller's dot (green while it answers, red while it does
 // not), "11 ports · 7 projects · scan 3 ms · last refresh 1 s ago", the poll error when there is
 // one, and at the right the key hints and the version. While a search or a filter narrows the
-// list: "2 of 11 ports · …".
+// list: "2 of 11 ports · …". While ports are hidden: "· 2 hidden", so a missing row has a reason.
+// The count is of the ports hidden in Preferences, not of the rows they left out: a hidden port
+// nothing listens on still counts.
 import { computed, onMounted, onUnmounted, ref } from "vue";
 
 const props = defineProps<{
@@ -17,6 +19,8 @@ const props = defineProps<{
   scanMs: number | null;
   version: string;
   error: string | null;
+  /** Ports hidden in Preferences (`Settings.hiddenPorts`). */
+  hidden: number;
 }>();
 
 const now = ref(Date.now());
@@ -60,6 +64,7 @@ const version = computed(() => {
   <footer class="flex h-[30px] shrink-0 items-center gap-2.5 border-t border-line bg-surface px-4 text-[12px] text-ink-3">
     <span class="h-[7px] w-[7px] shrink-0 rounded-full" :class="error ? 'bg-red' : 'bg-green'" aria-hidden="true" />
     <span class="shrink-0 tabular-nums">{{ text }}</span>
+    <span v-if="hidden > 0" data-hidden-count class="shrink-0 tabular-nums" title="Hidden ports are listed in Preferences">· {{ hidden }} hidden</span>
     <span v-if="error" class="min-w-0 truncate text-red-ink" :title="error">· could not refresh: {{ error }}</span>
     <span class="ml-auto hidden shrink-0 whitespace-nowrap tabular-nums @min-[560px]/main:inline">
       ↑↓ select · ↩ kill · ⌥↩ force<template v-if="version"> · {{ version }}</template>
