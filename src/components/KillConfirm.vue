@@ -1,7 +1,8 @@
 <script setup lang="ts">
 // The second confirmation for a protected process, a group with one, or a big reap. Cancel takes
-// focus, so Enter twice never kills. A launchd job that comes back after a kill says so (its reason
-// line), names the command that stops it for good and offers to copy it; PortReaper never runs it.
+// focus, so Enter twice never kills. A launchd job that comes back after a kill, or may, says so (its
+// reason line), names the command that stops it for good and offers to copy it when the core built
+// one (never for a piece of macOS); PortReaper never runs it.
 import {
   AlertDialogCancel,
   AlertDialogContent,
@@ -29,12 +30,16 @@ const actions = useActions();
 
 const who = (e: PortEntry) => `${e.processName} (${e.pid})`;
 
-/** The entry's launchd job when launchd starts it again after a kill (`?.`: an older core sends none). */
+/**
+ * The entry's launchd job when launchd starts it again after a kill, or may (`restarts` null: nobody
+ * can tell, and the core asks first then too). `?.`: an older core sends no `launchd`.
+ */
 const restarting = computed(() => {
   const t = props.target;
   if (t?.kind !== "entry" || t.entry.container) return null;
   const job = t.entry.launchd;
-  return job?.restarts === true ? job : null;
+  const restarts = job?.restarts;
+  return job && restarts !== false ? job : null;
 });
 
 /** "Copy command" copies what the core built, and leaves the dialog open: the user still decides. */
@@ -76,7 +81,7 @@ const description = computed(() => {
     const held = props.portsOf(t.entry.pid);
     lines.push(`${t.entry.processName} is ${props.reasonFor(t.entry)}.`);
     if (held.length > 0) lines.push(`It holds ${formatPorts(held).toLowerCase()}.`);
-    // The reason line already says launchd starts it again; this names what stops it for good.
+    // The reason line already says launchd starts it again, or may; this names what stops it for good.
     const job = restarting.value;
     if (job?.stopCommand) lines.push(`To stop it for good, run ${job.stopCommand}.`);
   } else if (t.kind === "group") {

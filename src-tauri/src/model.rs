@@ -53,12 +53,15 @@ pub struct LaunchdJob {
     /// `Some(true)`: launchd starts it again within seconds of a kill (KeepAlive). `Some(false)`:
     /// it stays down until the job is loaded again (the next login). `None`: unknown (no readable
     /// plist, a conditional KeepAlive, a job launchd also starts on demand, or a job's child).
+    /// Anything but `Some(false)` makes the entry `protected`: a kill launchd may undo asks first.
     pub restarts: Option<bool>,
     /// The Homebrew formula, when `brew services` started it.
     pub brew: Option<String>,
     /// What stops it for good, for the user to copy: `brew services stop <formula>`, else
     /// `launchctl disable gui/<uid>/<label> && launchctl bootout gui/<uid>/<label>` (disabled, so
-    /// the next login does not load it again). `None` when the label is not safe to put in a shell.
+    /// the next login does not load it again). `None` when the label is not safe to put in a shell,
+    /// for one of Apple's jobs (`com.apple.*`), and for a process that runs from the system's
+    /// folders or from an exe nobody knows: a piece of macOS is not the user's to disable.
     pub stop_command: Option<String>,
 }
 

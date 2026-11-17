@@ -42,12 +42,21 @@ describe("protectionReason", () => {
     );
   });
 
-  it("falls back to the other rules for a job that stays down, an unknown one, or an entry without the field", () => {
+  it("names a launchd job nobody can tell about as one that launchd may start again", () => {
+    // `restarts: null` (`brew services run`, a conditional KeepAlive, a job's child): the core asks first.
+    const job = byPort(11434).launchd as LaunchdJob;
+    expect(protectionReason({ ...byPort(11434), launchd: { ...job, restarts: null } }, "amit")).toBe(
+      "a Homebrew service (ollama) that launchd may start again after a kill",
+    );
+    const agent: LaunchdJob = { label: "com.example.agent", restarts: null, brew: null, stopCommand: null };
+    expect(protectionReason({ ...byPort(11434), launchd: agent }, "amit")).toBe(
+      "a launchd job that launchd may start again after a kill",
+    );
+  });
+
+  it("falls back to the other rules for a job that stays down, or an entry without the field", () => {
     const job = byPort(11434).launchd as LaunchdJob;
     expect(protectionReason({ ...byPort(11434), launchd: { ...job, restarts: false } }, "amit")).toBe(
-      "a protected process",
-    );
-    expect(protectionReason({ ...byPort(11434), launchd: { ...job, restarts: null } }, "amit")).toBe(
       "a protected process",
     );
     // An entry the Quick strip cached before the core sent `launchd`.

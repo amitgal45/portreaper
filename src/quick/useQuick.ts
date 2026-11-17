@@ -90,17 +90,20 @@ export interface Armed {
 
 /**
  * What an armed row says. A launchd job that launchd starts again after a kill says so and names
- * the core's stop command, copied as it came (`?.`: a cached entry from an older core has no
- * `launchd`): "ollama restarts after a kill (launchd). Enter again to kill it anyway; brew services
- * stop ollama stops it." Anything else names why it is protected.
+ * the core's stop command when there is one, copied as it came (`?.`: a cached entry from an older
+ * core has no `launchd`): "ollama restarts after a kill (launchd). Enter again to kill it anyway;
+ * brew services stop ollama stops it." One that nobody can tell about (`restarts` null, which the
+ * core protects too) says it "may restart". Anything else names why it is protected.
  */
 export function armedText(entry: PortEntry, currentUser: string | null): Omit<Armed, "key"> {
   const job = entry.launchd;
-  if (job?.restarts === true) {
-    const restarts = `${entry.processName} restarts after a kill (launchd).`;
+  const restarts = job?.restarts;
+  if (job && restarts !== false) {
+    const verb = restarts === true ? "restarts" : "may restart";
+    const statement = `${entry.processName} ${verb} after a kill (launchd).`;
     return job.stopCommand
-      ? { text: `${restarts} Enter again to kill it anyway;`, hint: `${job.stopCommand} stops it.` }
-      : { text: restarts, hint: "Enter again to kill it anyway." };
+      ? { text: `${statement} Enter again to kill it anyway;`, hint: `${job.stopCommand} stops it.` }
+      : { text: statement, hint: "Enter again to kill it anyway." };
   }
   return {
     text: `This is ${protectionReason(entry, currentUser)} (${entry.processName}).`,

@@ -24,8 +24,10 @@
 //! one `crate::launchd::running_jobs()` per listing that has a process of the user's that launchd
 //! parents, cached there, and asked again at once when one of those that would read as lost
 //! ([`is_refetch_trigger`]) started since the cached answer (a job launchd just restarted, with a
-//! new pid). Such a process is never an orphan, so a portless one is never listed, and one whose
-//! own job launchd starts again after a kill (KeepAlive) is protected ([`apply_launchd`]).
+//! new pid). Such a process is never an orphan, so a portless one is never listed, and it asks
+//! first unless its own job's plist says a kill keeps it down ([`apply_launchd`]). One that runs
+//! from the system's folders, or from an exe nobody knows, is offered no stop command
+//! ([`withhold_stop_command`]; Apple's jobs get none in the first place: `launchd::stop_command`).
 
 use std::collections::HashMap;
 use std::net::IpAddr;
@@ -197,13 +199,15 @@ pub(crate) fn listing() -> Result<Listing, PortsError> {
     let home = std::env::var_os("HOME");
     let home = home.as_deref().map(Path::new);
     // One description per job and listing: its plist is read once however many sockets it has.
+    // What an entry carries of it also depends on the process: its link to the job and where it
+    // runs from (`job_for_entry`); `exe` is the one the entry shows.
     let mut described: HashMap<String, LaunchdJob> = HashMap::new();
-    let mut launchd_of = |pid: u32| -> Option<LaunchdJob> {
+    let mut launchd_of = |pid: u32, exe: Option<&str>| -> Option<LaunchdJob> {
         let (label, link) = crate::launchd::job_of(pid, &jobs, |p| parent_of(&system, p))?;
         let job = described
             .entry(label.to_string())
             .or_insert_with(|| crate::launchd::describe(label, home, raw_uid));
-        Some(crate::launchd::for_link(job, link))
+        Some(job_for_entry(job, link, exe))
     };
 
     let mut details: HashMap<u32, ProcessDetails> = HashMap::new();
@@ -240,7 +244,7 @@ pub(crate) fn listing() -> Result<Listing, PortsError> {
                 container: None,
                 launchd: None,
             };
-            apply_launchd(&mut entry, launchd_of(socket.pid));
+            apply_launchd(&mut entry, launchd_of(socket.pid, d.exe.as_deref()));
             entry
         })
         .collect();
@@ -332,18 +336,44 @@ pub(crate) fn attach_containers(entries: &mut [PortEntry], containers: &[Contain
 }
 
 /// What launchd running a process as a job, or as a job's child, changes about its entry: it is
-/// never an orphan (it is where it is on purpose), and one that launchd starts again after a kill
-/// (`restarts == Some(true)`, never a child's: `launchd::for_link`) asks first, so no bulk kill
-/// reaches it and every single one asks. `None` leaves the entry as it was.
+/// never an orphan (it is where it is on purpose), and it is protected unless PortReaper knows a
+/// kill keeps it down (`restarts == Some(false)`): launchd starts it again (`Some(true)`), or
+/// nobody can tell (`None`: no readable plist, as with `brew services run` or an agent outside
+/// `~/Library/LaunchAgents`; a conditional KeepAlive; a job's child, `launchd::for_link`). So no
+/// bulk kill reaches it, and every single one asks. A job never lifts a protection the entry
+/// already had. `None` leaves the entry as it was.
 fn apply_launchd(entry: &mut PortEntry, job: Option<LaunchdJob>) {
     let Some(job) = job else {
         return;
     };
     entry.orphan = false;
-    if job.restarts == Some(true) {
+    if job.restarts != Some(false) {
         entry.protected = true;
     }
     entry.launchd = Some(job);
+}
+
+/// The job as the entry of a process carries it: as `launchd::for_link` has it for the
+/// process's `link` to the job, and without a stop command when the process runs from the
+/// system's folders or from an exe nobody knows ([`withhold_stop_command`]). Per entry, not per
+/// job: the description is shared by every process of the job, the exe is the process's own.
+fn job_for_entry(job: &LaunchdJob, link: crate::launchd::Link, exe: Option<&str>) -> LaunchdJob {
+    let mut job = crate::launchd::for_link(job, link);
+    withhold_stop_command(&mut job, exe);
+    job
+}
+
+/// Drops the job's stop command unless its process runs from outside the system's folders
+/// ([`SYSTEM_PREFIXES`]). A job launchd runs from `/System` or `/usr/libexec` is a piece of macOS
+/// (Control Center, `/System/Library/CoreServices/ControlCenter.app`, holds :5000 for AirPlay
+/// Receiver), and disabling it could keep it from loading at the next login; an exe nobody knows
+/// could be one of them. The rest of the job stays: the process is still no orphan, and what a
+/// kill does to it is still worth saying.
+fn withhold_stop_command(job: &mut LaunchdJob, exe: Option<&str>) {
+    let user_space = exe.is_some_and(|exe| !is_system_path(exe));
+    if !user_space {
+        job.stop_command = None;
+    }
 }
 
 /// The parent sysinfo reports for `pid`, when it knows the pid.
@@ -1012,7 +1042,7 @@ mod tests {
     }
 
     #[test]
-    fn a_launchd_job_is_never_an_orphan_and_one_that_restarts_asks_first() {
+    fn a_launchd_job_is_never_an_orphan_and_asks_first_unless_a_kill_is_known_to_keep_it_down() {
         let before = brew_service();
         assert!(before.orphan, "the finding: WP-1's rule alone calls a brew service a zombie");
         assert!(!before.protected);
@@ -1023,14 +1053,21 @@ mod tests {
         assert!(restarts.protected, "launchd undoes the kill: it asks first");
         assert_eq!(restarts.launchd, Some(job(Some(true))));
 
-        // Stays down after a kill, or nobody can tell: not an orphan, and no more protected than before.
-        for unknown in [Some(false), None] {
-            let mut e = brew_service();
-            apply_launchd(&mut e, Some(job(unknown)));
-            assert!(!e.orphan, "{unknown:?}");
-            assert!(!e.protected, "{unknown:?}");
-            assert_eq!(e.launchd, Some(job(unknown)));
-        }
+        // Nobody can tell (`brew services run`, a conditional KeepAlive, a job's child): launchd may
+        // undo the kill, so it asks first too.
+        let mut unknown = brew_service();
+        apply_launchd(&mut unknown, Some(job(None)));
+        assert!(!unknown.orphan);
+        assert!(unknown.protected, "launchd may undo the kill: it asks first");
+        assert_eq!(unknown.launchd, Some(job(None)));
+
+        // Known to stay down after a kill: not an orphan, and no more protected than before.
+        let mut stays = brew_service();
+        apply_launchd(&mut stays, Some(job(Some(false))));
+        assert!(!stays.orphan);
+        assert!(!stays.protected);
+        assert_eq!(stays.launchd, Some(job(Some(false))));
+
         // A job never lifts a protection the entry already had.
         let mut db = PortEntry { protected: true, ..brew_service() };
         apply_launchd(&mut db, Some(job(Some(false))));
@@ -1043,7 +1080,7 @@ mod tests {
     }
 
     #[test]
-    fn a_jobs_child_carries_the_job_and_its_jobs_keep_alive_does_not_protect_it() {
+    fn a_jobs_child_carries_the_job_and_asks_first_since_nobody_knows_whether_it_comes_back() {
         // A KeepAlive job (pid 500, launchd's child) and the server it forked (501): launchd
         // restarts the job, and whether the server comes back is the job's business.
         let jobs = HashMap::from([(500u32, "homebrew.mxcl.ollama".to_string())]);
@@ -1058,8 +1095,9 @@ mod tests {
         // The server as WP-1's rule sees it under its living parent: no orphan to begin with.
         let mut child = PortEntry { pid: 501, parent_pid: Some(500), ..brew_service() };
         child.orphan = is_orphan(Some(500), child.exe.as_deref(), child.user.as_deref(), Some("amit"));
+        assert!(!child.orphan && !child.protected, "WP-1's rule alone lets it die without asking");
         apply_launchd(&mut child, Some(carried.clone()));
-        assert!(!child.protected, "its parent, not launchd, decides whether it comes back");
+        assert!(child.protected, "its parent may start it again, and nobody can tell: it asks first");
         assert_eq!(child.launchd, Some(carried));
 
         // The job's own process, from the same map, is protected as before.
@@ -1067,6 +1105,100 @@ mod tests {
         let mut parent = PortEntry { pid: 500, ..brew_service() };
         apply_launchd(&mut parent, Some(crate::launchd::for_link(&job(Some(true)), own)));
         assert!(parent.protected);
+    }
+
+    const CONTROL_CENTER_EXE: &str = "/System/Library/CoreServices/ControlCenter.app/Contents/MacOS/ControlCenter";
+
+    /// ControlCenter as macOS runs it: launchd's child, the user's, from /System, on :5000 (AirPlay
+    /// Receiver), and a job of the user's domain (`com.apple.controlcenter`) that `launchctl list` names.
+    fn control_center() -> PortEntry {
+        let me = Some("amit");
+        let mut e = PortEntry {
+            port: 5000,
+            pid: 635,
+            process_name: "ControlCenter".into(),
+            command: CONTROL_CENTER_EXE.into(),
+            exe: Some(CONTROL_CENTER_EXE.into()),
+            category: Category::System,
+            framework: Some("AirPlay".into()),
+            ..docker_entry(5000, Protocol::Tcp)
+        };
+        e.orphan = is_orphan(e.parent_pid, e.exe.as_deref(), e.user.as_deref(), me);
+        e.protected = is_protected(&e.process_name, e.exe.as_deref(), e.user.as_deref(), me);
+        e
+    }
+
+    #[test]
+    fn a_job_run_from_the_systems_folders_or_from_an_unknown_exe_is_offered_no_stop_command() {
+        let offered = |exe: Option<&str>| {
+            let mut carried = job(Some(true));
+            withhold_stop_command(&mut carried, exe);
+            carried.stop_command
+        };
+        assert_eq!(offered(Some(CONTROL_CENTER_EXE)), None, "a piece of macOS");
+        assert_eq!(offered(Some("/usr/libexec/x")), None);
+        assert_eq!(offered(None), None, "an exe nobody knows could be a piece of macOS");
+        assert_eq!(
+            offered(Some("/opt/homebrew/Cellar/ollama/0.13.0/bin/ollama")).as_deref(),
+            Some("brew services stop ollama"),
+            "a brew service keeps its command"
+        );
+        // A path that only looks like a system folder is not one.
+        assert_eq!(offered(Some("/usr/binx/agent")).as_deref(), Some("brew services stop ollama"));
+
+        // Only the command goes: the label, what a kill does and the formula stay.
+        let mut kept = job(Some(true));
+        withhold_stop_command(&mut kept, Some(CONTROL_CENTER_EXE));
+        assert_eq!(kept, LaunchdJob { stop_command: None, ..job(Some(true)) });
+
+        // `job_for_entry` withholds it on either link, after `for_link`.
+        let own = job_for_entry(&job(Some(true)), crate::launchd::Link::Own, Some("/usr/libexec/x"));
+        assert_eq!(own, LaunchdJob { stop_command: None, ..job(Some(true)) });
+        let child = job_for_entry(&job(Some(true)), crate::launchd::Link::Child, None);
+        assert_eq!(child, LaunchdJob { restarts: None, stop_command: None, ..job(Some(true)) });
+        let brew = job_for_entry(&job(Some(true)), crate::launchd::Link::Own, Some("/opt/homebrew/bin/ollama"));
+        assert_eq!(brew, job(Some(true)));
+    }
+
+    #[test]
+    fn control_center_on_airplay_carries_its_job_and_no_command_that_would_disable_it() {
+        // What the listing does for it: its job from `launchctl list`, described, then carried.
+        let jobs = HashMap::from([(635u32, "com.apple.controlcenter".to_string())]);
+        let parents = HashMap::from([(635u32, 1u32)]);
+        let (label, link) =
+            crate::launchd::job_of(635, &jobs, |p| parents.get(&p).copied()).expect("its own job");
+        assert_eq!(link, crate::launchd::Link::Own);
+        let described = crate::launchd::describe(label, None, 501);
+        assert_eq!(described.stop_command, None, "Apple's job: no command is built for it");
+
+        let before = control_center();
+        assert!(!before.orphan, "a system path is never an orphan");
+        assert!(before.protected, "and always asks");
+        let mut entry = control_center();
+        let carried = job_for_entry(&described, link, entry.exe.as_deref());
+        apply_launchd(&mut entry, Some(carried));
+        let expected = LaunchdJob {
+            label: "com.apple.controlcenter".into(),
+            restarts: None,
+            brew: None,
+            stop_command: None,
+        };
+        assert_eq!(entry.launchd, Some(expected.clone()));
+        assert!(!entry.orphan, "still never a Zombie");
+        assert!(entry.protected);
+
+        // The system path alone withholds it too: a job of ControlCenter's that came with a command.
+        let built = LaunchdJob {
+            stop_command: Some(
+                "launchctl disable gui/501/com.apple.controlcenter && launchctl bootout gui/501/com.apple.controlcenter"
+                    .into(),
+            ),
+            ..expected.clone()
+        };
+        let mut entry = control_center();
+        let carried = job_for_entry(&built, link, entry.exe.as_deref());
+        apply_launchd(&mut entry, Some(carried));
+        assert_eq!(entry.launchd, Some(expected));
     }
 
     #[test]

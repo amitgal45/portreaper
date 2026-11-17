@@ -175,6 +175,23 @@ describe("Inspector", () => {
     expect(cached.find("[data-section='launchd']").exists()).toBe(false);
   });
 
+  it("ControlCenter on AirPlay, a piece of macOS the core gives no stop command: the launchd card has nothing to copy", async () => {
+    const controlCenter: PortEntry = {
+      ...byPort(7000),
+      launchd: { label: "com.apple.controlcenter", restarts: true, brew: null, stopCommand: null },
+    };
+    const reason = "a launchd job that launchd starts again after a kill";
+    const { wrapper } = await mountInspector(controlCenter, { reason });
+    const card = wrapper.get("[data-section='launchd']");
+    expect(card.text()).toContain("com.apple.controlcenter");
+    expect(card.text()).toContain("a kill is undone within seconds");
+    expect(card.find("button").exists()).toBe(false);
+    // The only copy verbs left are the process's own: its command line and kill -9.
+    expect(button(/launchctl/)).toBeNull();
+    const copies = wrapper.findAll("button").filter((b) => b.text().includes("Copy"));
+    expect(copies.map((b) => b.text().trim())).toEqual(["Copy", "Copy kill -9 635"]);
+  });
+
   it("asks to close on the ✕", async () => {
     const { wrapper } = await mountInspector(byPort(3000));
     await wrapper.get("button[aria-label='Close']").trigger("click");

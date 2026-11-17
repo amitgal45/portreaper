@@ -72,7 +72,8 @@ export interface LaunchdJob {
   /**
    * `true`: launchd starts it again within seconds of a kill (KeepAlive). `false`: it stays down until
    * the job is loaded again (the next login). `null`: unknown (no readable plist, a conditional
-   * KeepAlive, a job launchd also starts on demand, or a job's child).
+   * KeepAlive, a job launchd also starts on demand, or a job's child). Anything but `false` makes the
+   * entry `protected`: a kill launchd may undo asks first.
    */
   restarts: boolean | null;
   /** The Homebrew formula, when `brew services` started it. */
@@ -80,7 +81,9 @@ export interface LaunchdJob {
   /**
    * What stops it for good, for the user to copy: `brew services stop <formula>`, else
    * `launchctl disable gui/<uid>/<label> && launchctl bootout gui/<uid>/<label>` (disabled, so the
-   * next login does not load it again). null when the label is not safe to put in a shell.
+   * next login does not load it again). null when the label is not safe to put in a shell, for one of
+   * Apple's jobs (`com.apple.*`), and for a process that runs from the system's folders or from an exe
+   * nobody knows: a piece of macOS is not the user's to disable.
    */
   stopCommand: string | null;
 }

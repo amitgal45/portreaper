@@ -432,6 +432,56 @@ describe("useQuick: a protected entry", () => {
     expect(armedText(cached, "amit")).toEqual(protectedText);
   });
 
+  it("armedText: a job nobody can tell about may restart, with the stop hint only when the core built one", () => {
+    const ollama = MOCK_ENTRIES.find((e) => e.port === 11434) as PortEntry;
+    const vague: LaunchdJob = { ...(ollama.launchd as LaunchdJob), restarts: null };
+    expect(armedText({ ...ollama, launchd: vague }, "amit")).toEqual({
+      text: "ollama may restart after a kill (launchd). Enter again to kill it anyway;",
+      hint: "brew services stop ollama stops it.",
+    });
+    expect(armedText({ ...ollama, launchd: { ...vague, stopCommand: null } }, "amit")).toEqual({
+      text: "ollama may restart after a kill (launchd).",
+      hint: "Enter again to kill it anyway.",
+    });
+    // ControlCenter, a piece of macOS: the core gives it no stop command, so none is named.
+    const controlCenter = MOCK_ENTRIES.find((e) => e.port === 7000) as PortEntry;
+    const apple: LaunchdJob = {
+      label: "com.apple.controlcenter",
+      restarts: true,
+      brew: null,
+      stopCommand: null,
+    };
+    expect(armedText({ ...controlCenter, launchd: apple }, "amit")).toEqual({
+      text: "ControlCenter restarts after a kill (launchd).",
+      hint: "Enter again to kill it anyway.",
+    });
+  });
+
+  it("a job nobody can tell about asks first: the first Enter arms it with may restart, the second kills", async () => {
+    const ollama = MOCK_ENTRIES.find((e) => e.port === 11434) as PortEntry;
+    const job = ollama.launchd as LaunchdJob;
+    const unknown: PortEntry = { ...ollama, launchd: { ...job, restarts: null } };
+    const api = createMockApi(MOCK_ENTRIES.map((e) => (e.port === 11434 ? unknown : e)));
+    const freePort = vi.spyOn(api, "freePort");
+    const quick = await loaded(api);
+    quick.query.value = "ollama";
+    await nextTick();
+    expect(quick.selected.value?.protected).toBe(true);
+
+    quick.handleKey(key("Enter"));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(freePort).not.toHaveBeenCalled();
+    expect(quick.armed.value).toEqual({
+      key: "32014:11434:tcp",
+      text: "ollama may restart after a kill (launchd). Enter again to kill it anyway;",
+      hint: "brew services stop ollama stops it.",
+    });
+
+    quick.handleKey(key("Enter"));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(freePort).toHaveBeenCalledWith(11434, false);
+  });
+
   it("⌥Enter on an armed row forces", async () => {
     const api = createMockApi();
     const freePort = vi.spyOn(api, "freePort");

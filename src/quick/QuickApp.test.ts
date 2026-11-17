@@ -2,6 +2,7 @@ import { flushPromises, mount, type VueWrapper } from "@vue/test-utils";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { API_KEY } from "../api";
 import { createMockApi, MOCK_ENTRIES } from "../api/mock";
+import type { LaunchdJob, PortEntry } from "../types";
 import QuickApp from "./QuickApp.vue";
 
 vi.mock("../api/window", () => ({ hideCurrentWindow: vi.fn(async () => false) }));
@@ -125,6 +126,26 @@ describe("QuickApp", () => {
     await flushPromises();
     expect(ollama().text()).not.toContain("restarts after a kill");
     expect(freePort).not.toHaveBeenCalled();
+  });
+
+  it("a job nobody can tell about: the Protected pill, not Restarts, and the armed row says it may restart", async () => {
+    const ollama = MOCK_ENTRIES.find((e) => e.port === 11434) as PortEntry;
+    const job = ollama.launchd as LaunchdJob;
+    const vague: PortEntry = { ...ollama, launchd: { ...job, restarts: null } };
+    const seed = MOCK_ENTRIES.map((e) => (e.port === 11434 ? vague : e));
+    const { wrapper, freePort } = await mountQuick(createMockApi(seed));
+    await wrapper.find("input").setValue("ollama");
+    const row = () => wrapper.find("[role='option'][data-port='11434']");
+    const pill = row().find("[data-status]");
+    expect(pill.text()).toBe("Protected");
+    expect(pill.attributes("data-status")).toBe("protected");
+
+    key("Enter");
+    await flushPromises();
+    expect(freePort).not.toHaveBeenCalled();
+    expect(row().text().replace(/\s+/g, " ")).toContain(
+      "ollama may restart after a kill (launchd). Enter again to kill it anyway; brew services stop ollama stops it.",
+    );
   });
 
   it("an ai row's pill carries its memory", async () => {

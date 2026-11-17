@@ -110,6 +110,49 @@ describe("KillConfirm", () => {
     expect(buttons()).toEqual(["Cancel", "Kill anyway"]);
   });
 
+  it("a job nobody can tell about says launchd may start it again, and still offers the command", async () => {
+    const entry = { ...ollama, launchd: { ...job, restarts: null } };
+    const { actions } = await mountConfirm({ kind: "entry", entry, force: false });
+    expect(text()).toContain(
+      [
+        "ollama is a Homebrew service (ollama) that launchd may start again after a kill.",
+        "It holds port 11434.",
+        "To stop it for good, run brew services stop ollama.",
+        "This sends SIGTERM and waits up to 3 s before SIGKILL.",
+      ].join(" "),
+    );
+    expect(buttons()).toEqual(["Copy command", "Cancel", "Kill anyway"]);
+    button("Copy command")?.click();
+    await flushPromises();
+    expect(actions.copyStopCommand).toHaveBeenCalledWith(entry);
+  });
+
+  it("ControlCenter on AirPlay, a piece of macOS the core gives no stop command: nothing to copy", async () => {
+    // `com.apple.controlcenter` is a job of the user's domain; the core builds no command for it.
+    const controlCenter = byPort(7000);
+    for (const restarts of [true, null]) {
+      const launchd: LaunchdJob = {
+        label: "com.apple.controlcenter",
+        restarts,
+        brew: null,
+        stopCommand: null,
+      };
+      await mountConfirm({ kind: "entry", entry: { ...controlCenter, launchd }, force: false });
+      const again = restarts ? "starts again" : "may start again";
+      expect(text()).toContain(
+        [
+          `ControlCenter is a launchd job that launchd ${again} after a kill.`,
+          "It holds port 7000.",
+          "This sends SIGTERM and waits up to 3 s before SIGKILL.",
+        ].join(" "),
+      );
+      expect(text()).not.toContain("To stop it for good");
+      expect(text()).not.toContain("launchctl");
+      expect(buttons()).toEqual(["Cancel", "Kill anyway"]);
+      reset();
+    }
+  });
+
   it("says nothing of launchd for a job that stays down, Docker, a group, or an entry without the field", async () => {
     const stays = { ...ollama, launchd: { ...job, restarts: false } };
     await mountConfirm({ kind: "entry", entry: stays, force: false });

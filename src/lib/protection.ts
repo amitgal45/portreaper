@@ -3,8 +3,9 @@ import type { LaunchdJob, PortEntry } from "../types";
 /**
  * Why a process is `protected`, in the words the confirm dialog uses. The contract carries only
  * the boolean, so the reason is derived from what the core does tell us: the launchd job that
- * starts it again after a kill, the tool, the process name, the owner and the executable. When
- * nothing matches, say "a protected process" rather than guess.
+ * starts it again after a kill, or may (the core protects every job not known to stay down), the
+ * tool, the process name, the owner and the executable. When nothing matches, say "a protected
+ * process" rather than guess.
  *
  * `entry.launchd` is read with `?.`: the Quick strip's session cache can hold entries from a
  * core that did not send the field yet.
@@ -16,12 +17,15 @@ const DATABASE =
 const SYSTEM_PATH = /^\/(System|usr\/(sbin|libexec)|Library)\//;
 
 export function protectionReason(entry: PortEntry, currentUser: string | null): string {
-  // A kill that launchd undoes (KeepAlive) is the reason to ask, whatever the process is.
+  // A kill that launchd undoes (KeepAlive), or may undo (`restarts` null: nobody can tell), is the
+  // reason to ask, whatever the process is.
   const job = entry.launchd;
-  if (job?.restarts === true) {
+  const restarts = job?.restarts;
+  if (job && restarts !== false) {
+    const again = restarts === true ? "starts again" : "may start again";
     return job.brew
-      ? `a Homebrew service (${job.brew}) that launchd starts again after a kill`
-      : "a launchd job that launchd starts again after a kill";
+      ? `a Homebrew service (${job.brew}) that launchd ${again} after a kill`
+      : `a launchd job that launchd ${again} after a kill`;
   }
   const tool = entry.project?.tool ?? "";
   if (tool.toLowerCase() === "docker" || CONTAINER.test(entry.processName)) return "Docker";

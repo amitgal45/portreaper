@@ -26,7 +26,9 @@
 //!
 //! Nothing is ever run but `/bin/launchctl list`: an absolute path, a fixed argument, no shell.
 //! Nothing from a label or a plist reaches a command line PortReaper runs. The stop command
-//! ([`stop_command`]) is text for the user to copy, built here once from a validated label.
+//! ([`stop_command`]) is text for the user to copy, built here once from a validated label, and
+//! never for one of Apple's jobs ([`is_apple_label`]): `launchctl list` names pieces of macOS
+//! (Control Center, which holds :5000 for AirPlay Receiver) as jobs of the user's domain too.
 
 use std::collections::HashMap;
 use std::ffi::OsString;
@@ -56,6 +58,8 @@ const LIST_PATH: &str = "/usr/bin:/bin";
 const APP_PREFIX: &str = "application.";
 /// Homebrew's label prefixes: `sh.brew.` today, `homebrew.mxcl.` in older releases.
 const BREW_PREFIXES: &[&str] = &["sh.brew.", "homebrew.mxcl."];
+/// The prefix of Apple's own jobs (`com.apple.controlcenter`...), matched in any case.
+const APPLE_PREFIX: &str = "com.apple.";
 /// Where a user's LaunchAgents live, under their home.
 const LAUNCH_AGENTS: &str = "Library/LaunchAgents";
 /// The plist keys with which launchd starts a job on demand (a timer, a socket, a watched path,
@@ -187,6 +191,15 @@ pub fn is_safe_label(label: &str) -> bool {
         && label.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'))
 }
 
+/// Whether `label` names one of Apple's jobs: it starts with `com.apple.`, in any case. Such a job
+/// is a piece of macOS that `launchctl list` names in the user's domain like any LaunchAgent
+/// (`com.apple.controlcenter`, which holds :5000 for AirPlay Receiver), and not the user's to
+/// disable: [`stop_command`] builds nothing for it.
+fn is_apple_label(label: &str) -> bool {
+    // `get`: a label whose first bytes end inside a character is no `com.apple.` one, not a panic.
+    label.get(..APPLE_PREFIX.len()).is_some_and(|head| head.eq_ignore_ascii_case(APPLE_PREFIX))
+}
+
 /// Whether `formula` reads as a Homebrew formula name: 1–100 characters of `[a-z0-9@._+-]`, not
 /// starting with `-`. Nothing in it is special to a shell.
 fn is_formula(formula: &str) -> bool {
@@ -207,8 +220,13 @@ pub fn brew_formula(label: &str) -> Option<String> {
 /// job stays stopped across logins); else, when the label [`is_safe_label`],
 /// `launchctl disable gui/<uid>/<label> && launchctl bootout gui/<uid>/<label>` (`bootout` alone
 /// stops it only until the next login loads the plist again; `disable` keeps it from loading);
-/// else `None`.
+/// else `None`. Never for one of Apple's jobs ([`is_apple_label`]): disabled, that piece of macOS
+/// would most likely not load at the next login. `ports` also withholds it from a process that
+/// runs from the system's folders.
 pub fn stop_command(label: &str, brew: Option<&str>, uid: u32) -> Option<String> {
+    if is_apple_label(label) {
+        return None;
+    }
     if let Some(formula) = brew.filter(|f| is_formula(f)) {
         return Some(format!("brew services stop {formula}"));
     }
@@ -569,6 +587,37 @@ mod tests {
             Some("launchctl disable gui/501/com.example.agent && launchctl bootout gui/501/com.example.agent")
         );
         assert_eq!(stop_command("bad label", Some("-rf"), 501), None);
+
+        // Apple's jobs are pieces of macOS: no command that would disable one, in any case, and
+        // whatever formula a caller passes.
+        assert_eq!(stop_command("com.apple.controlcenter", None, 501), None);
+        assert_eq!(stop_command("COM.APPLE.x", None, 501), None);
+        assert_eq!(stop_command("Com.Apple.sharingd", None, 501), None);
+        assert_eq!(stop_command("com.apple.controlcenter", Some("ollama"), 501), None);
+        // Only the prefix with its dot is Apple's.
+        assert_eq!(
+            stop_command("com.apples.agent", None, 501).as_deref(),
+            Some("launchctl disable gui/501/com.apples.agent && launchctl bootout gui/501/com.apples.agent")
+        );
+    }
+
+    #[test]
+    fn an_apple_label_starts_with_com_apple_in_any_case() {
+        for apple in ["com.apple.controlcenter", "COM.APPLE.x", "Com.Apple.sharingd", "com.apple."] {
+            assert!(is_apple_label(apple), "{apple}");
+        }
+        for other in [
+            "",
+            "com.apple",
+            "com.apples.agent",
+            "xcom.apple.x",
+            "homebrew.mxcl.ollama",
+            // Not ASCII: a lookalike, and a label whose first ten bytes end inside a character.
+            "çom.apple.x",
+            "com.appleé.x",
+        ] {
+            assert!(!is_apple_label(other), "{other:?}");
+        }
     }
 
     /// A job's plist as a value: `RunAtLoad`, `KeepAlive` when given, and each of `on_demand` as a key.
@@ -790,6 +839,14 @@ mod tests {
         // An unsafe label is shown, and nothing is built from it.
         let evil = describe("../../evil", Some(home.path()), 501);
         assert_eq!(evil, LaunchdJob { label: "../../evil".into(), restarts: None, brew: None, stop_command: None });
+
+        // Apple's job (its plist is under /System, not this home): shown, and no command that would
+        // disable a piece of macOS.
+        let control_center = describe("com.apple.controlcenter", Some(home.path()), 501);
+        assert_eq!(
+            control_center,
+            LaunchdJob { label: "com.apple.controlcenter".into(), restarts: None, brew: None, stop_command: None }
+        );
     }
 
     #[test]

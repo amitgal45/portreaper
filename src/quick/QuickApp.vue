@@ -31,7 +31,8 @@ const portCount = computed(() => `${entries.value.length} ${entries.value.length
 /**
  * The status pill at the right of a row: one at most, a tint with its ink (the Board idiom). A
  * launchd job that launchd starts again after a kill first, as Restarts in the protected tint: that
- * is why Enter asks twice there. Then Protected, for the same reason; then the lost terminal (what
+ * is why Enter asks twice there. Then Protected, for the same reason (a job that only may restart,
+ * `restarts` null, is protected by the core and shows this one); then the lost terminal (what
  * the strip is for); then the network exposure; then a local model with the memory it holds, the
  * one thing to know before killing it. A plain running dev server has none. `launchd` is read with
  * `?.`: the session cache can hold entries from an older core.
