@@ -42,8 +42,8 @@ Part of: PortReaper (`~/work/portreaper`). Startup-wide rules come from the pare
   2. Bump `version` in `package.json`, `src-tauri/tauri.conf.json` and `src-tauri/Cargo.toml` in
      one commit (`src/lib/version-parity.test.ts` fails on a mismatch; run `cargo build` so
      `Cargo.lock` follows), and let the owner merge it.
-  3. On `main`: `git tag vX.Y.Z && git push origin vX.Y.Z`. The run waits for the owner's
-     approval (Actions → the run → Review deployments → `release` → Approve). Then
+  3. On `main`: `git tag vX.Y.Z && git push origin vX.Y.Z` (the `release tags` ruleset lets only
+     its bypass list create a `v*` tag). The run starts at once, with no approval:
      `.github/workflows/release.yml` refuses a tag that does not match the app version, builds,
      signs and publishes the release with the `.dmg`, the `.app.tar.gz` + `.sig` and
      `latest.json`.
@@ -53,18 +53,22 @@ Part of: PortReaper (`~/work/portreaper`). Startup-wide rules come from the pare
      fine-grained token for that one repository with Contents: Read and write. A token that
      cannot read the tap stops the run before building (the job's first step); one that can read
      but not write fails only the last step, after the release is out. Retry it, or backfill an
-     older release, with a manual run of Release from `main` with `tag` set (one approval). Never
-     "Re-run failed jobs" on a release: it reruns the whole job (a rebuild, a new notarization, a
-     second approval) and may replace the published assets.
-  5. Approve only a run you started: the actor is `amitgal45`, and the event is your tag push or
-     your manual run.
+     older release, with a manual run of Release from `main` with `tag` set. Never
+     "Re-run failed jobs" on a release: it reruns the whole job (a rebuild and a new notarization)
+     and may replace the published assets.
+  5. A manual run needs no approval, and anyone with write access can start one, the agents' bot
+     account included. It only points the tap at an existing release with `main`'s template and
+     script, so the worst a stray run does is point it at an older release; a manual run with
+     the latest tag puts it back.
 - Secrets: all of them (`TAURI_SIGNING_PRIVATE_KEY`, `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`, the six
   `APPLE_*`, `TAP_TOKEN`) live in the `release` environment, never at repository level: a
   repository secret is readable by a workflow pushed to any branch by anyone with write access,
-  the agents' bot account included. The environment admits only the `main` branch and `v*` tags
-  and requires the owner's approval, with no admin bypass. `release.yml` names it in both of its
-  jobs (`release` for a tag, `tap` for a manual run), and each run has exactly one of them, so
-  each run asks for one approval. Set or rotate a secret with
+  the agents' bot account included. The environment's deployment rules admit only the `main`
+  branch and `v*` tags, and it has no required reviewers. What guards those two refs is the
+  rulesets: `protect-main` (a PR and the owner's approval before anything lands on `main`) and
+  `release tags` (only its bypass list creates, moves or deletes a `v*` tag). `release.yml` names
+  the environment in both of its jobs (`release` for a tag, `tap` for a manual run), and each run
+  has exactly one of them. Set or rotate a secret with
   `gh secret set NAME --env release --repo amitgal45/portreaper` from the owner's machine. Never
   run `gh secret set` without `--env release`: it would create a repository secret again, which
   any branch's workflow can read, while releases kept signing with the environment's old copy.
