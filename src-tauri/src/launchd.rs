@@ -8,7 +8,7 @@
 //! so it read as a Zombie, came first in ⌘⇧K's pre-selection, and Reap zombies and the tray's
 //! "Kill lost-terminal servers" killed it; with KeepAlive, launchd started it again within
 //! seconds. A process this module names is never an orphan, and one whose job restarts after a
-//! kill is protected (`ports::apply_launchd`).
+//! kill, or may, is protected, and so is every system job (`ports::apply_launchd`).
 //!
 //! What is read: one `launchctl list` per [`REFRESH`] (pid → label, the caller's domain only:
 //! `gui/<uid>` for a GUI app), from whichever listing asks first (the [`Cache`]), with a
@@ -829,6 +829,9 @@ mod tests {
         std::fs::write(agents.join("com.example.impostor.plist"), agent("<true/>", 0)).unwrap();
         // Where `../../evil` would point if a label ever became a path unchecked.
         std::fs::write(home.path().join("evil.plist"), agent_for(Some("../../evil"), "<true/>", 0)).unwrap();
+        // Self-contained: macOS's own LaunchAgents are an empty directory here, not the host's /System.
+        let no_system = TempDir::new().unwrap();
+        let describe = |label: &str, home: Option<&Path>, uid: u32| describe_in(label, home, no_system.path(), uid);
 
         assert_eq!(
             describe(OLLAMA, Some(home.path()), 501),
@@ -913,6 +916,19 @@ mod tests {
             std::fs::write(agents.join(format!("{label}.plist")), agent_for(Some(label), keep_alive, 0)).unwrap();
         };
         install("com.example.sysagent", "<true/>");
+        // Apple's label on an agent in the home folder with no KeepAlive: a system job all the same,
+        // so no command, and `ports::apply_launchd` makes it ask first whatever its plist says.
+        install("com.apple.updater", "");
+        assert_eq!(
+            describe_in("com.apple.updater", Some(home.path()), system.path(), 501),
+            LaunchdJob {
+                label: "com.apple.updater".into(),
+                restarts: Some(false),
+                brew: None,
+                stop_command: None,
+                system: true,
+            }
+        );
         assert_eq!(
             describe_in("com.example.sysagent", Some(home.path()), system.path(), 501),
             LaunchdJob {

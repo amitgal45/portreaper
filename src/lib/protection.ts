@@ -2,10 +2,10 @@ import type { LaunchdJob, PortEntry } from "../types";
 
 /**
  * Why a process is `protected`, in the words the confirm dialog uses. The contract carries only
- * the boolean, so the reason is derived from what the core does tell us: a system job (Apple's, or
- * one run from the system's folders), the launchd job that starts it again after a kill, or may
- * (the core protects every job not known to stay down), the tool, the process name, the owner and
- * the executable. When nothing matches, say "a protected process" rather than guess.
+ * the boolean, so the reason is derived from what the core does tell us: a system job (Apple's label,
+ * or a plist under /System/Library/LaunchAgents: the core decides it from the job alone), the launchd
+ * job that starts it again after a kill, or may (the core protects every job not known to stay down),
+ * the tool, the process name, the owner and the executable. When nothing matches, say "a protected process" rather than guess.
  *
  * `entry.launchd` is read with `?.`: the Quick strip's session cache can hold entries from a
  * core that did not send the field (or its `system`) yet.

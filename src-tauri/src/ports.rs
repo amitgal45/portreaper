@@ -1280,12 +1280,32 @@ mod tests {
         };
         entry.orphan = is_orphan(entry.parent_pid, entry.exe.as_deref(), entry.user.as_deref(), me);
         entry.protected = is_protected(&entry.process_name, entry.exe.as_deref(), entry.user.as_deref(), me);
+        // WP-1's rules already ask for a system path and never call it lost; what the job adds here
+        // is the carried job itself, with its command.
+        assert!(entry.protected && !entry.orphan, "WP-1 already asks for a system path");
         let carried = job_for_entry(&tunnel, crate::launchd::Link::Own, entry.exe.as_deref());
         assert_eq!(carried, tunnel, "no system job, and the command that stops it for good stays");
         apply_launchd(&mut entry, Some(carried));
-        assert!(entry.protected, "launchd starts it again: it asks first");
-        assert!(!entry.orphan);
-        assert_eq!(entry.launchd, Some(tunnel));
+        assert!(entry.protected && !entry.orphan);
+        assert_eq!(entry.launchd, Some(tunnel.clone()));
+
+        // The same tunnel from a Homebrew binary, which WP-1 does not protect: the job's restart
+        // is what makes it ask, and its command stays.
+        let mut autossh = PortEntry {
+            process_name: "autossh".into(),
+            command: "/opt/homebrew/bin/autossh -N -L 5432:db:5432 db".into(),
+            exe: Some("/opt/homebrew/bin/autossh".into()),
+            ..entry.clone()
+        };
+        autossh.orphan = is_orphan(autossh.parent_pid, autossh.exe.as_deref(), autossh.user.as_deref(), me);
+        autossh.protected = is_protected(&autossh.process_name, autossh.exe.as_deref(), autossh.user.as_deref(), me);
+        autossh.launchd = None;
+        assert!(autossh.orphan && !autossh.protected, "WP-1's rule alone calls it lost and lets it die");
+        let carried = job_for_entry(&tunnel, crate::launchd::Link::Own, autossh.exe.as_deref());
+        assert_eq!(carried, tunnel);
+        apply_launchd(&mut autossh, Some(carried));
+        assert!(autossh.protected, "launchd starts it again: it asks first");
+        assert!(!autossh.orphan);
     }
 
     #[test]
