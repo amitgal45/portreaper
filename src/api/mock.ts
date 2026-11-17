@@ -71,6 +71,15 @@ function normalizeHiddenPorts(ports: readonly number[]): number[] {
   return [...new Set(valid)].sort((a, b) => a - b).slice(0, MAX_HIDDEN_PORTS);
 }
 
+/**
+ * `ports::protect_whole_pids` in the core: a kill takes the whole pid, so every entry of a pid that
+ * is protected on any of its sockets is protected. New objects; `list` is left as it is.
+ */
+function protectWholePids(list: readonly PortEntry[]): PortEntry[] {
+  const guarded = new Set(list.filter((e) => e.protected).map((e) => e.pid));
+  return list.map((e) => ({ ...e, protected: e.protected || guarded.has(e.pid) }));
+}
+
 function entry(partial: Partial<PortEntry> & Pick<PortEntry, "port" | "pid" | "processName">): PortEntry {
   return {
     ...classifyMock(partial.port),
@@ -331,6 +340,8 @@ export function createMockApi(seed: PortEntry[] = MOCK_ENTRIES): PortApi {
   const copySettings = (): Settings => ({ ...settings, hiddenPorts: [...settings.hiddenPorts] });
   // Hidden ports, as the core hides them: by number, TCP and UDP alike; port 0 never.
   const hidden = (port: number) => port !== 0 && settings.hiddenPorts.includes(port);
+  // What the core's listing hands every caller: protection pid-wide, before any hidden port is left out.
+  const listed = (): PortEntry[] => protectWholePids(entries);
   // Watches (WP-18): a set of port+protocol; the state is read off the entries when asked. A
   // watch on a hidden port stays in the set and is left out of every answer, as in the core.
   const watches = new Map<string, { port: number; protocol: Protocol; sinceMs: number }>();
@@ -384,7 +395,8 @@ export function createMockApi(seed: PortEntry[] = MOCK_ENTRIES): PortApi {
     });
   };
   const kill = (request: KillRequest): KillOutcome => {
-    const victim = entries.find((e) => e.pid === request.pid);
+    // Looked up in the listing, as the core does: a pid protected anywhere is never relaunchable.
+    const victim = listed().find((e) => e.pid === request.pid);
     if (!victim) return { status: "notFound", pid: request.pid };
     if (victim.pid <= 1) return { status: "refused", pid: request.pid, reason: "launchd" };
     const waitedMs = request.force ? 0 : 180;
@@ -416,7 +428,7 @@ export function createMockApi(seed: PortEntry[] = MOCK_ENTRIES): PortApi {
     return { status: "killed", pid: request.pid, graceful: !request.force, waitedMs };
   };
   return {
-    listPorts: async () => entries.filter((e) => !hidden(e.port)).map((e) => ({ ...e })),
+    listPorts: async () => listed().filter((e) => !hidden(e.port)),
     killProcess: async (request) => kill(request),
     freePort: async (port, force) => {
       const pids = [...new Set(entries.filter((e) => e.port === port).map((e) => e.pid))];
@@ -443,8 +455,9 @@ export function createMockApi(seed: PortEntry[] = MOCK_ENTRIES): PortApi {
       events.length = 0;
     },
     reapZombies: async () => {
-      // A bulk kill never reaches what the user cannot see: a hidden zombie is left running.
-      const zombies = entries.filter((e) => e.orphan && !e.protected && !hidden(e.port));
+      // As `commands::reap_targets`: a pid protected on any socket is spared, and a bulk kill never
+      // reaches what the user cannot see, so a hidden zombie is left running.
+      const zombies = listed().filter((e) => e.orphan && !e.protected && !hidden(e.port));
       return zombies.map((z) => {
         const outcome = kill({ pid: z.pid, force: false });
         const ev = events[0];

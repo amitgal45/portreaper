@@ -120,4 +120,16 @@ mod tests {
         assert_eq!(shown[1].address, "stdio", "the portless entry stays");
         assert_eq!(visible(entries.clone(), &[]), entries, "nothing hidden: the list as it was");
     }
+
+    #[test]
+    fn a_shown_port_keeps_the_protection_its_pid_has_on_a_hidden_one() {
+        // pid 10 (node) on :3000 and on :5432, where the port protected that socket alone.
+        let mut entries = vec![entry(3000, Protocol::Tcp, 10), entry(5432, Protocol::Tcp, 10), entry(8080, Protocol::Tcp, 30)];
+        entries[1].protected = true;
+        // What `ports::listing` does before any caller filters.
+        crate::ports::protect_whole_pids(&mut entries);
+        let shown = visible(entries, &normalize(&[5432]));
+        let flags: Vec<(u16, bool)> = shown.iter().map(|e| (e.port, e.protected)).collect();
+        assert_eq!(flags, [(3000, true), (8080, false)], "a Kill of :3000 still asks: it takes :5432 with it");
+    }
 }

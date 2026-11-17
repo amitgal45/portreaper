@@ -108,6 +108,60 @@ describe("usePorts: loading and polling", () => {
   });
 });
 
+describe("usePorts: a refresh during a poll", () => {
+  it("runs one more poll right after the one in flight, however often it was asked, and resolves after it", async () => {
+    const api = createMockApi();
+    let answer: ((list: PortEntry[]) => void) | undefined;
+    const listPorts = vi
+      .spyOn(api, "listPorts")
+      .mockImplementationOnce(() => new Promise<PortEntry[]>((resolve) => (answer = resolve)));
+    const store = usePorts(api, { storage: null });
+    const first = store.refresh();
+    // Asked for twice while that poll is out (the refresh right after a port is shown again):
+    // neither is dropped, and both wait for the one poll queued behind it.
+    const second = store.refresh();
+    const third = store.refresh();
+    await flush();
+    expect(listPorts).toHaveBeenCalledTimes(1);
+
+    // The answer in flight predates the change; the queued poll's answer is the one that shows.
+    answer?.([]);
+    await first;
+    expect(listPorts).toHaveBeenCalledTimes(2);
+    expect(store.entries.value).toHaveLength(MOCK_ENTRIES.length);
+    await Promise.all([second, third]);
+    await flush();
+    expect(listPorts).toHaveBeenCalledTimes(2);
+
+    // With nothing in flight a refresh is one poll, as before.
+    await store.refresh();
+    expect(listPorts).toHaveBeenCalledTimes(3);
+  });
+
+  it("drops a timer tick that comes while a poll is out", async () => {
+    vi.useFakeTimers();
+    try {
+      const api = createMockApi();
+      let answer: ((list: PortEntry[]) => void) | undefined;
+      const listPorts = vi
+        .spyOn(api, "listPorts")
+        .mockImplementationOnce(() => new Promise<PortEntry[]>((resolve) => (answer = resolve)));
+      const store = usePorts(api, { storage: null, intervalMs: 1000, isVisible: () => true });
+      store.start();
+      await vi.advanceTimersByTimeAsync(3000);
+      expect(listPorts).toHaveBeenCalledTimes(1);
+      answer?.(MOCK_ENTRIES);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(listPorts).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(listPorts).toHaveBeenCalledTimes(2);
+      store.stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
 describe("usePorts: search", () => {
   it("matches a port by prefix", async () => {
     const store = await loadedStore();

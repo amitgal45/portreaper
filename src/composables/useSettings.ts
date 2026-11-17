@@ -9,6 +9,10 @@ export type SettingsPatch = { [K in keyof Settings]: { field: K; value: Settings
 /** How long a row says "Saved" before it fades. */
 export const SAVED_MS = 1200;
 
+/** Why a patch saved nothing: the core's preferences were never read, so it would save the defaults. */
+export const UNREAD_SETTINGS =
+  "Preferences could not be read, so nothing was saved. Reopen PortReaper and try again.";
+
 export interface UseSettingsOptions {
   /** Show the first-run card whatever the core says: the browser seam (`demoOnboarding`) and tests. */
   onboarding?: boolean;
@@ -50,9 +54,11 @@ export function withoutHiddenPort(ports: readonly number[], port: number): numbe
  * The preferences (WP-17b): read once, patched one field at a time, and kept in step with the
  * core's `settings:changed` (a change from the tray shows up without a refresh). Every patch
  * saves at once with the merged object; a rejection lands in `error[field]` and that field
- * rolls back. `saved` names the fields that just saved, for the "Saved" fade. `hidePort` and
- * `unhidePort` are patches of `hiddenPorts` by one port (the row menu's Hide :PORT). Call
- * `start()` on mount and `stop()` on unmount.
+ * rolls back. Until the core's preferences were read once (a `load()` or a `settings:changed`),
+ * `settings` holds the defaults and every patch is refused with `UNREAD_SETTINGS`: the merged
+ * object would write them over what the user stored. `saved` names the fields that just saved,
+ * for the "Saved" fade. `hidePort` and `unhidePort` are patches of `hiddenPorts` by one port (the
+ * row menu's Hide :PORT). Call `start()` on mount and `stop()` on unmount.
  */
 export function useSettings(api: PortApi, options: UseSettingsOptions = {}) {
   // The card is dismissed until the core says otherwise: no flash of it on every launch.
@@ -66,6 +72,8 @@ export function useSettings(api: PortApi, options: UseSettingsOptions = {}) {
   const savedTimers = new Map<keyof Settings, ReturnType<typeof setTimeout>>();
   let showOnboarding = options.onboarding ?? false;
   const offs: Array<() => void> = [];
+  /** The core's preferences were read at least once; until then a patch would save the defaults. */
+  let read = false;
 
   async function load(): Promise<void> {
     try {
@@ -74,6 +82,7 @@ export function useSettings(api: PortApi, options: UseSettingsOptions = {}) {
       settings.value = showOnboarding ? { ...fromCore, onboardingDone: false } : fromCore;
       showOnboarding = false;
       loadError.value = null;
+      markRead();
     } catch (err) {
       loadError.value = message(err);
       console.error("getSettings failed", err);
@@ -95,8 +104,27 @@ export function useSettings(api: PortApi, options: UseSettingsOptions = {}) {
     );
   }
 
-  /** Saves one field with the current values of the rest. Resolves true when the core took it. */
+  /** The core's preferences are known now: a complaint that they could not be read is out of date. */
+  function markRead() {
+    read = true;
+    for (const field of Object.keys(error) as Array<keyof Settings>) {
+      if (error[field] === UNREAD_SETTINGS) delete error[field];
+    }
+  }
+
+  /** True, with the reason in `error[field]`, while the core's preferences were never read. */
+  function unread(field: keyof Settings): boolean {
+    if (read) return false;
+    error[field] = UNREAD_SETTINGS;
+    return true;
+  }
+
+  /**
+   * Saves one field with the current values of the rest. Resolves true when the core took it, and
+   * false, sending nothing, while the core's preferences were never read.
+   */
   async function patch({ field, value }: SettingsPatch): Promise<boolean> {
+    if (unread(field)) return false;
     const before = settings.value;
     const next: Settings = { ...before, [field]: value };
     settings.value = next;
@@ -116,19 +144,25 @@ export function useSettings(api: PortApi, options: UseSettingsOptions = {}) {
    * Hides `port` wherever PortReaper lists ports. Resolves true when it is hidden afterwards; a
    * port already hidden is a no-op. Resolves false, without asking the core, for a port that
    * cannot be hidden (0, or not a port number) and when `MAX_HIDDEN_PORTS` are hidden already,
-   * since the core would keep the lowest ones and could drop this one; and false when the core
-   * refused the save, which rolls back like any patch.
+   * since the core would keep the lowest ones and could drop this one; false, with
+   * `UNREAD_SETTINGS` in `error.hiddenPorts`, while the core's preferences were never read; and
+   * false when the core refused the save, which rolls back like any patch.
    */
   async function hidePort(port: number): Promise<boolean> {
     const current = settings.value.hiddenPorts;
     if (!isHideablePort(port)) return false;
+    if (unread("hiddenPorts")) return false;
     if (current.includes(port)) return true;
     if (current.length >= MAX_HIDDEN_PORTS) return false;
     return patch({ field: "hiddenPorts", value: withHiddenPort(current, port) });
   }
 
-  /** Shows `port` again. Resolves true when it is not hidden afterwards; false when the core refused. */
+  /**
+   * Shows `port` again. Resolves true when it is not hidden afterwards; false when the core refused,
+   * or, like `hidePort`, while the core's preferences were never read.
+   */
   async function unhidePort(port: number): Promise<boolean> {
+    if (unread("hiddenPorts")) return false;
     const current = settings.value.hiddenPorts;
     if (!current.includes(port)) return true;
     return patch({ field: "hiddenPorts", value: withoutHiddenPort(current, port) });
@@ -139,6 +173,8 @@ export function useSettings(api: PortApi, options: UseSettingsOptions = {}) {
     offs.push(
       onSettingsChanged((fromCore) => {
         settings.value = fromCore;
+        // The core's own effective preferences: as good as a load.
+        markRead();
       }),
     );
   }

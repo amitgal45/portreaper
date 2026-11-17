@@ -177,7 +177,8 @@ pub fn shortcuts_model(entries: &[PortEntry]) -> ShortcutsModel {
 /// [`shortcuts_model`] for the ports the user did not hide. A process that holds only hidden
 /// ports is in neither bulk list. One protected on a hidden socket stays protected: the port
 /// decides `protected` for some categories, and hiding a port must narrow what a bulk kill
-/// reaches, never widen it.
+/// reaches, never widen it. `ports::listing` already spreads protection over the whole pid
+/// (`protect_whole_pids`); the rule stays so the model holds for any list it is given.
 pub fn visible_model(entries: &[PortEntry], hidden: &[u16]) -> ShortcutsModel {
     if hidden.is_empty() {
         return shortcuts_model(entries);

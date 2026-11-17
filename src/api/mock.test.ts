@@ -130,6 +130,33 @@ describe("mock api v0.3", () => {
   });
 });
 
+describe("mock api: protection is by pid", () => {
+  it("a pid protected on one socket is protected on all of them, a hidden one included, and Reap spares it", async () => {
+    const jekyll = MOCK_ENTRIES.find((e) => e.port === 4000);
+    if (!jekyll) throw new Error("mock changed");
+    const pid = jekyll.pid;
+    // The Jekyll's pid also holds a database port: the port protects that socket alone.
+    const api = createMockApi([...MOCK_ENTRIES, { ...jekyll, port: 5432, protected: true }]);
+    const rows = async () => {
+      const mine = (await api.listPorts()).filter((e) => e.pid === pid);
+      return mine.map((e) => `:${e.port} ${e.protected ? "protected" : "open"}`);
+    };
+    expect(await rows()).toEqual([":4000 protected", ":5432 protected"]);
+    // Nobody else's protection spreads, and the seed is left as it was.
+    expect((await api.listPorts()).find((e) => e.port === 3000)?.protected).toBe(false);
+    expect(jekyll.protected).toBe(false);
+
+    // Hidden, the protected socket still protects the one the user sees: Reap spares the pid.
+    await api.setSettings({ ...(await api.getSettings()), hiddenPorts: [5432] });
+    expect(await rows()).toEqual([":4000 protected"]);
+    expect((await api.reapZombies()).map((o) => o.pid)).toEqual([39871]);
+    expect(await rows()).toEqual([":4000 protected"]);
+    // Killed on purpose, it is not offered for a relaunch: the core never brings a protected pid back.
+    await api.killProcess({ pid, force: false });
+    expect((await api.tasklineEvents())[0]).toMatchObject({ pid, relaunchable: false });
+  });
+});
+
 describe("mock api: hidden ports", () => {
   it("leaves a hidden port out of the list by number and keeps the stdio entries; unhidden, it is back", async () => {
     const api = createMockApi([...MOCK_ENTRIES, ...MOCK_STDIO_ZOMBIES]);

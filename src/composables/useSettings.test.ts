@@ -6,6 +6,7 @@ import {
   demoOnboarding,
   isHideablePort,
   SAVED_MS,
+  UNREAD_SETTINGS,
   useSettings,
   withHiddenPort,
   withoutHiddenPort,
@@ -154,9 +155,11 @@ describe("useSettings", () => {
 
   it("hidePort adds one port, sorted and once; unhidePort takes it out; the defaults' array is never touched", async () => {
     const api = createMockApi();
+    // A core that answers with a copy of the defaults, which shares their array.
+    vi.spyOn(api, "getSettings").mockResolvedValueOnce({ ...DEFAULT_SETTINGS, onboardingDone: true });
     const setSettings = vi.spyOn(api, "setSettings");
-    // Before the first load the store holds a copy of the defaults, which shares their array.
     const store = useSettings(api);
+    await store.load();
 
     expect(await store.hidePort(7000)).toBe(true);
     expect(await store.hidePort(5000)).toBe(true);
@@ -228,6 +231,63 @@ describe("useSettings", () => {
     expect(await store.unhidePort(7000)).toBe(true);
     expect(store.settings.value.hiddenPorts).toEqual([]);
     expect(store.error.hiddenPorts).toBeUndefined();
+  });
+
+  it("after a failed load nothing is saved, Hide :PORT included, and the row says why; a later read lifts it", async () => {
+    const api = createMockApi();
+    // What the user stored, which a save of the defaults would wipe.
+    await api.setSettings({ ...(await api.getSettings()), notifications: false, hiddenPorts: [7000] });
+    vi.spyOn(api, "getSettings").mockRejectedValueOnce(new Error("the store is unreadable"));
+    const setSettings = vi.spyOn(api, "setSettings");
+    const store = useSettings(api);
+    await store.load();
+    expect(store.loadError.value).toBe("the store is unreadable");
+
+    expect(await store.patch({ field: "dockIcon", value: "hide" })).toBe(false);
+    expect(store.error.dockIcon).toBe(UNREAD_SETTINGS);
+    expect(store.settings.value.dockIcon).toBe(DEFAULT_SETTINGS.dockIcon);
+    expect(await store.hidePort(5000)).toBe(false);
+    expect(store.error.hiddenPorts).toBe(UNREAD_SETTINGS);
+    expect(await store.unhidePort(7000)).toBe(false);
+    expect(store.settings.value.hiddenPorts).toEqual([]);
+    expect(store.saved.size).toBe(0);
+    expect(setSettings).not.toHaveBeenCalled();
+    expect(await api.getSettings()).toMatchObject({ notifications: false, hiddenPorts: [7000] });
+
+    // Never loaded at all is the same: the store holds the defaults until the core answers.
+    const unloaded = useSettings(api);
+    expect(await unloaded.patch({ field: "notifications", value: true })).toBe(false);
+    expect(await unloaded.hidePort(5000)).toBe(false);
+    expect(setSettings).not.toHaveBeenCalled();
+
+    // Read once, the refusal is lifted and its complaints go with it; patches work as before.
+    await store.load();
+    expect(store.error.dockIcon).toBeUndefined();
+    expect(store.error.hiddenPorts).toBeUndefined();
+    expect(await store.hidePort(5000)).toBe(true);
+    expect(await store.patch({ field: "dockIcon", value: "hide" })).toBe(true);
+    expect(setSettings).toHaveBeenCalledTimes(2);
+    expect(await api.getSettings()).toMatchObject({
+      dockIcon: "hide",
+      notifications: false,
+      hiddenPorts: [5000, 7000],
+    });
+  });
+
+  it("a settings:changed from the core counts as a read: a patch goes through after it", async () => {
+    tauri.__TAURI_INTERNALS__ = {};
+    listen.mockResolvedValue(vi.fn());
+    const api = createMockApi();
+    const store = useSettings(api);
+    store.start();
+    expect(await store.patch({ field: "dockIcon", value: "hide" })).toBe(false);
+
+    const deliver = listen.mock.calls[0]?.[1] as (event: { payload: unknown }) => void;
+    deliver({ payload: await api.getSettings() });
+    expect(store.error.dockIcon).toBeUndefined();
+    expect(await store.patch({ field: "dockIcon", value: "hide" })).toBe(true);
+    expect((await api.getSettings()).dockIcon).toBe("hide");
+    store.stop();
   });
 
   it("a failed load keeps the defaults and says so", async () => {

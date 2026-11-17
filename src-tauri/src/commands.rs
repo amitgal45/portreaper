@@ -8,6 +8,8 @@
 //! The hidden ports (`crate::hidden`) are left out of what the UI is shown (`list_ports`,
 //! `watched_ports`) and of the one bulk kill here (`reap_zombies`). `kill_process` and
 //! `free_port` are explicit requests and stay as they are: nothing in the UI offers a hidden port.
+//! Protection comes pid-wide from `ports::listing`, so a pid protected on a hidden socket is
+//! still protected on the ones the user sees.
 
 use tauri::AppHandle;
 
@@ -53,19 +55,33 @@ pub fn app_version(app: AppHandle) -> String {
     app.package_info().version.to_string()
 }
 
-/// Kills every lost-terminal, unprotected process on a port the user did not hide. One outcome
-/// per pid, each recorded as `zombieReaped`. A zombie that holds only hidden ports is left
-/// running: a bulk kill never reaches what the user cannot see.
+/// Kills every lost-terminal, unprotected process on a port the user did not hide
+/// ([`reap_targets`]). One outcome per pid, each recorded as `zombieReaped`. A zombie that holds
+/// only hidden ports is left running: a bulk kill never reaches what the user cannot see.
 #[tauri::command]
 pub fn reap_zombies(app: AppHandle) -> Result<Vec<KillOutcome>, String> {
     let listing = crate::ports::listing().map_err(|e| e.to_string())?;
     let hidden = crate::hidden::hidden_ports(&app);
-    let zombie = |e: &PortEntry| e.orphan && !e.protected && !crate::hidden::is_hidden(e.port, &hidden);
-    let pids = distinct_pids(&listing, zombie);
-    Ok(pids
+    let zombie = |e: &PortEntry| reapable(e, &hidden);
+    Ok(reap_targets(&listing.entries, &hidden)
         .into_iter()
         .map(|pid| kill_listed(&app, &listing, pid, false, Some(EventKind::ZombieReaped), zombie))
         .collect())
+}
+
+/// What Reap kills: the distinct, sorted pids of the entries that are orphans, not protected
+/// and not on a hidden port. `ports::listing` made protection pid-wide, so a pid protected on
+/// any of its sockets, a hidden one included, is never a target.
+pub(crate) fn reap_targets(entries: &[PortEntry], hidden: &[u16]) -> Vec<u32> {
+    let mut pids: Vec<u32> = entries.iter().filter(|e| reapable(e, hidden)).map(|e| e.pid).collect();
+    pids.sort_unstable();
+    pids.dedup();
+    pids
+}
+
+/// An entry Reap may kill: an orphan, not protected, on a port the user did not hide.
+fn reapable(entry: &PortEntry, hidden: &[u16]) -> bool {
+    entry.orphan && !entry.protected && !crate::hidden::is_hidden(entry.port, hidden)
 }
 
 /// Ancestry of a process, launchd first. Empty when nothing knows the pid.
@@ -190,5 +206,60 @@ fn kill_listed(
             );
             crate::taskline::stop_refused(app, first, reason)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::{BindScope, Category};
+
+    fn entry(port: u16, pid: u32, orphan: bool, protected: bool) -> PortEntry {
+        PortEntry {
+            port,
+            protocol: Protocol::Tcp,
+            bind: BindScope::Loopback,
+            address: "127.0.0.1".into(),
+            pid,
+            process_name: "node".into(),
+            command: String::new(),
+            cwd: None,
+            exe: None,
+            user: None,
+            memory_bytes: 0,
+            started_at: None,
+            parent_pid: None,
+            orphan,
+            project: None,
+            protected,
+            category: Category::Other,
+            framework: None,
+            container: None,
+        }
+    }
+
+    #[test]
+    fn reap_spares_a_pid_protected_on_a_hidden_socket_and_an_orphan_only_on_hidden_ports() {
+        let mut entries = vec![
+            // pid 10: a lost terminal's node on :3000 and on :5432, where the port protects it.
+            entry(3000, 10, true, false),
+            entry(5432, 10, true, true),
+            // pid 20: a plain lost-terminal server, on two ports.
+            entry(4000, 20, true, false),
+            entry(4001, 20, true, false),
+            // pid 30: a lost-terminal server only on :5000.
+            entry(5000, 30, true, false),
+            // pid 40: its terminal is still there.
+            entry(8080, 40, false, false),
+        ];
+        // What `ports::listing` hands every caller.
+        crate::ports::protect_whole_pids(&mut entries);
+        let hidden = crate::hidden::normalize(&[5432, 5000]);
+        assert_eq!(
+            reap_targets(&entries, &hidden),
+            [20],
+            "pid 10 is protected on :3000 too, and pid 30 holds only a hidden port"
+        );
+        assert_eq!(reap_targets(&entries, &[]), [20, 30], "nothing hidden: the orphan on :5000 is a target, pid 10 still not");
     }
 }

@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import App from "./App.vue";
 import { API_KEY } from "./api";
 import { createMockApi, MOCK_ENTRIES } from "./api/mock";
+import { UNREAD_SETTINGS } from "./composables/useSettings";
 
 function press(key: string, init: KeyboardEventInit = {}, target: EventTarget = window) {
   target.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true, ...init }));
@@ -364,6 +365,25 @@ describe("App: preferences (WP-17b)", () => {
     await nav(wrapper, "all").trigger("click");
     expect(rowsOf(wrapper)).toHaveLength(N);
     expect(airplay().exists()).toBe(true);
+  });
+
+  it("Hide :7000 when the preferences could not be read saves nothing, keeps the row and says why", async () => {
+    const api = createMockApi();
+    vi.spyOn(api, "getSettings").mockRejectedValueOnce(new Error("the store is unreadable"));
+    const setSettings = vi.spyOn(api, "setSettings");
+    const { wrapper } = await mountApp(api);
+    const airplay = () => wrapper.find("[role='row'][data-port='7000']");
+    await airplay().get("button[aria-label='More']").trigger("click");
+    await flushPromises();
+    document.body.querySelector<HTMLElement>("[role='menu'] [data-action='hide']")?.click();
+    await flushPromises();
+
+    // A save now would write the defaults over what the user stored.
+    expect(setSettings).not.toHaveBeenCalled();
+    expect(airplay().exists()).toBe(true);
+    expect(rowsOf(wrapper)).toHaveLength(N);
+    expect(wrapper.text()).toContain(`Could not hide port 7000: ${UNREAD_SETTINGS}`);
+    expect(wrapper.find("footer [data-hidden-count]").exists()).toBe(false);
   });
 
   it("Kill sends SIGKILL at once: ↩ forces the selection and ⌘⌫ is the graceful one", async () => {

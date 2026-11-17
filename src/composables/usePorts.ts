@@ -328,12 +328,37 @@ export function usePorts(api: PortApi, options: UsePortsOptions = {}) {
 
   // Polling
   let timer: ReturnType<typeof setInterval> | null = null;
-  let inFlight = false;
+  /** The poll in flight, with the one queued behind it; null while none runs. */
+  let polling: Promise<void> | null = null;
+  /** A refresh was asked for while a poll was in flight: one more runs when it ends. */
+  let again = false;
   let started = false;
 
-  async function refresh(): Promise<void> {
-    if (inFlight) return;
-    inFlight = true;
+  /**
+   * Polls now. Asked for while a poll is in flight, it runs one more poll right after that one ends,
+   * however often it was asked: the answer in flight may predate what the caller just changed (a
+   * port shown again in Preferences). Resolves once the last of them answered; never rejects.
+   */
+  function refresh(): Promise<void> {
+    if (polling) {
+      again = true;
+      return polling;
+    }
+    polling = (async () => {
+      try {
+        do {
+          again = false;
+          await poll();
+        } while (again);
+      } finally {
+        polling = null;
+      }
+    })();
+    return polling;
+  }
+
+  /** One `listPorts()` into the list; a failure lands in `error` and keeps the last list. */
+  async function poll(): Promise<void> {
     try {
       const t0 = clock();
       const list = await api.listPorts();
@@ -347,15 +372,16 @@ export function usePorts(api: PortApi, options: UsePortsOptions = {}) {
       error.value = err instanceof Error ? err.message : String(err);
       console.error("listPorts failed", err);
     } finally {
-      inFlight = false;
       loaded.value = true;
     }
   }
 
   function startTimer() {
     if (timer !== null) return;
+    // A tick during a poll is dropped, not queued: the next tick comes anyway, and a core slower
+    // than the interval must not be polled back to back.
     timer = setInterval(() => {
-      if (isVisible()) void refresh();
+      if (isVisible() && polling === null) void refresh();
     }, intervalMs.value);
   }
 
@@ -366,7 +392,8 @@ export function usePorts(api: PortApi, options: UsePortsOptions = {}) {
   }
 
   // A port hidden while its row is up leaves the list now, not on the next poll. Showing one again
-  // waits for a poll: only the core has its rows.
+  // waits for a poll, since only the core has its rows: the caller's `refresh()` runs one, after
+  // the poll in flight if there is one.
   watch(hiddenPorts, () => {
     const shown = withoutHidden(entries.value);
     if (shown.length !== entries.value.length) entries.value = shown;
