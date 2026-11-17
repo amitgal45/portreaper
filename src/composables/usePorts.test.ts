@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { nextTick, ref } from "vue";
-import { createMockApi, MOCK_ENTRIES } from "../api/mock";
+import { createMockApi, MOCK_ENTRIES, MOCK_STDIO_ZOMBIES } from "../api/mock";
 import type { KillOutcome, PortApi, PortEntry, WatchedPort } from "../types";
 import { entryKey, groupEntries, matchesCategory, memoryOf, usePorts, watchKey } from "./usePorts";
 
@@ -105,6 +105,60 @@ describe("usePorts: loading and polling", () => {
     await vi.advanceTimersByTimeAsync(2000);
     expect(store.error.value).toBeNull();
     store.stop();
+  });
+});
+
+describe("usePorts: a refresh during a poll", () => {
+  it("runs one more poll right after the one in flight, however often it was asked, and resolves after it", async () => {
+    const api = createMockApi();
+    let answer: ((list: PortEntry[]) => void) | undefined;
+    const listPorts = vi
+      .spyOn(api, "listPorts")
+      .mockImplementationOnce(() => new Promise<PortEntry[]>((resolve) => (answer = resolve)));
+    const store = usePorts(api, { storage: null });
+    const first = store.refresh();
+    // Asked for twice while that poll is out (the refresh right after a port is shown again):
+    // neither is dropped, and both wait for the one poll queued behind it.
+    const second = store.refresh();
+    const third = store.refresh();
+    await flush();
+    expect(listPorts).toHaveBeenCalledTimes(1);
+
+    // The answer in flight predates the change; the queued poll's answer is the one that shows.
+    answer?.([]);
+    await first;
+    expect(listPorts).toHaveBeenCalledTimes(2);
+    expect(store.entries.value).toHaveLength(MOCK_ENTRIES.length);
+    await Promise.all([second, third]);
+    await flush();
+    expect(listPorts).toHaveBeenCalledTimes(2);
+
+    // With nothing in flight a refresh is one poll, as before.
+    await store.refresh();
+    expect(listPorts).toHaveBeenCalledTimes(3);
+  });
+
+  it("drops a timer tick that comes while a poll is out", async () => {
+    vi.useFakeTimers();
+    try {
+      const api = createMockApi();
+      let answer: ((list: PortEntry[]) => void) | undefined;
+      const listPorts = vi
+        .spyOn(api, "listPorts")
+        .mockImplementationOnce(() => new Promise<PortEntry[]>((resolve) => (answer = resolve)));
+      const store = usePorts(api, { storage: null, intervalMs: 1000, isVisible: () => true });
+      store.start();
+      await vi.advanceTimersByTimeAsync(3000);
+      expect(listPorts).toHaveBeenCalledTimes(1);
+      answer?.(MOCK_ENTRIES);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(listPorts).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(listPorts).toHaveBeenCalledTimes(2);
+      store.stop();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
@@ -490,5 +544,41 @@ describe("usePorts: the watching filter (WP-18)", () => {
     // Stop watching: nothing left to act on.
     watches.value = await api.unwatchPort(3000, "tcp");
     expect(store.counts.value.watching).toBe(0);
+  });
+});
+
+describe("usePorts: hidden ports", () => {
+  it("a hidden port's rows leave at once and stay out of a poll that still lists them; stdio rows stay", async () => {
+    const api = createMockApi([...MOCK_ENTRIES, ...MOCK_STDIO_ZOMBIES]);
+    const hidden = ref<number[]>([]);
+    const watches = ref<WatchedPort[]>([]);
+    const store = usePorts(api, { storage: null, hidden: () => hidden.value, watches });
+    await store.refresh();
+    const all = MOCK_ENTRIES.length + MOCK_STDIO_ZOMBIES.length;
+    expect(store.total.value).toBe(all);
+    watches.value = await api.watchPort(7000, "tcp");
+    expect(store.counts.value.watching).toBe(0);
+
+    // Hidden while the list is up: the row goes now, not on the next poll. Port 0 never is hidden.
+    hidden.value = [0, 7000];
+    await nextTick();
+    expect(store.entries.value.some((e) => e.port === 7000)).toBe(false);
+    expect(store.total.value).toBe(all - 1);
+    expect(store.entries.value.filter((e) => e.port === 0)).toHaveLength(MOCK_STDIO_ZOMBIES.length);
+    // Its watch is not free: something holds the port, out of sight.
+    expect(store.counts.value.watching).toBe(0);
+
+    // This mock core was never told, so it still lists :7000, like a poll that left before the
+    // change: the row stays out.
+    await store.refresh();
+    expect(store.entries.value.some((e) => e.port === 7000)).toBe(false);
+    expect(store.total.value).toBe(all - 1);
+
+    // Shown again: the next poll has it.
+    hidden.value = [];
+    await nextTick();
+    await store.refresh();
+    expect(store.entries.value.some((e) => e.port === 7000)).toBe(true);
+    expect(store.total.value).toBe(all);
   });
 });

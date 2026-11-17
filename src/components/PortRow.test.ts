@@ -1,4 +1,4 @@
-import { mount } from "@vue/test-utils";
+import { flushPromises, mount } from "@vue/test-utils";
 import { TooltipProvider } from "reka-ui";
 import { describe, expect, it, vi } from "vitest";
 import { defineComponent, h } from "vue";
@@ -33,6 +33,7 @@ function spies(): UiActions {
     copyStopCommand: vi.fn(),
     revealFolder: vi.fn(),
     watch: vi.fn(),
+    hide: vi.fn(),
   };
 }
 
@@ -321,6 +322,40 @@ describe("PortRow", () => {
     const other = mountRow(byPort(5173), spies(), {}, { [WATCHED_KEY as symbol]: isWatched });
     expect(other.find("[data-badge='watched']").exists()).toBe(false);
     other.unmount();
+  });
+
+  it("the row menu has Hide :PORT right after Watch and asks for it; a stdio row's Hide port is off", async () => {
+    /** Opens the row menu (it renders in a portal on the body) and returns its items. */
+    const openMenu = async (wrapper: ReturnType<typeof mountRow>) => {
+      await wrapper.get("button[aria-label='More']").trigger("click");
+      await flushPromises();
+      return [...document.body.querySelectorAll<HTMLElement>("[role='menu'] [role='menuitem']")];
+    };
+
+    const actions = spies();
+    const airplay = mountRow(byPort(7000), actions);
+    const items = await openMenu(airplay);
+    const labels = items.map((item) => item.textContent?.trim());
+    expect(labels).toContain("Hide :7000");
+    expect(labels.indexOf("Hide :7000")).toBe(labels.indexOf("Watch :7000") + 1);
+    const hide = items.find((item) => item.dataset.action === "hide");
+    expect(hide?.getAttribute("aria-disabled")).toBeNull();
+    hide?.click();
+    await flushPromises();
+    expect(actions.hide).toHaveBeenCalledTimes(1);
+    expect(actions.hide).toHaveBeenCalledWith(byPort(7000));
+    expect(actions.inspect).not.toHaveBeenCalled();
+    airplay.unmount();
+
+    const mcp: PortEntry = { ...byPort(5174), port: 0, pid: 61204, address: "stdio" };
+    const stdio = mountRow(mcp, actions);
+    const stdioHide = (await openMenu(stdio)).find((item) => item.dataset.action === "hide");
+    expect(stdioHide?.textContent?.trim()).toBe("Hide port");
+    expect(stdioHide?.getAttribute("aria-disabled")).toBe("true");
+    stdioHide?.click();
+    await flushPromises();
+    expect(actions.hide).toHaveBeenCalledTimes(1);
+    stdio.unmount();
   });
 
   it("renders stdio instead of 0 for a portless orphan row (WP-23)", () => {

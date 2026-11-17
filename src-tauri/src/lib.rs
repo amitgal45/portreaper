@@ -13,6 +13,7 @@
 //! - `shortcuts` the global shortcuts                                (WP-4, WP-8a)
 //! - `quick`     the Quick window that hosts "Free a port…"          (WP-8a)
 //! - `settings`  settings on disk; start at login on first run       (WP-8a)
+//! - `hidden`    the ports the user left out of every list and bulk kill
 //! - `update`    auto-update from GitHub Releases                    (WP-16)
 //! - `commands`  the thin `#[tauri::command]` layer
 //!
@@ -22,6 +23,7 @@
 mod classify;
 mod commands;
 mod docker;
+mod hidden;
 mod kill;
 mod launchd;
 mod model;

@@ -193,10 +193,20 @@ export interface Settings {
   notifications: boolean;
   /** The first-run card was dismissed. */
   onboardingDone: boolean;
+  /**
+   * Ports left out of every list, count and bulk kill (AirPlay Receiver holds 5000 and 7000):
+   * hidden by number, TCP and UDP alike, wherever PortReaper lists ports. A portless (`stdio`,
+   * port 0) entry cannot be hidden, and the Taskline keeps what already happened. Sorted,
+   * distinct, 1–65535, at most `MAX_HIDDEN_PORTS`; the core normalizes what it is sent.
+   */
+  hiddenPorts: number[];
 }
 
+/** The most ports `Settings.hiddenPorts` holds: `hidden::MAX_HIDDEN` in the core. */
+export const MAX_HIDDEN_PORTS = 64;
+
 /** `impl Default for Settings` in `model.rs`, field for field. */
-export const DEFAULT_SETTINGS: Readonly<Settings> = Object.freeze({
+export const DEFAULT_SETTINGS: Readonly<Settings> = Object.freeze<Settings>({
   dockIcon: "show",
   startAtLogin: true,
   quickShortcut: "CmdOrCtrl+Shift+K",
@@ -205,6 +215,7 @@ export const DEFAULT_SETTINGS: Readonly<Settings> = Object.freeze({
   defaultForce: false,
   notifications: true,
   onboardingDone: false,
+  hiddenPorts: [],
 });
 
 export type WatchState = "listening" | "free";

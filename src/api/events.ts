@@ -84,7 +84,9 @@ export function isSettings(value: unknown): value is Settings {
     typeof v.refreshMs === "number" &&
     typeof v.defaultForce === "boolean" &&
     typeof v.notifications === "boolean" &&
-    typeof v.onboardingDone === "boolean"
+    typeof v.onboardingDone === "boolean" &&
+    Array.isArray(v.hiddenPorts) &&
+    v.hiddenPorts.every((port) => typeof port === "number")
   );
 }
 
