@@ -49,9 +49,26 @@ export function restartsText(restarts: boolean | null | undefined): string {
   return "launchd may start it again";
 }
 
+/**
+ * What the row's chip and the inspector's card say about a job: "a system process" for a piece of
+ * macOS (`system`, as everywhere else in the UI), else what a kill does to it.
+ */
+export function jobText(job: LaunchdJob): string {
+  return job.system ? "a system process" : restartsText(job.restarts);
+}
+
 /** The hint of a row's `launchd` chip: who runs it, and what a kill does to it. */
 export function launchdHint(job: LaunchdJob): string {
-  return `started by launchd (${job.label}): ${restartsText(job.restarts)}`;
+  return `started by launchd (${job.label}): ${jobText(job)}`;
+}
+
+/**
+ * The command to offer for stopping a job for good: the core's string, untouched, and never for a
+ * system job, whatever the core sent. The core already withholds it there; every surface that
+ * shows or copies one asks this, so the rule holds in one place on this side too.
+ */
+export function offeredStopCommand(job: LaunchdJob | null | undefined): string | null {
+  return job && !job.system ? job.stopCommand : null;
 }
 
 /** The likeliest current user: whoever owns most of the unprotected processes. */
