@@ -139,3 +139,67 @@ describe("the workflows' secrets", () => {
     ).toThrow();
   });
 });
+
+/**
+ * Releases in this repository are immutable: a published release can never gain, replace or lose
+ * a file, and its tag name can never be used again. v0.5.0 was lost to publishing first and
+ * uploading after. So tauri-action creates a draft, one step publishes it once the four files are
+ * on it, and that step runs before the tap step, which downloads the DMG from the published
+ * release. Returns what is wrong with a release job's order; empty when it is right.
+ */
+function draftThenPublish(job: string): string[] {
+  const all = steps(job).map(code);
+  const build = all.findIndex((s) => /uses: tauri-apps\/tauri-action@/.test(s));
+  if (build < 0) return ["no tauri-action step"];
+  const problems: string[] = [];
+  if (!/^ {10}releaseDraft: true\s*$/m.test(all[build] ?? ""))
+    problems.push("tauri-action does not create a draft");
+  if (!/^id: build\s*$/m.test(all[build] ?? "")) problems.push("tauri-action has no `id: build`");
+  const publish = all.findIndex((s) => /^name: Publish the draft once every file is on it\s*$/m.test(s));
+  if (publish < 0) return [...problems, "no step publishes the draft"];
+  const tap = all.findIndex((s) => /^name: Update the Homebrew tap\s*$/m.test(s));
+  if (publish < build) problems.push("the draft is published before tauri-action creates it");
+  if (tap < 0 || publish > tap) problems.push("the tap step does not run after the release is published");
+  const step = all[publish] ?? "";
+  if (!step.includes("steps.build.outputs.releaseId"))
+    problems.push("the publish step does not use tauri-action's release id");
+  if (!/-F draft=false/.test(step)) problems.push("the publish step does not publish");
+  // `$` is kept apart from `{` so the name is not read as a template placeholder.
+  const $ = "$";
+  for (const file of [
+    `PortReaper_${$}{version}_universal.dmg`,
+    "PortReaper_universal.app.tar.gz ",
+    "PortReaper_universal.app.tar.gz.sig",
+    "latest.json",
+  ]) {
+    if (!step.includes(file)) problems.push(`the publish step does not check for ${file.trim()}`);
+  }
+  return problems;
+}
+
+describe("the release", () => {
+  const job = jobs(read(`${workflowDir}/release.yml`)).release ?? "";
+
+  it("is a draft until every file is on it, and published before the tap step reads it", () => {
+    expect(draftThenPublish(job)).toEqual([]);
+  });
+
+  it("catches the order that lost v0.5.0, and the other ways to break it", () => {
+    expect(draftThenPublish(job.replace("releaseDraft: true", "releaseDraft: false"))).toEqual([
+      "tauri-action does not create a draft",
+    ]);
+    expect(
+      draftThenPublish(job.replace("name: Publish the draft once every file is on it", "name: Publish")),
+    ).toEqual(["no step publishes the draft"]);
+    expect(
+      draftThenPublish(job.replace("PortReaper_universal.app.tar.gz.sig latest.json", "latest.json")),
+    ).toEqual(["the publish step does not check for PortReaper_universal.app.tar.gz.sig"]);
+
+    // The publish step moved after the tap step, which would download from a draft.
+    const [head, ...rest] = job.split(/^ {6}- /m);
+    const at = rest.findIndex((s) => s.startsWith("name: Publish the draft"));
+    expect(at).toBeGreaterThan(-1);
+    const moved = [head, ...rest.slice(0, at), ...rest.slice(at + 1), rest[at]].join("      - ");
+    expect(draftThenPublish(moved)).toEqual(["the tap step does not run after the release is published"]);
+  });
+});

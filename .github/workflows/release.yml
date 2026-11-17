@@ -3,8 +3,10 @@ name: Release
 # A `vX.Y.Z` tag builds the macOS app, signs the updater bundle with the minisign key in the
 # release environment's secrets, and publishes a GitHub Release carrying the .dmg, the .app.tar.gz
 # with its .sig, and the latest.json the running app checks (`plugins.updater.endpoints` in
-# src-tauri/tauri.conf.json). The recipe that gets here is in CLAUDE.md: a `## X.Y.Z` section at
-# the top of CHANGELOG.md, the three version fields bumped in one commit, then the tag.
+# src-tauri/tauri.conf.json). Releases here are immutable, so the release is a draft until all
+# four files are on it, and only then published (the step "Publish the draft once every file is
+# on it"). The recipe that gets here is in CLAUDE.md: a `## X.Y.Z` section at the top of
+# CHANGELOG.md, the three version fields bumped in one commit, then the tag.
 #
 # Once the release is published, the same job writes the Homebrew cask for it to
 # Casks/portreaper.rb in amitgal45/homebrew-tap (scripts/update-tap.sh: the template with the
@@ -121,7 +123,8 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       # Runs `pnpm tauri build` (app + dmg, and the .app.tar.gz the private key signs), creates
-      # the release for the tag and uploads the artifacts plus latest.json. The updater artifact
+      # the release for the tag as a draft and uploads the artifacts plus latest.json to it; the
+      # next step publishes it. The updater artifact
       # is switched on here only (src-tauri/tauri.release.conf.json merged over tauri.conf.json):
       # with it on, the Tauri CLI refuses to build without the private key, and CI's unsigned
       # build has none. The private key never leaves the secrets; its public half is in the repo.
@@ -156,7 +159,8 @@ jobs:
             exit 1
           fi
 
-      - uses: tauri-apps/tauri-action@v0
+      - id: build
+        uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -171,10 +175,41 @@ jobs:
           tagName: v__VERSION__
           releaseName: "PortReaper v__VERSION__"
           releaseBody: ${{ steps.notes.outputs.body }}
-          releaseDraft: false
+          releaseDraft: true
           prerelease: false
           includeUpdaterJson: true
           args: --config src-tauri/tauri.release.conf.json --target universal-apple-darwin
+
+      # Releases in this repository are immutable (Settings > General > Releases): once one is
+      # published, no file can be added, replaced or removed, and its tag name can never be used
+      # again, even after the release is deleted. So the step above leaves the release a draft with
+      # every file on it, and only this step publishes it, once the four files the app, the
+      # updater and the cask need are all there. v0.5.0 was lost to the old order (published
+      # first, files after): GitHub refused the first upload and kept an empty release under that
+      # name, so its changes shipped as 0.5.1. A draft this step refuses publishes nothing: delete
+      # the draft, then run the release again (Re-run all jobs); the tag stays. It must come before
+      # the tap step, which downloads the DMG from the published release.
+      - name: Publish the draft once every file is on it
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_ID: ${{ steps.build.outputs.releaseId }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          if [ -z "$RELEASE_ID" ]; then
+            echo "::error::tauri-action reported no release id; nothing was published" >&2
+            exit 1
+          fi
+          version="${TAG#v}"
+          names="$(gh api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" --jq '.assets[].name')"
+          missing=""
+          for want in "PortReaper_${version}_universal.dmg" PortReaper_universal.app.tar.gz PortReaper_universal.app.tar.gz.sig latest.json; do
+            printf '%s\n' "$names" | grep -qxF "$want" || missing="$missing $want"
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::the $TAG draft lacks:$missing; nothing was published. Delete the draft, then re-run the release." >&2
+            exit 1
+          fi
+          gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" -F draft=false -f make_latest=true --jq '"published \(.tag_name), immutable: \(.immutable), \(.assets | length) files: \(.html_url)"'
 
       # The cask for the release just published, written to the tap. In this job rather than its
       # own, so one job of the environment does the whole release. The actions above run in the
