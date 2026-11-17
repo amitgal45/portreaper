@@ -6,8 +6,7 @@
 
 ![PortReaper's ⌘⇧K strip: type 3000, press Return, and the port is freed; npm run dev then starts on 3000](docs/quick-kill.gif)
 
-*⌘⇧K from any app, type `3000`, press ↵, and `npm run dev` starts. The strip is PortReaper's own, with
-mock data from the browser build; the desktop and the terminal around it are staged.*
+*EADDRINUSE, ⌘⇧K, type 3000, Enter. The dev server starts.*
 
 PortReaper is a small macOS app that lists every listening port on your machine, names the
 project and git branch behind each one, and kills the process in one click. It lives in the Dock
