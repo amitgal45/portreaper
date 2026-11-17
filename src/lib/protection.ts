@@ -37,7 +37,7 @@ export function protectionReason(entry: PortEntry, currentUser: string | null): 
 
 /** What a kill does to a launchd job (`LaunchdJob.restarts`), for the row's hint and the inspector. */
 export function restartsText(restarts: boolean | null | undefined): string {
-  if (restarts === true) return "a kill is undone in about 10 s";
+  if (restarts === true) return "a kill is undone within seconds";
   if (restarts === false) return "a kill lasts until the next login";
   return "launchd may start it again";
 }

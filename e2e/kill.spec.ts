@@ -77,8 +77,9 @@ test("a launchd job that restarts asks first, names the command that stops it, a
     "ollama is a Homebrew service (ollama) that launchd starts again after a kill.",
   );
   await expect(dialog).toContainText(
-    "launchd starts it again in about 10 s. To stop it for good, run brew services stop ollama.",
+    "It holds port 11434. To stop it for good, run brew services stop ollama.",
   );
+  await expect(dialog).not.toContainText("starts it again");
 
   // Cancel still takes the focus, so Enter twice never kills; Copy command sits left of it.
   const cancel = dialog.getByRole("button", { name: "Cancel" });

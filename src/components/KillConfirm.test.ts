@@ -76,11 +76,12 @@ describe("KillConfirm", () => {
     const sentences = [
       "ollama is a Homebrew service (ollama) that launchd starts again after a kill.",
       "It holds port 11434.",
-      "launchd starts it again in about 10 s.",
       "To stop it for good, run brew services stop ollama.",
       "This sends SIGTERM and waits up to 3 s before SIGKILL.",
     ];
     expect(text()).toContain(sentences.join(" "));
+    // The reason says it comes back; nothing says it twice.
+    expect(text().match(/starts (it )?again/g)).toHaveLength(1);
     // Copy command is the secondary verb, left of Cancel.
     expect(buttons()).toEqual(["Copy command", "Cancel", "Kill anyway"]);
 
@@ -99,10 +100,12 @@ describe("KillConfirm", () => {
     expect(wrapper.emitted("confirm")).toHaveLength(1);
   });
 
-  it("without a command the core would put in a shell: the sentence, and no Copy command", async () => {
+  it("without a command the core would put in a shell: the reason still says it restarts, and no Copy command", async () => {
     const entry = { ...ollama, launchd: { ...job, stopCommand: null } };
     await mountConfirm({ kind: "entry", entry, force: true });
-    expect(text()).toContain("launchd starts it again in about 10 s. This sends SIGKILL at once.");
+    expect(text()).toContain(
+      "ollama is a Homebrew service (ollama) that launchd starts again after a kill. It holds port 11434. This sends SIGKILL at once.",
+    );
     expect(text()).not.toContain("To stop it for good");
     expect(buttons()).toEqual(["Cancel", "Kill anyway"]);
   });
@@ -111,7 +114,8 @@ describe("KillConfirm", () => {
     const stays = { ...ollama, launchd: { ...job, restarts: false } };
     await mountConfirm({ kind: "entry", entry: stays, force: false });
     expect(text()).toContain("ollama is a protected process.");
-    expect(text()).not.toContain("launchd starts it again");
+    expect(text()).not.toContain("starts again");
+    expect(text()).not.toContain("To stop it for good");
     expect(buttons()).toEqual(["Cancel", "Kill anyway"]);
     reset();
 

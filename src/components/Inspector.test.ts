@@ -141,7 +141,7 @@ describe("Inspector", () => {
     const card = wrapper.get("[data-section='launchd']");
     expect(card.text()).toContain("launchd");
     expect(card.text()).toContain("homebrew.mxcl.ollama");
-    expect(card.text()).toContain("a kill is undone in about 10 s");
+    expect(card.text()).toContain("a kill is undone within seconds");
     const copy = button(/^Copy brew services stop ollama$/);
     expect(copy).not.toBeNull();
     await copy?.trigger("click");

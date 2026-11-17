@@ -28,7 +28,8 @@ describe("protectionReason", () => {
       label: "com.example.agent",
       restarts: true,
       brew: null,
-      stopCommand: "launchctl bootout gui/501/com.example.agent",
+      stopCommand:
+        "launchctl disable gui/501/com.example.agent && launchctl bootout gui/501/com.example.agent",
     };
     expect(protectionReason({ ...byPort(11434), launchd: agent }, "amit")).toBe(
       "a launchd job that launchd starts again after a kill",
@@ -64,12 +65,12 @@ describe("protectionReason", () => {
 
 describe("restartsText and launchdHint", () => {
   it("say what a kill does to the job", () => {
-    expect(restartsText(true)).toBe("a kill is undone in about 10 s");
+    expect(restartsText(true)).toBe("a kill is undone within seconds");
     expect(restartsText(false)).toBe("a kill lasts until the next login");
     expect(restartsText(null)).toBe("launchd may start it again");
     expect(restartsText(undefined)).toBe("launchd may start it again");
     expect(launchdHint(byPort(11434).launchd as LaunchdJob)).toBe(
-      "started by launchd (homebrew.mxcl.ollama): a kill is undone in about 10 s",
+      "started by launchd (homebrew.mxcl.ollama): a kill is undone within seconds",
     );
     const job: LaunchdJob = { label: "com.example.agent", restarts: null, brew: null, stopCommand: null };
     expect(launchdHint(job)).toBe("started by launchd (com.example.agent): launchd may start it again");

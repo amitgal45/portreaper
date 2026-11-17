@@ -177,7 +177,7 @@ describe("PortRow", () => {
     expect(hintsOf(ollama)).toEqual([
       "a Homebrew service (ollama) that launchd starts again after a kill — asks before killing",
       "a local model server; this is the memory it holds",
-      "started by launchd (homebrew.mxcl.ollama): a kill is undone in about 10 s",
+      "started by launchd (homebrew.mxcl.ollama): a kill is undone within seconds",
     ]);
     ollama.unmount();
 

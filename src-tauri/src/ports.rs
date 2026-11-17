@@ -18,10 +18,13 @@
 //! WP-20 names the container behind a port Docker's backend holds ([`attach_containers`], from
 //! one `crate::docker::containers()` per listing that has a Docker process, cached there).
 //!
-//! A process launchd runs as a job in the user's domain (`brew services`, any LaunchAgent), or a
-//! direct child of one (`launchd::MAX_JOB_HOPS`), carries that job (`launchd`, from one `crate::launchd::running_jobs()` per
-//! listing that has a process launchd parents, cached there). Such a process is never an orphan,
-//! so a portless one is never listed, and one whose job launchd starts again after a kill
+//! A process launchd runs as a job in the user's domain (`brew services`, any LaunchAgent) carries
+//! that job (`launchd`), and so does a direct child of one (`launchd::MAX_JOB_HOPS`), with
+//! `restarts: None`: its parent, not launchd, decides whether it comes back. The jobs come from
+//! one `crate::launchd::running_jobs()` per listing that has a process of the user's that launchd
+//! parents, cached there, and asked again at once when one of those started since the cached
+//! answer (a job launchd just restarted, with a new pid). Such a process is never an orphan, so a
+//! portless one is never listed, and one whose own job launchd starts again after a kill
 //! (KeepAlive) is protected ([`apply_launchd`]).
 
 use std::collections::HashMap;
@@ -165,23 +168,32 @@ pub(crate) fn listing() -> Result<Listing, PortsError> {
     let users = users();
     let current_user = user_name(users, raw_uid);
 
-    // launchd parents every job it runs: with no process of ours that it parents, there is no
-    // job to ask `launchctl` about. PortReaper itself is never a job it reports, or a process
-    // it relaunched would carry its login item's label.
-    let launchd_parents_one = !orphan_pids.is_empty()
-        || socket_pids.iter().any(|pid| parent_of(&system, pid.as_u32()) == Some(1));
-    let mut jobs = if launchd_parents_one { crate::launchd::running_jobs() } else { HashMap::new() };
-    jobs.remove(&std::process::id());
+    // launchd parents every job it runs: the user's processes it parents (socket holders and
+    // orphan candidates alike; a job's child is listed through its parent, which is one of them),
+    // with their start times, so one that started since the cached answer (a job launchd just
+    // restarted, with a new pid) makes it ask again. With none, there is no job to ask
+    // `launchctl` about. PortReaper itself is never a job it reports (`launchd::without_own`).
+    let launchd_children: Vec<(u32, u64)> = detail_pids
+        .iter()
+        .filter_map(|&pid| system.process(pid))
+        .filter(|p| p.parent().map(|pp| pp.as_u32()) == Some(1) && p.user_id() == current_uid.as_ref())
+        .map(|p| (p.pid().as_u32(), p.start_time()))
+        .collect();
+    let jobs = if launchd_children.is_empty() {
+        HashMap::new()
+    } else {
+        crate::launchd::without_own(crate::launchd::running_jobs(&launchd_children), std::process::id())
+    };
     let home = std::env::var_os("HOME");
     let home = home.as_deref().map(Path::new);
     // One description per job and listing: its plist is read once however many sockets it has.
     let mut described: HashMap<String, LaunchdJob> = HashMap::new();
     let mut launchd_of = |pid: u32| -> Option<LaunchdJob> {
-        let label = crate::launchd::job_of(pid, &jobs, |p| parent_of(&system, p))?;
+        let (label, link) = crate::launchd::job_of(pid, &jobs, |p| parent_of(&system, p))?;
         let job = described
             .entry(label.to_string())
             .or_insert_with(|| crate::launchd::describe(label, home, raw_uid));
-        Some(job.clone())
+        Some(crate::launchd::for_link(job, link))
     };
 
     let mut details: HashMap<u32, ProcessDetails> = HashMap::new();
@@ -227,7 +239,7 @@ pub(crate) fn listing() -> Result<Listing, PortsError> {
     // sorted by pid after the socket entries (WP-23).
     for pid in orphan_pids {
         let p = pid.as_u32();
-        // A job is launchd's child on purpose, not a lost one.
+        // A job, or a job's child, is where it is on purpose, not lost.
         if crate::launchd::job_of(p, &jobs, |pp| parent_of(&system, pp)).is_some() {
             continue;
         }
@@ -309,10 +321,10 @@ pub(crate) fn attach_containers(entries: &mut [PortEntry], containers: &[Contain
     }
 }
 
-/// What launchd running a process as a job changes about its entry: it is never an orphan
-/// (launchd is its parent on purpose), and one that launchd starts again after a kill
-/// (`restarts == Some(true)`) asks first, so no bulk kill reaches it and every single one asks.
-/// `None` leaves the entry as it was.
+/// What launchd running a process as a job, or as a job's child, changes about its entry: it is
+/// never an orphan (it is where it is on purpose), and one that launchd starts again after a kill
+/// (`restarts == Some(true)`, never a child's: `launchd::for_link`) asks first, so no bulk kill
+/// reaches it and every single one asks. `None` leaves the entry as it was.
 fn apply_launchd(entry: &mut PortEntry, job: Option<LaunchdJob>) {
     let Some(job) = job else {
         return;
@@ -986,6 +998,33 @@ mod tests {
         let mut plain = brew_service();
         apply_launchd(&mut plain, None);
         assert_eq!(plain, brew_service());
+    }
+
+    #[test]
+    fn a_jobs_child_is_no_orphan_and_its_jobs_keep_alive_does_not_protect_it() {
+        // A KeepAlive job (pid 500, launchd's child) and the server it forked (501): launchd
+        // restarts the job, and whether the server comes back is the job's business.
+        let jobs = HashMap::from([(500u32, "homebrew.mxcl.ollama".to_string())]);
+        let parents = HashMap::from([(500u32, 1u32), (501, 500)]);
+        let (label, link) =
+            crate::launchd::job_of(501, &jobs, |p| parents.get(&p).copied()).expect("its parent's job");
+        assert_eq!((label, link), ("homebrew.mxcl.ollama", crate::launchd::Link::Child));
+        let carried = crate::launchd::for_link(&job(Some(true)), link);
+        assert_eq!(carried.restarts, None);
+        assert_eq!(carried.stop_command.as_deref(), Some("brew services stop ollama"), "stopping the job stops it");
+
+        let mut child = PortEntry { pid: 501, parent_pid: Some(500), ..brew_service() };
+        assert!(child.orphan, "WP-1's rule as the fixture computed it");
+        apply_launchd(&mut child, Some(carried.clone()));
+        assert!(!child.orphan);
+        assert!(!child.protected, "its parent, not launchd, decides whether it comes back");
+        assert_eq!(child.launchd, Some(carried));
+
+        // The job's own process, from the same map, is protected as before.
+        let (_, own) = crate::launchd::job_of(500, &jobs, |p| parents.get(&p).copied()).expect("its own job");
+        let mut parent = PortEntry { pid: 500, ..brew_service() };
+        apply_launchd(&mut parent, Some(crate::launchd::for_link(&job(Some(true)), own)));
+        assert!(parent.protected);
     }
 
     #[test]

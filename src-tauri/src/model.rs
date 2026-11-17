@@ -37,8 +37,9 @@ pub struct PortEntry {
     /// The Docker container publishing this port when Docker's backend holds it (WP-20).
     /// `None` for every other process.
     pub container: Option<String>,
-    /// The launchd job that runs this process, or the nearest ancestor of it that is one, when
-    /// launchd runs it in the user's domain (a `brew services` formula, any LaunchAgent).
+    /// The launchd job behind this process: its own job, or its parent's (then with
+    /// `restarts: None`: its parent, not launchd, decides whether it comes back), when launchd
+    /// runs it in the user's domain (a `brew services` formula, any LaunchAgent).
     /// `None` for every other process.
     pub launchd: Option<LaunchdJob>,
 }
@@ -49,14 +50,15 @@ pub struct PortEntry {
 #[serde(rename_all = "camelCase")]
 pub struct LaunchdJob {
     pub label: String,
-    /// `Some(true)`: launchd starts it again after a kill (KeepAlive). `Some(false)`: it stays
-    /// down until the job is loaded again (the next login). `None`: unknown (no readable plist,
-    /// or a conditional KeepAlive).
+    /// `Some(true)`: launchd starts it again within seconds of a kill (KeepAlive). `Some(false)`:
+    /// it stays down until the job is loaded again (the next login). `None`: unknown (no readable
+    /// plist, a conditional KeepAlive, a job launchd also starts on demand, or a job's child).
     pub restarts: Option<bool>,
     /// The Homebrew formula, when `brew services` started it.
     pub brew: Option<String>,
     /// What stops it for good, for the user to copy: `brew services stop <formula>`, else
-    /// `launchctl bootout gui/<uid>/<label>`. `None` when the label is not safe to put in a shell.
+    /// `launchctl disable gui/<uid>/<label> && launchctl bootout gui/<uid>/<label>` (disabled, so
+    /// the next login does not load it again). `None` when the label is not safe to put in a shell.
     pub stop_command: Option<String>,
 }
 

@@ -56,8 +56,9 @@ export interface PortEntry {
   /** The Docker container publishing this port when Docker's backend holds it (WP-20); null for every other process. */
   container: string | null;
   /**
-   * The launchd job that runs this process, or the nearest ancestor of it that is one, when launchd
-   * runs it in the user's domain (a `brew services` formula, any LaunchAgent); null for every other process.
+   * The launchd job behind this process: its own job, or its parent's (then with `restarts: null`: its
+   * parent, not launchd, decides whether it comes back), when launchd runs it in the user's domain (a
+   * `brew services` formula, any LaunchAgent); null for every other process.
    */
   launchd: LaunchdJob | null;
 }
@@ -69,15 +70,17 @@ export interface PortEntry {
 export interface LaunchdJob {
   label: string;
   /**
-   * `true`: launchd starts it again after a kill (KeepAlive). `false`: it stays down until the job is
-   * loaded again (the next login). `null`: unknown (no readable plist, or a conditional KeepAlive).
+   * `true`: launchd starts it again within seconds of a kill (KeepAlive). `false`: it stays down until
+   * the job is loaded again (the next login). `null`: unknown (no readable plist, a conditional
+   * KeepAlive, a job launchd also starts on demand, or a job's child).
    */
   restarts: boolean | null;
   /** The Homebrew formula, when `brew services` started it. */
   brew: string | null;
   /**
    * What stops it for good, for the user to copy: `brew services stop <formula>`, else
-   * `launchctl bootout gui/<uid>/<label>`. null when the label is not safe to put in a shell.
+   * `launchctl disable gui/<uid>/<label> && launchctl bootout gui/<uid>/<label>` (disabled, so the
+   * next login does not load it again). null when the label is not safe to put in a shell.
    */
   stopCommand: string | null;
 }

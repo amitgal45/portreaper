@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // The second confirmation for a protected process, a group with one, or a big reap. Cancel takes
-// focus, so Enter twice never kills. A launchd job that comes back after a kill says so, and
-// offers to copy the command that stops it for good; PortReaper never runs that command.
+// focus, so Enter twice never kills. A launchd job that comes back after a kill says so (its reason
+// line), names the command that stops it for good and offers to copy it; PortReaper never runs it.
 import {
   AlertDialogCancel,
   AlertDialogContent,
@@ -76,11 +76,9 @@ const description = computed(() => {
     const held = props.portsOf(t.entry.pid);
     lines.push(`${t.entry.processName} is ${props.reasonFor(t.entry)}.`);
     if (held.length > 0) lines.push(`It holds ${formatPorts(held).toLowerCase()}.`);
+    // The reason line already says launchd starts it again; this names what stops it for good.
     const job = restarting.value;
-    if (job) {
-      lines.push("launchd starts it again in about 10 s.");
-      if (job.stopCommand) lines.push(`To stop it for good, run ${job.stopCommand}.`);
-    }
+    if (job?.stopCommand) lines.push(`To stop it for good, run ${job.stopCommand}.`);
   } else if (t.kind === "group") {
     const n = t.group.pids.length;
     lines.push(

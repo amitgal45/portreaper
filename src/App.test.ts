@@ -106,6 +106,8 @@ describe("App", () => {
         "a Homebrew service (ollama) that launchd starts again after a kill",
       );
       expect(dialog()?.textContent).toContain("To stop it for good, run brew services stop ollama.");
+      // The reason line says it comes back; the dialog does not say it twice.
+      expect(dialog()?.textContent?.match(/starts (it )?again/g)).toHaveLength(1);
 
       const copy = dialog()?.querySelector<HTMLButtonElement>("[data-action='copy-stop-command']");
       expect(copy?.textContent?.trim()).toBe("Copy command");
