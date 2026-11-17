@@ -138,9 +138,17 @@ export interface UsePortsOptions {
   tombstoneMs?: number;
   /** The watched ports (`useWatch`): the `watching` filter, its count and its free rows read them. */
   watches?: Ref<WatchedPort[]>;
+  /**
+   * The ports hidden in Preferences (`Settings.hiddenPorts`). Their rows leave the list as soon as
+   * this changes and stay out of every later poll, one that was in flight included. Port 0 (a
+   * portless entry) is never hidden.
+   */
+  hidden?: () => readonly number[];
 }
 
 const COLLAPSED_KEY = "portreaper.collapsed";
+
+const NO_PORTS: readonly number[] = [];
 
 /** Milliseconds, sub-millisecond where the platform offers it. */
 function clock(): number {
@@ -253,12 +261,29 @@ export function usePorts(api: PortApi, options: UsePortsOptions = {}) {
   const collapsed = reactive(new Set<string>(readCollapsed(storage)));
   /** pid → when it was reported killed; a poll started before that may still list it. */
   const tombstones = new Map<number, number>();
+  // Keyed on the array: a settings object replaced around the same list sets nothing off.
+  const hiddenList = computed(() => options.hidden?.() ?? NO_PORTS);
+  const hiddenPorts = computed<ReadonlySet<number>>(() => new Set(hiddenList.value));
+
+  /** `list` without the rows on a hidden port; `list` itself when nothing is hidden. */
+  function withoutHidden(list: PortEntry[]): PortEntry[] {
+    const hidden = hiddenPorts.value;
+    if (hidden.size === 0) return list;
+    return list.filter((e) => e.port === 0 || !hidden.has(e.port));
+  }
 
   const normalizedQuery = computed(() => query.value.trim().toLowerCase());
   const watchedKeys = computed(() => new Set(watches.value.map(watchKey)));
-  /** Watches whose port nothing holds: something to act on. A killed pid frees its port at once. */
+  /** A row holds this port and protocol. */
+  function isHeld(w: WatchTarget): boolean {
+    return entries.value.some((e) => e.port === w.port && e.protocol === w.protocol);
+  }
+  /**
+   * Watches whose port nothing holds: something to act on. A killed pid frees its port at once. A
+   * hidden port's row is gone from the list but its port is not free: that watch is left out.
+   */
   const freeWatches = computed(() =>
-    watches.value.filter((w) => !entries.value.some((e) => e.port === w.port && e.protocol === w.protocol)),
+    watches.value.filter((w) => !hiddenPorts.value.has(w.port) && !isHeld(w)),
   );
   const filtered = computed(() => {
     const q = normalizedQuery.value;
@@ -315,7 +340,7 @@ export function usePorts(api: PortApi, options: UsePortsOptions = {}) {
       scanMs.value = Math.max(0, Math.round(clock() - t0));
       const now = Date.now();
       for (const [pid, at] of tombstones) if (now - at > tombstoneMs) tombstones.delete(pid);
-      entries.value = tombstones.size ? list.filter((e) => !tombstones.has(e.pid)) : list;
+      entries.value = withoutHidden(tombstones.size ? list.filter((e) => !tombstones.has(e.pid)) : list);
       error.value = null;
       lastRefresh.value = now;
     } catch (err) {
@@ -339,6 +364,13 @@ export function usePorts(api: PortApi, options: UsePortsOptions = {}) {
     clearInterval(timer);
     timer = null;
   }
+
+  // A port hidden while its row is up leaves the list now, not on the next poll. Showing one again
+  // waits for a poll: only the core has its rows.
+  watch(hiddenPorts, () => {
+    const shown = withoutHidden(entries.value);
+    if (shown.length !== entries.value.length) entries.value = shown;
+  });
 
   // A new interval takes effect at once while polling; a stopped or hidden poller stays stopped.
   watch(intervalMs, () => {

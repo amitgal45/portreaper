@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { nextTick, ref } from "vue";
-import { createMockApi, MOCK_ENTRIES } from "../api/mock";
+import { createMockApi, MOCK_ENTRIES, MOCK_STDIO_ZOMBIES } from "../api/mock";
 import type { KillOutcome, PortApi, PortEntry, WatchedPort } from "../types";
 import { entryKey, groupEntries, matchesCategory, memoryOf, usePorts, watchKey } from "./usePorts";
 
@@ -486,5 +486,41 @@ describe("usePorts: the watching filter (WP-18)", () => {
     // Stop watching: nothing left to act on.
     watches.value = await api.unwatchPort(3000, "tcp");
     expect(store.counts.value.watching).toBe(0);
+  });
+});
+
+describe("usePorts: hidden ports", () => {
+  it("a hidden port's rows leave at once and stay out of a poll that still lists them; stdio rows stay", async () => {
+    const api = createMockApi([...MOCK_ENTRIES, ...MOCK_STDIO_ZOMBIES]);
+    const hidden = ref<number[]>([]);
+    const watches = ref<WatchedPort[]>([]);
+    const store = usePorts(api, { storage: null, hidden: () => hidden.value, watches });
+    await store.refresh();
+    const all = MOCK_ENTRIES.length + MOCK_STDIO_ZOMBIES.length;
+    expect(store.total.value).toBe(all);
+    watches.value = await api.watchPort(7000, "tcp");
+    expect(store.counts.value.watching).toBe(0);
+
+    // Hidden while the list is up: the row goes now, not on the next poll. Port 0 never is hidden.
+    hidden.value = [0, 7000];
+    await nextTick();
+    expect(store.entries.value.some((e) => e.port === 7000)).toBe(false);
+    expect(store.total.value).toBe(all - 1);
+    expect(store.entries.value.filter((e) => e.port === 0)).toHaveLength(MOCK_STDIO_ZOMBIES.length);
+    // Its watch is not free: something holds the port, out of sight.
+    expect(store.counts.value.watching).toBe(0);
+
+    // This mock core was never told, so it still lists :7000, like a poll that left before the
+    // change: the row stays out.
+    await store.refresh();
+    expect(store.entries.value.some((e) => e.port === 7000)).toBe(false);
+    expect(store.total.value).toBe(all - 1);
+
+    // Shown again: the next poll has it.
+    hidden.value = [];
+    await nextTick();
+    await store.refresh();
+    expect(store.entries.value.some((e) => e.port === 7000)).toBe(true);
+    expect(store.total.value).toBe(all);
   });
 });

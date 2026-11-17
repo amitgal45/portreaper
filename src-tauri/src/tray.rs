@@ -179,7 +179,20 @@ pub fn shortcuts_model(entries: &[PortEntry]) -> ShortcutsModel {
 /// decides `protected` for some categories, and hiding a port must narrow what a bulk kill
 /// reaches, never widen it.
 pub fn visible_model(entries: &[PortEntry], hidden: &[u16]) -> ShortcutsModel {
-    let mut model = shortcuts_model(&crate::hidden::visible(entries.to_vec(), hidden));
+    if hidden.is_empty() {
+        return shortcuts_model(entries);
+    }
+    shown_model(entries, &crate::hidden::visible(entries.to_vec(), hidden))
+}
+
+/// [`visible_model`] for a caller that already holds `shown`, the entries of `entries` that are
+/// not hidden: the same rule, without filtering or copying the listing again.
+fn shown_model(entries: &[PortEntry], shown: &[PortEntry]) -> ShortcutsModel {
+    let mut model = shortcuts_model(shown);
+    // Nothing was left out: `shortcuts_model` already kept every protected pid out of both lists.
+    if shown.len() == entries.len() {
+        return model;
+    }
     let protected = distinct_pids(entries, |e| e.protected);
     model.orphans.retain(|pid| protected.binary_search(pid).is_err());
     model.dev_servers.retain(|pid| protected.binary_search(pid).is_err());
@@ -440,13 +453,20 @@ fn take_snapshot(app: &AppHandle) -> Snapshot {
         Vec::new()
     });
     crate::watch::observe(app, &entries);
-    // The watches saw every port; the menu, the title and the tooltip show the ones not hidden.
+    // The watches saw every port; the menu, the title and the tooltip show the ones not hidden,
+    // filtered once for all three. With nothing hidden they read the listing itself: no copy.
     let hidden = crate::hidden::hidden_ports(app);
-    let shown = crate::hidden::visible(entries.clone(), &hidden);
+    let filtered;
+    let shown: &[PortEntry] = if hidden.is_empty() {
+        &entries
+    } else {
+        filtered = crate::hidden::visible(entries.clone(), &hidden);
+        &filtered
+    };
     Snapshot {
-        shortcuts: visible_model(&entries, &hidden),
-        title: tray_title(&shown),
-        tooltip: tray_tooltip(&shown),
+        shortcuts: shown_model(&entries, shown),
+        title: tray_title(shown),
+        tooltip: tray_tooltip(shown),
         autostart: autostart_enabled(app),
         accelerators: shortcuts::current(app),
     }
@@ -1187,6 +1207,12 @@ mod tests {
         assert_eq!(labels(&model.ports), ["Free :3000 · shop-api", "Free :4000 · legacy-docs"]);
         assert_eq!(model.orphans, [11], "hiding :5432 does not make pid 10 killable in bulk");
         assert_eq!(model.dev_servers, [11]);
+        // The tray's tick filters once and hands both lists over: the same model, the same rule.
+        let shown = crate::hidden::visible(entries.clone(), &[5432]);
+        assert_eq!(shown_model(&entries, &shown), model);
+        // A hidden port nothing holds leaves the listing whole: the plain model.
+        assert_eq!(visible_model(&entries, &[9999]), shortcuts_model(&entries));
+        assert_eq!(shown_model(&entries, &entries), shortcuts_model(&entries));
     }
 
     #[test]

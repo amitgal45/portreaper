@@ -382,4 +382,45 @@ describe("App: preferences (WP-17b)", () => {
     expect(killProcess).toHaveBeenCalledTimes(2);
     expect(killProcess.mock.calls[1]?.[0]).toMatchObject({ force: false });
   });
+
+  it("no key pressed in Preferences kills the selection: not ⌘⌫ or Enter in Port to hide, nor on the window", async () => {
+    const { wrapper, api, killProcess } = await mountApp();
+    const freePort = vi.spyOn(api, "freePort");
+    const reapZombies = vi.spyOn(api, "reapZombies");
+    press("ArrowDown");
+    await flushPromises();
+    expect(wrapper.get("[role='row'][data-port='3000']").attributes("aria-selected")).toBe("true");
+
+    // The selection outlives the switch: ⌘⌫ or Enter reaching the window's handlers would kill :3000.
+    press(",", { metaKey: true });
+    await flushPromises();
+    expect(wrapper.find("[data-view='settings']").exists()).toBe(true);
+    const field = wrapper.get("input[aria-label='Port to hide']").element as HTMLInputElement;
+    field.focus();
+    expect(document.activeElement).toBe(field);
+    press("Backspace", { metaKey: true }, field);
+    press("Enter", {}, field);
+    await flushPromises();
+    // The handlers' own guard holds without the field's help: the same keys on the window, and ⌘⌫
+    // on a shortcut recorder that is not recording.
+    const recorder = wrapper.get("[data-pref='quickShortcut'] [data-recorder]").element;
+    press("Backspace", { metaKey: true });
+    press("Enter");
+    press("Backspace", { metaKey: true }, recorder);
+    await flushPromises();
+    expect(killProcess).not.toHaveBeenCalled();
+    expect(freePort).not.toHaveBeenCalled();
+    expect(reapZombies).not.toHaveBeenCalled();
+    expect(wrapper.find("[data-view='settings']").exists()).toBe(true);
+    expect((await api.getSettings()).hiddenPorts).toEqual([]);
+
+    // Esc is the one key the field lets through: back to the ports, where :3000 is still listed.
+    press("Escape", {}, field);
+    await flushPromises();
+    expect(wrapper.find("[data-view='settings']").exists()).toBe(false);
+    expect(rowsOf(wrapper)).toHaveLength(N);
+    expect(wrapper.find("[role='row'][data-port='3000']").exists()).toBe(true);
+    expect((await api.listPorts()).some((e) => e.pid === 48213)).toBe(true);
+    expect(wrapper.text()).not.toContain("Killed node (48213)");
+  });
 });

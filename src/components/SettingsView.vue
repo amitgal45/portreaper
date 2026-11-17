@@ -117,13 +117,23 @@ const draft = ref("");
 const draftProblem = ref<string | null>(null);
 const portInput = ref<HTMLInputElement | null>(null);
 
-/** The core keeps at most `MAX_HIDDEN_PORTS`: Hide is off until one is shown again. */
+/** The core keeps at most `MAX_HIDDEN_PORTS`: nothing more is hidden until one is shown again. */
 const hiddenFull = computed(() => props.settings.hiddenPorts.length >= MAX_HIDDEN_PORTS);
+const FULL_REASON = `${MAX_HIDDEN_PORTS} is the most: show one again to hide another.`;
 const hiddenHelp = computed(() => {
   const chord = formatChord(props.settings.quickShortcut);
   const what = `Left out of the list, the menu bar, ${chord} and the bulk kills. macOS's AirPlay Receiver holds 5000 and 7000.`;
   if (!hiddenFull.value) return what;
-  return `${what} ${MAX_HIDDEN_PORTS} is the most: show one again to hide another.`;
+  return `${what} ${FULL_REASON}`;
+});
+/** What the row says in red: the field's own complaint first, else the core's refusal. */
+const hiddenProblem = computed(() => draftProblem.value ?? props.error.hiddenPorts ?? null);
+const hiddenHintId = "pref-hiddenPorts-hint";
+const hiddenErrorId = "pref-hiddenPorts-error";
+/** The field is described by the hint, and by the complaint while there is one. */
+const hiddenDescribedBy = computed(() => {
+  if (!hiddenProblem.value) return hiddenHintId;
+  return `${hiddenHintId} ${hiddenErrorId}`;
 });
 
 function onDraft(event: Event) {
@@ -131,9 +141,20 @@ function onDraft(event: Event) {
   draftProblem.value = null;
 }
 
+/**
+ * The field keeps its keys: only Esc (back to the ports) reaches the window. The list's Enter and
+ * ⌘⌫ kill the selection, and its arrows move it; none of them belongs to a number field.
+ */
+function keepKeys(event: KeyboardEvent) {
+  if (event.key !== "Escape") event.stopPropagation();
+}
+
 /** Hide and Enter: hides the typed port, or says under the row why not. */
 function hideDraft() {
-  if (hiddenFull.value) return;
+  if (hiddenFull.value) {
+    draftProblem.value = FULL_REASON;
+    return;
+  }
   const port = Number(draft.value.trim());
   if (!isHideablePort(port)) {
     draftProblem.value = "Enter a port from 1 to 65535.";
@@ -148,8 +169,12 @@ function hideDraft() {
   emit("patch", { field: "hiddenPorts", value: withHiddenPort(props.settings.hiddenPorts, port) });
 }
 
-/** A chip's ×: the port shows again. The focus moves to the field, since its × is gone. */
+/**
+ * A chip's ×: the port shows again. The focus moves to the field, since its × is gone; a complaint
+ * about the full list is out of date.
+ */
 function showAgain(port: number) {
+  draftProblem.value = null;
   emit("patch", { field: "hiddenPorts", value: withoutHiddenPort(props.settings.hiddenPorts, port) });
   portInput.value?.focus();
 }
@@ -173,8 +198,12 @@ const portField =
   "h-7 w-[88px] rounded-md border border-line bg-canvas px-2 font-mono text-[12px] text-ink tabular-nums outline-none placeholder:font-sans placeholder:text-ink-3 focus:border-line-strong focus:ring-2 focus:ring-brand/20";
 const chip =
   "inline-flex h-[22px] items-center gap-0.5 whitespace-nowrap rounded-full border border-line bg-canvas pr-0.5 pl-2 font-mono text-[12px] text-ink-2 tabular-nums";
+// The × is a 24 px target (WCAG 2.5.8) around the 18 px circle the chip shows; the negative margin
+// keeps the chip as wide as the circle alone made it.
 const chipRemove =
-  "flex h-[18px] w-[18px] items-center justify-center rounded-full text-ink-3 outline-none hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-brand/40";
+  "group -mx-[3px] flex h-6 w-6 shrink-0 items-center justify-center rounded-full outline-none";
+const chipRemoveMark =
+  "flex h-[18px] w-[18px] items-center justify-center rounded-full text-ink-3 group-hover:bg-hover group-hover:text-ink group-focus-visible:ring-2 group-focus-visible:ring-brand/40";
 </script>
 
 <template>
@@ -256,7 +285,7 @@ const chipRemove =
                   <span :id="labelId('hiddenPorts')" :class="label">Hidden ports</span>
                   <span :class="[savedMark, saved.has('hiddenPorts') ? 'opacity-100' : 'opacity-0']" aria-hidden="true">Saved</span>
                 </div>
-                <p :class="help">{{ hiddenHelp }}</p>
+                <p :id="hiddenHintId" :class="help">{{ hiddenHelp }}</p>
                 <ul
                   v-if="settings.hiddenPorts.length > 0"
                   data-hidden-ports
@@ -272,15 +301,13 @@ const chipRemove =
                       :class="chipRemove"
                       @click="showAgain(port)"
                     >
-                      <X :size="12" :stroke-width="2" aria-hidden="true" />
+                      <span :class="chipRemoveMark"><X :size="12" :stroke-width="2" aria-hidden="true" /></span>
                     </button>
                   </li>
                 </ul>
-                <p v-if="draftProblem ?? error.hiddenPorts" :class="errorLine" role="alert">
-                  {{ draftProblem ?? error.hiddenPorts }}
-                </p>
+                <p v-if="hiddenProblem" :id="hiddenErrorId" :class="errorLine" role="alert">{{ hiddenProblem }}</p>
               </div>
-              <!-- Enter is the field's: prevented here, so the list's Enter (kill the selection) never sees it. -->
+              <!-- Every key but Esc stays in the field (keepKeys): the list's Enter and ⌘⌫ never see it. -->
               <div data-pref="hiddenPorts" class="flex shrink-0 items-center gap-2">
                 <input
                   ref="portInput"
@@ -292,14 +319,21 @@ const chipRemove =
                   placeholder="Port"
                   aria-label="Port to hide"
                   :aria-invalid="draftProblem ? 'true' : undefined"
+                  :aria-describedby="hiddenDescribedBy"
                   :value="draft"
                   :class="portField"
                   @input="onDraft"
                   @keydown.enter.prevent="hideDraft"
-                  @keydown.up.stop
-                  @keydown.down.stop
+                  @keydown="keepKeys"
                 />
-                <button type="button" data-action="hide-port" :class="button" :disabled="hiddenFull" @click="hideDraft">
+                <!-- Dimmed but still pressable at the limit: it says why under the row. -->
+                <button
+                  type="button"
+                  data-action="hide-port"
+                  :class="[button, hiddenFull && 'opacity-60']"
+                  :aria-disabled="hiddenFull ? 'true' : undefined"
+                  @click="hideDraft"
+                >
                   Hide
                 </button>
               </div>

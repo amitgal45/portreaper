@@ -48,7 +48,12 @@ const prefs = settings.settings;
 const toasts = useToasts();
 // The watched ports (WP-18): the set lives here; the filter, its count and the free rows come from `ports`.
 const watchStore = useWatch(api, toasts);
-const ports = usePorts(api, { intervalMs: () => prefs.value.refreshMs, watches: watchStore.watches });
+// Hidden ports leave the list the moment they change; a poll already in flight cannot bring them back.
+const ports = usePorts(api, {
+  intervalMs: () => prefs.value.refreshMs,
+  watches: watchStore.watches,
+  hidden: () => prefs.value.hiddenPorts,
+});
 const taskline = useTaskline(api, toasts);
 const flow = useKillFlow(ports, toasts, taskline, { defaultForce: () => prefs.value.defaultForce });
 const inspector = useInspector(ports, flow);
@@ -75,6 +80,11 @@ const {
 } = ports;
 
 const view = ref<View>("studio");
+/**
+ * Only the Studio's keys kill. The selection outlives a switch to Preferences or the Taskline, where
+ * it is out of sight, so Enter and ⌘⌫ typed there must never reach it.
+ */
+const inStudio = () => view.value === "studio";
 // Preferences re-reads the core each time it opens: a change made elsewhere (the tray) shows even
 // if its event was missed, and in a browser a second read proves the mock kept the value.
 watch(view, (now) => {
@@ -182,12 +192,12 @@ const keyboard = useKeyboard(
     down: () => ports.selectNext(),
     enter: () => {
       const entry = ports.selected.value;
-      if (entry)
+      if (inStudio() && entry)
         void thenRefreshTaskline(flow.request({ kind: "entry", entry, force: flow.forceFor(false) }));
     },
     forceKill: () => {
       const entry = ports.selected.value;
-      if (!entry) return false;
+      if (!inStudio() || !entry) return false;
       void thenRefreshTaskline(flow.request({ kind: "entry", entry, force: flow.forceFor(true) }));
       return true;
     },
