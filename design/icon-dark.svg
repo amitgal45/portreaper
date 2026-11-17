@@ -2,9 +2,10 @@
   <!--
     PortReaper app icon, "Prismatic Cut Socket" (3B), dark appearance (macOS 26). The same glyph,
     cut and gradients as icon.svg (read it first) on a Void Black plate (#0A0B0E), with a deeper
-    bloom and glow and a brighter hairline so the plate still reads against a dark Dock. Not
-    rendered by `pnpm icons`: Tauri bundles one appearance. It is an input for an Icon Composer
-    `.icon` file (design/README.md, "Appearances").
+    bloom and glow and a brighter hairline so the plate still reads against a dark Dock. As in
+    icon.svg, the bloom is cut with the glyph, so the gap stays plate. Not rendered by
+    `pnpm icons`: Tauri bundles one appearance. A preview for the dark appearance of an Icon
+    Composer `.icon` file (design/README.md, "Appearances").
   -->
   <defs>
     <path id="socket" fill-rule="evenodd"
@@ -36,7 +37,7 @@
     </linearGradient>
     <radialGradient id="glow" gradientUnits="userSpaceOnUse" cx="512" cy="500" r="420">
       <stop offset="0" stop-color="#FF6A3D" stop-opacity="0.30"/>
-      <stop offset="0.55" stop-color="#8B7CF6" stop-opacity="0.12"/>
+      <stop offset="0.55" stop-color="#8B7CF6" stop-opacity="0.06"/>
       <stop offset="1" stop-color="#8B7CF6" stop-opacity="0"/>
     </radialGradient>
     <filter id="bloom" filterUnits="userSpaceOnUse" x="0" y="0" width="1024" height="1024">
@@ -48,15 +49,13 @@
 
   <g clip-path="url(#plate)">
     <rect x="100" y="100" width="824" height="824" fill="url(#glow)"/>
-    <g filter="url(#bloom)" opacity="0.8">
-      <g mask="url(#cut)">
+    <g mask="url(#cut)">
+      <g filter="url(#bloom)" opacity="0.8">
         <use href="#socket" fill="url(#warm)" clip-path="url(#left)"/>
         <use href="#socket" fill="url(#cool)" clip-path="url(#right)"/>
       </g>
-    </g>
-    <path d="M280 330 V574 H390 V694 H634 V574 H744 V330 Z"
-          fill="#FFFFFF" fill-opacity="0.05" stroke="#FFFFFF" stroke-opacity="0.10" stroke-width="2"/>
-    <g mask="url(#cut)">
+      <path d="M280 330 V574 H390 V694 H634 V574 H744 V330 Z"
+            fill="#FFFFFF" fill-opacity="0.05" stroke="#FFFFFF" stroke-opacity="0.10" stroke-width="2"/>
       <use href="#socket" fill="url(#warm)" clip-path="url(#left)"/>
       <use href="#socket" fill="url(#cool)" clip-path="url(#right)"/>
     </g>

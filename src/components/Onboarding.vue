@@ -4,7 +4,7 @@
 // while `settings.onboardingDone` is false; Got it stores the flag and the card never comes back.
 import { SwitchRoot, SwitchThumb } from "reka-ui";
 import { formatChord } from "../lib/shortcut";
-import BrandMark from "./BrandMark.vue";
+import AppMark from "./AppMark.vue";
 
 defineProps<{
   startAtLogin: boolean;
@@ -23,7 +23,7 @@ const thumb =
 <template>
   <section data-onboarding aria-label="Welcome" class="shrink-0 border-b border-line bg-surface px-4 py-2.5">
     <div class="flex items-start gap-3 rounded-lg border border-brand/30 bg-brand-tint px-3.5 py-3">
-      <BrandMark class="mt-0.5 h-7 w-7 shrink-0" />
+      <AppMark class="mt-0.5 h-7 w-7 shrink-0" />
       <div class="min-w-0 flex-1">
         <h2 class="text-[13px] font-semibold text-ink">PortReaper is in your menu bar</h2>
         <ul class="mt-1 space-y-1 text-[12px] leading-snug text-ink-2">

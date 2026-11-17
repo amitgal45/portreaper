@@ -7,7 +7,7 @@
 import { Clock, Database, Eye, Globe, LayoutGrid, Settings, Sparkles, Terminal, Zap } from "lucide-vue-next";
 import type { CategoryCounts, CategoryFilter } from "../composables/usePorts";
 import { bannerText, percentOf, type UpdateState } from "../composables/useUpdate";
-import BrandMark from "./BrandMark.vue";
+import AppMark from "./AppMark.vue";
 
 export type View = "studio" | "taskline" | "settings";
 
@@ -96,7 +96,7 @@ function pick(key: CategoryFilter) {
          beside them. The brand gets its own row below, the way Slack places the workspace name. -->
     <div data-tauri-drag-region class="h-[52px] shrink-0"></div>
     <div class="flex h-9 shrink-0 items-center gap-2 px-2 pb-1">
-      <BrandMark class="h-[22px] w-[22px] shrink-0" />
+      <AppMark class="h-[22px] w-[22px] shrink-0" />
       <span class="truncate text-[13.5px] font-semibold text-ink">PortReaper</span>
     </div>
 
