@@ -38,7 +38,7 @@ The strip reads `Freed :3000 · node (48213)`, disappears about 180 ms later, an
 your terminal.
 
 ⌥↵ sends SIGKILL at once. A protected process (database, Docker, system daemon, a launchd job
-that would start again) asks for ↵ a second time. Esc backs out one step: disarms, clears the
+that may start again) asks for ↵ a second time. Esc backs out one step: disarms, clears the
 query, hides the strip.
 
 ## What it does
@@ -62,13 +62,14 @@ query, hides the strip.
   they hold, and reaps them all in one click (`Reap zombies`). A process launchd runs on purpose,
   as a job, is not an orphan (next item).
 - **launchd and Homebrew services.** A process launchd runs as a job (`brew services`, any
-  LaunchAgent) is never called a Zombie and never reaped. The drawer shows the job's label and the
-  command that stops it for good, to copy: `brew services stop <formula>`, or
+  LaunchAgent), or the direct child of one, is never called a Zombie and never reaped. Killing it
+  asks first, unless the job's plist in `~/Library/LaunchAgents` says it stays down: launchd may
+  start it again within seconds. The drawer and the kill dialog offer the command that stops it
+  for good, to copy: `brew services stop <formula>`, or
   `launchctl disable gui/<uid>/<label> && launchctl bootout gui/<uid>/<label>` for any other job.
-  When the job's plist in `~/Library/LaunchAgents` says launchd starts it again after a kill
-  (KeepAlive), it would be back within seconds, so killing it asks first, says why, and offers
-  the same command; for any other job the drawer says launchd may start it again. PortReaper
-  never runs the command.
+  Apple's own jobs and anything run from the system's folders get no command and read as a system
+  process: ControlCenter, which holds AirPlay's 5000, among them. While `launchctl list` does not
+  answer, nothing launchd parents is reaped. PortReaper never runs the command.
 - **The project behind the port.** Name from `package.json`, `Cargo.toml`, `pyproject.toml` or
   `go.mod` (else the folder), the git branch read from `.git/HEAD` (worktrees included), and the
   tool from the command line: `vite`, `next`, `node`, `docker`, `postgres`... When it is not sure
@@ -83,8 +84,9 @@ query, hides the strip.
 - **Kill in one click.** SIGTERM, up to 3 s to close sockets cleanly, then SIGKILL. ⌥-click
   sends SIGKILL at once. "Kill all" frees a whole project.
 - **Guards.** It never signals pid 0, pid 1 or itself. Databases, Docker, system daemons,
-  launchd jobs that would start again and other users' processes are protected and ask a second
-  time before dying, in the window and in the strip alike.
+  launchd jobs that may start again and other users' processes are protected and ask a second
+  time before dying, in the window and in the strip alike. A process protected on one of its
+  ports asks on all of them, since a kill takes the whole process.
 - **Hidden ports.** Some ports are always there and never the one you want to free: macOS's
   AirPlay Receiver listens on 5000 and 7000. Add a port in Preferences → General → Hidden ports, or choose
   "Hide :5000" in a row's menu. A hidden port is left out of the list, the search, ⌘⇧K, the menu
@@ -109,7 +111,7 @@ by project), `lsof -i` and `kill` in a terminal, the `kill-port` npm package, an
 | --- | --- | --- | --- | --- | --- |
 | Which project and git branch is behind a port | Project and branch | Project, not the branch | No | No | No |
 | Portless leftovers of agents and test runs (stdio MCP servers, Playwright's headless Chrome, vitest/jest workers) | Yes | No (TCP listeners only) | No (they hold no port) | No | Listed as processes, with no hint |
-| launchd / `brew services` jobs that come back after a kill | Says so and offers the stop command | Warns and suggests `brew services stop` | No | No | No |
+| launchd / `brew services` jobs that come back after a kill | Asks first and offers the stop command (none for macOS's own) | Warns and suggests `brew services stop` | No | No | No |
 | Hide ports | Yes | Yes | n/a | n/a | n/a |
 | One global shortcut to free the port in your way | ⌘⇧K | No | No | No | No |
 | Docker | Names the container and stops it instead of killing Docker Desktop | Labels Docker's listeners only | No | No | No |
@@ -125,7 +127,7 @@ LeftOpen also does things PortReaper does not: fixed `*.localhost` URLs through 
 "Copy Setup Prompt for AI", sounds, and a Chinese translation. With `sudo`, `lsof` also sees other users' processes in full;
 PortReaper never asks for `sudo` and shows them as far as the kernel lets a normal user see.
 
-Compared on 2026-11-17 with LeftOpen v0.5.8, from its README and source. Corrections welcome:
+Compared on 2026-11-16 with LeftOpen v0.5.8, from its README and source. Corrections welcome:
 [open an issue](https://github.com/amitgal45/portreaper/issues).
 
 ## Install
@@ -228,12 +230,15 @@ no privileged helper.
 
 **Why did a process come back after I killed it?**
 launchd started it again. A `brew services` job such as ollama, or a LaunchAgent with KeepAlive,
-is back within seconds of a kill. PortReaper marks such a process as a launchd job and offers the
-command that stops it for good; when the job's plist in `~/Library/LaunchAgents` says it restarts,
-killing it asks first:
+is back within seconds of a kill. PortReaper marks such a process as a launchd job, asks before
+killing it, and offers the command that stops it for good:
 `brew services stop <formula>`, or
 `launchctl disable gui/<uid>/<label> && launchctl bootout gui/<uid>/<label>` for any other job.
-Copy it and run it in a terminal; PortReaper never runs it.
+Copy it and run it in a terminal; PortReaper never runs it. To bring the job back later:
+`brew services start <formula>`, or `launchctl enable gui/<uid>/<label>` and then
+`launchctl bootstrap gui/<uid> ~/Library/LaunchAgents/<label>.plist` (or log out and in).
+macOS's own processes, such as ControlCenter on AirPlay's 5000, get no command: they read as a
+system process. Hide the port instead (next question).
 
 **How do I get AirPlay's 5000 and 7000 out of the list?**
 Hide them: Preferences (⌘,) → General → Hidden ports, add 5000 and 7000, or choose "Hide :5000" in the
