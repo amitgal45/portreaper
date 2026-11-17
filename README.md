@@ -67,9 +67,11 @@ query, hides the strip.
   start it again within seconds. The drawer and the kill dialog offer the command that stops it
   for good, to copy: `brew services stop <formula>`, or
   `launchctl disable gui/<uid>/<label> && launchctl bootout gui/<uid>/<label>` for any other job.
-  Apple's own jobs and anything run from the system's folders get no command and read as a system
-  process: ControlCenter, which holds AirPlay's 5000, among them. While `launchctl list` does not
-  answer, nothing launchd parents is reaped. PortReaper never runs the command.
+  macOS's own jobs (an Apple label, or a plist in `/System/Library/LaunchAgents`) read as a system
+  process: they always ask first and get no command. ControlCenter, which holds AirPlay's 5000, is
+  one of them. Your own agent keeps its command even when it runs a system binary such as
+  `/usr/bin/ssh`. While `launchctl list` does not answer, nothing launchd parents is reaped.
+  PortReaper never runs the command.
 - **The project behind the port.** Name from `package.json`, `Cargo.toml`, `pyproject.toml` or
   `go.mod` (else the folder), the git branch read from `.git/HEAD` (worktrees included), and the
   tool from the command line: `vite`, `next`, `node`, `docker`, `postgres`... When it is not sure
