@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import App from "./App.vue";
 import { API_KEY } from "./api";
 import { createMockApi, MOCK_ENTRIES } from "./api/mock";
+import { UNREAD_SETTINGS } from "./composables/useSettings";
 
 function press(key: string, init: KeyboardEventInit = {}, target: EventTarget = window) {
   target.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true, ...init }));
@@ -92,6 +93,42 @@ describe("App", () => {
     expect(killProcess).toHaveBeenCalledWith({ pid: 11710, force: false });
     expect(wrapper.find("[role='row'][data-port='6379']").exists()).toBe(false);
     expect(wrapper.text()).toContain("Ports 5432 and 6379 are free.");
+  });
+
+  it("a brew service launchd restarts: the dialog names the stop command; Copy command copies it and stays open", async () => {
+    const writeText = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue(undefined);
+    try {
+      const { wrapper, killProcess } = await mountApp();
+      await wrapper.get("[role='row'][data-port='11434'] button[aria-label='Kill']").trigger("click");
+      await flushPromises();
+      expect(killProcess).not.toHaveBeenCalled();
+      expect(dialog()?.textContent).toContain("Kill ollama (32014)?");
+      expect(dialog()?.textContent).toContain(
+        "a Homebrew service (ollama) that launchd starts again after a kill",
+      );
+      expect(dialog()?.textContent).toContain("To stop it for good, run brew services stop ollama.");
+      // The reason line says it comes back; the dialog does not say it twice.
+      expect(dialog()?.textContent?.match(/starts (it )?again/g)).toHaveLength(1);
+
+      const copy = dialog()?.querySelector<HTMLButtonElement>("[data-action='copy-stop-command']");
+      expect(copy?.textContent?.trim()).toBe("Copy command");
+      copy?.click();
+      await flushPromises();
+      // The core's string, as it came; a toast says so; the dialog is still up and nothing died.
+      expect(writeText).toHaveBeenCalledWith("brew services stop ollama");
+      expect(wrapper.text()).toContain("Copied brew services stop ollama");
+      expect(dialog()?.textContent).toContain("Kill ollama (32014)?");
+      expect(killProcess).not.toHaveBeenCalled();
+
+      [...(dialog()?.querySelectorAll("button") ?? [])]
+        .find((b) => b.textContent?.trim() === "Cancel")
+        ?.click();
+      await flushPromises();
+      expect(wrapper.find("[role='row'][data-port='11434']").exists()).toBe(true);
+      expect(killProcess).not.toHaveBeenCalled();
+    } finally {
+      writeText.mockRestore();
+    }
   });
 
   it("Esc clears the search, then the filter, then the selection; a digit from the list starts a search", async () => {
@@ -334,6 +371,57 @@ describe("App: preferences (WP-17b)", () => {
     expect(wrapper.get("[data-pref='notifications']").attributes("aria-checked")).toBe("false");
   });
 
+  it("Hide :7000 in the row menu: the row leaves at once, a toast says where it went, the status line counts it; × brings it back", async () => {
+    const { wrapper, api } = await mountApp();
+    const airplay = () => wrapper.find("[role='row'][data-port='7000']");
+    await airplay().get("button[aria-label='More']").trigger("click");
+    await flushPromises();
+    const hide = document.body.querySelector<HTMLElement>("[role='menu'] [data-action='hide']");
+    expect(hide?.textContent?.trim()).toBe("Hide :7000");
+    hide?.click();
+    await flushPromises();
+
+    expect(airplay().exists()).toBe(false);
+    expect(rowsOf(wrapper)).toHaveLength(N - 1);
+    expect(wrapper.text()).toContain("Port 7000 hidden · Preferences lists it");
+    expect(wrapper.get("footer").text()).toContain(`${N - 1} ports`);
+    expect(wrapper.get("footer [data-hidden-count]").text()).toBe("· 1 hidden");
+    expect((await api.getSettings()).hiddenPorts).toEqual([7000]);
+
+    // Preferences lists it; its × shows it again, and the list has it before the next poll.
+    await nav(wrapper, "settings").trigger("click");
+    await flushPromises();
+    expect(wrapper.findAll("[data-hidden-port]").map((c) => c.text())).toEqual([":7000"]);
+    await wrapper.get("button[aria-label='Show port 7000 again']").trigger("click");
+    await flushPromises();
+    expect((await api.getSettings()).hiddenPorts).toEqual([]);
+    expect(wrapper.find("[data-hidden-port]").exists()).toBe(false);
+    expect(wrapper.find("footer [data-hidden-count]").exists()).toBe(false);
+    expect(wrapper.get("footer").text()).toContain(`${N} ports`);
+    await nav(wrapper, "all").trigger("click");
+    expect(rowsOf(wrapper)).toHaveLength(N);
+    expect(airplay().exists()).toBe(true);
+  });
+
+  it("Hide :7000 when the preferences could not be read saves nothing, keeps the row and says why", async () => {
+    const api = createMockApi();
+    vi.spyOn(api, "getSettings").mockRejectedValueOnce(new Error("the store is unreadable"));
+    const setSettings = vi.spyOn(api, "setSettings");
+    const { wrapper } = await mountApp(api);
+    const airplay = () => wrapper.find("[role='row'][data-port='7000']");
+    await airplay().get("button[aria-label='More']").trigger("click");
+    await flushPromises();
+    document.body.querySelector<HTMLElement>("[role='menu'] [data-action='hide']")?.click();
+    await flushPromises();
+
+    // A save now would write the defaults over what the user stored.
+    expect(setSettings).not.toHaveBeenCalled();
+    expect(airplay().exists()).toBe(true);
+    expect(rowsOf(wrapper)).toHaveLength(N);
+    expect(wrapper.text()).toContain(`Could not hide port 7000: ${UNREAD_SETTINGS}`);
+    expect(wrapper.find("footer [data-hidden-count]").exists()).toBe(false);
+  });
+
   it("Kill sends SIGKILL at once: ↩ forces the selection and ⌘⌫ is the graceful one", async () => {
     const api = createMockApi();
     await api.setSettings({ ...(await api.getSettings()), defaultForce: true });
@@ -349,5 +437,61 @@ describe("App: preferences (WP-17b)", () => {
     await flushPromises();
     expect(killProcess).toHaveBeenCalledTimes(2);
     expect(killProcess.mock.calls[1]?.[0]).toMatchObject({ force: false });
+  });
+
+  it("no key pressed in Preferences kills the selection: not ⌘⌫ or Enter in Port to hide, nor on the window", async () => {
+    const { wrapper, api, killProcess } = await mountApp();
+    const freePort = vi.spyOn(api, "freePort");
+    const reapZombies = vi.spyOn(api, "reapZombies");
+    press("ArrowDown");
+    await flushPromises();
+    expect(wrapper.get("[role='row'][data-port='3000']").attributes("aria-selected")).toBe("true");
+
+    // The selection outlives the switch: ⌘⌫ or Enter reaching the window's handlers would kill :3000.
+    press(",", { metaKey: true });
+    await flushPromises();
+    expect(wrapper.find("[data-view='settings']").exists()).toBe(true);
+    const field = wrapper.get("input[aria-label='Port to hide']").element as HTMLInputElement;
+    field.focus();
+    expect(document.activeElement).toBe(field);
+    press("Backspace", { metaKey: true }, field);
+    press("Enter", {}, field);
+    await flushPromises();
+    // The handlers' own guard holds without the field's help: the same keys on the window, and ⌘⌫
+    // on a shortcut recorder that is not recording.
+    const recorder = wrapper.get("[data-pref='quickShortcut'] [data-recorder]").element;
+    press("Backspace", { metaKey: true });
+    press("Enter");
+    press("Backspace", { metaKey: true }, recorder);
+    await flushPromises();
+    expect(killProcess).not.toHaveBeenCalled();
+    expect(freePort).not.toHaveBeenCalled();
+    expect(reapZombies).not.toHaveBeenCalled();
+    expect(wrapper.find("[data-view='settings']").exists()).toBe(true);
+    expect((await api.getSettings()).hiddenPorts).toEqual([]);
+
+    // Esc is the one key the field lets through: back to the ports, where :3000 is still listed.
+    press("Escape", {}, field);
+    await flushPromises();
+    expect(wrapper.find("[data-view='settings']").exists()).toBe(false);
+    expect(rowsOf(wrapper)).toHaveLength(N);
+    expect(wrapper.find("[role='row'][data-port='3000']").exists()).toBe(true);
+    expect((await api.listPorts()).some((e) => e.pid === 48213)).toBe(true);
+    expect(wrapper.text()).not.toContain("Killed node (48213)");
+  });
+
+  it("no key pressed on the Taskline kills the selection either", async () => {
+    const { wrapper, killProcess } = await mountApp();
+    press("ArrowDown");
+    await flushPromises();
+    expect(wrapper.get("[role='row'][data-port='3000']").attributes("aria-selected")).toBe("true");
+    await wrapper.get("[data-nav='taskline']").trigger("click");
+    await flushPromises();
+    expect(wrapper.find("[role='feed']").exists()).toBe(true);
+    press("Backspace", { metaKey: true });
+    press("Enter");
+    await flushPromises();
+    expect(killProcess).not.toHaveBeenCalled();
+    expect(wrapper.text()).not.toContain("Killed node (48213)");
   });
 });

@@ -6,12 +6,14 @@
 //! - `kill`      graceful then forceful termination                  (WP-1)
 //! - `project`   cwd -> project name, kind, branch, tool             (WP-2)
 //! - `classify`  the port taxonomy: category and framework           (WP-10)
+//! - `launchd`   the launchd job behind a process, and its KeepAlive
 //! - `taskline`  the session log every kill lands in                 (WP-10)
 //! - `relaunch`  a killed process started again from its record      (WP-10)
 //! - `tray`      menu-bar icon, menu, close-to-hide                  (WP-4, WP-8a)
 //! - `shortcuts` the global shortcuts                                (WP-4, WP-8a)
 //! - `quick`     the Quick window that hosts "Free a port…"          (WP-8a)
 //! - `settings`  settings on disk; start at login on first run       (WP-8a)
+//! - `hidden`    the ports the user left out of every list and bulk kill
 //! - `update`    auto-update from GitHub Releases                    (WP-16)
 //! - `commands`  the thin `#[tauri::command]` layer
 //!
@@ -21,7 +23,9 @@
 mod classify;
 mod commands;
 mod docker;
+mod hidden;
 mod kill;
+mod launchd;
 mod model;
 mod ports;
 mod project;

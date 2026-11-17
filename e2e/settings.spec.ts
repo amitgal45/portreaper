@@ -1,5 +1,17 @@
 import { expect, type Locator, type Page, test } from "@playwright/test";
-import { killButton, MOCK_PORT_COUNT, navItem, open, row, rows, search, tile, toasts } from "./helpers";
+import {
+  killButton,
+  MOCK_PORT_COUNT,
+  moreButton,
+  navItem,
+  open,
+  row,
+  rows,
+  search,
+  statusLine,
+  tile,
+  toasts,
+} from "./helpers";
 
 /**
  * The Preferences view and the first-run card (WP-17b), against the mock core, which keeps the
@@ -140,6 +152,68 @@ test("Kill sends SIGKILL at once: Kill force-kills, ⌥ makes it graceful again"
   await killButton(row(page, 8080)).click({ modifiers: ["Alt"] });
   await expect(row(page, 8080)).toHaveCount(0);
   await expect(toasts(page).getByRole("button").last()).toHaveText("Killed node (22104). Port 8080 is free.");
+});
+
+test("Hidden ports: :7000 hidden in Preferences leaves the list, the search and the count; × brings it back", async ({
+  page,
+}) => {
+  await open(page);
+  await navItem(page, "settings").click();
+  const hidden = prefRow(page, "hiddenPorts");
+  await expect(hidden).toContainText("macOS's AirPlay Receiver holds 5000 and 7000.");
+  const field = pref(page, "hiddenPorts").getByRole("spinbutton", { name: "Port to hide" });
+  await field.fill("7000");
+  await field.press("Enter");
+  await expect(hidden.getByText("Saved")).toHaveClass(/opacity-100/);
+  await expect(hidden.locator("[data-hidden-port]")).toHaveText([":7000"]);
+  await expect(field).toHaveValue("");
+  // Enter was the field's: the view stays.
+  await expect(view(page)).toBeVisible();
+
+  // The same port again is refused under the row, and the list of chips stays.
+  await field.fill("7000");
+  await field.press("Enter");
+  await expect(hidden.getByRole("alert")).toHaveText("Port 7000 is already hidden.");
+  await expect(hidden.locator("[data-hidden-port]")).toHaveCount(1);
+
+  await navItem(page, "all").click();
+  await expect(rows(page)).toHaveCount(MOCK_PORT_COUNT - 1);
+  await expect(row(page, 7000)).toHaveCount(0);
+  await expect(statusLine(page)).toContainText(`${MOCK_PORT_COUNT - 1} ports`);
+  const count = statusLine(page).locator("[data-hidden-count]");
+  await expect(count).toHaveText("· 1 hidden");
+  await expect(count).toHaveAttribute("title", "Hidden ports are listed in Preferences");
+  // The search does not find it either.
+  await search(page).fill("7000");
+  await expect(rows(page)).toHaveCount(0);
+  await search(page).fill("");
+  await expect(rows(page)).toHaveCount(MOCK_PORT_COUNT - 1);
+
+  // Preferences lists it; its × shows it again.
+  await navItem(page, "settings").click();
+  await hidden.getByRole("button", { name: "Show port 7000 again" }).click();
+  await expect(hidden.locator("[data-hidden-port]")).toHaveCount(0);
+  await navItem(page, "all").click();
+  await expect(rows(page)).toHaveCount(MOCK_PORT_COUNT);
+  await expect(row(page, 7000)).toHaveCount(1);
+  await expect(count).toHaveCount(0);
+});
+
+test("Hide :5173 in the row menu: the row goes at once and the toast says Preferences lists it", async ({
+  page,
+}) => {
+  await open(page);
+  await moreButton(row(page, 5173)).click();
+  const menu = page.getByRole("menu");
+  await menu.getByRole("menuitem", { name: "Hide :5173" }).click();
+  await expect(menu).toHaveCount(0);
+  await expect(row(page, 5173)).toHaveCount(0);
+  await expect(rows(page)).toHaveCount(MOCK_PORT_COUNT - 1);
+  await expect(toasts(page).getByRole("button")).toHaveText("Port 5173 hidden · Preferences lists it");
+  await expect(statusLine(page).locator("[data-hidden-count]")).toHaveText("· 1 hidden");
+
+  await navItem(page, "settings").click();
+  await expect(prefRow(page, "hiddenPorts").locator("[data-hidden-port]")).toHaveText([":5173"]);
 });
 
 test("without the seam there is no first-run card", async ({ page }) => {

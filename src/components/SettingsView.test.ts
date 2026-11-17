@@ -2,7 +2,7 @@ import { flushPromises, mount } from "@vue/test-utils";
 import { describe, expect, it, vi } from "vitest";
 import { API_KEY } from "../api";
 import { createMockApi } from "../api/mock";
-import { DEFAULT_SETTINGS, type Settings } from "../types";
+import { DEFAULT_SETTINGS, MAX_HIDDEN_PORTS, type Settings } from "../types";
 import SettingsView from "./SettingsView.vue";
 
 function mountView(
@@ -112,6 +112,150 @@ describe("SettingsView", () => {
     expect(alert.classes()).toContain("text-red-ink");
     expect(wrapper.find("[data-row='windowShortcut'] [role='alert']").exists()).toBe(false);
     wrapper.unmount();
+  });
+
+  it("Hidden ports: Enter or Hide hides the typed port, sorted; a chip's × shows it again", async () => {
+    const { wrapper } = mountView({ hiddenPorts: [7000] });
+    const row = wrapper.get("[data-row='hiddenPorts']");
+    expect(wrapper.get("#pref-hiddenPorts").text()).toBe("Hidden ports");
+    expect(row.text()).toContain(
+      "Left out of the list, the menu bar, ⌘⇧K and the bulk kills. macOS's AirPlay Receiver holds 5000 and 7000.",
+    );
+    const chips = () => wrapper.findAll("[data-hidden-port]").map((c) => c.text());
+    expect(chips()).toEqual([":7000"]);
+    const input = pref(wrapper, "hiddenPorts").get("input");
+    expect(input.attributes("aria-label")).toBe("Port to hide");
+    // The field is described by the hint; there is no complaint yet.
+    expect(input.attributes("aria-describedby")).toBe("pref-hiddenPorts-hint");
+    expect(wrapper.get("#pref-hiddenPorts-hint").text()).toContain("AirPlay Receiver holds 5000 and 7000.");
+    const hide = pref(wrapper, "hiddenPorts").get("[data-action='hide-port']");
+    expect(hide.text()).toBe("Hide");
+    expect(hide.attributes("aria-disabled")).toBeUndefined();
+
+    await input.setValue("5000");
+    await input.trigger("keydown", { key: "Enter" });
+    expect(wrapper.emitted("patch")).toEqual([[{ field: "hiddenPorts", value: [5000, 7000] }]]);
+    // The field empties for the next one.
+    expect((input.element as HTMLInputElement).value).toBe("");
+
+    // The parent saved it: two chips, in order. Hide takes the next one like Enter does.
+    const both: Settings = { ...DEFAULT_SETTINGS, onboardingDone: true, hiddenPorts: [5000, 7000] };
+    await wrapper.setProps({ settings: both });
+    expect(chips()).toEqual([":5000", ":7000"]);
+    await input.setValue("3000");
+    await hide.trigger("click");
+    expect(wrapper.emitted("patch")?.[1]).toEqual([{ field: "hiddenPorts", value: [3000, 5000, 7000] }]);
+
+    const remove = wrapper.get("button[aria-label='Show port 5000 again']");
+    expect(remove.attributes("title")).toBe("Show port 5000 again");
+    // A 24 × 24 px target (WCAG 2.5.8) around the chip's 18 px circle.
+    expect(remove.classes()).toEqual(expect.arrayContaining(["h-6", "w-6"]));
+    expect(remove.get("span").classes()).toEqual(expect.arrayContaining(["h-[18px]", "w-[18px]"]));
+    await remove.trigger("click");
+    expect(wrapper.emitted("patch")?.[2]).toEqual([{ field: "hiddenPorts", value: [7000] }]);
+    // Its × is going away: the focus waits in the field.
+    expect(document.activeElement).toBe(input.element);
+    expect(row.find("[role='alert']").exists()).toBe(false);
+    wrapper.unmount();
+  });
+
+  it("Hidden ports: 0, 70000 and a port already hidden are refused in red under the row, and nothing is sent", async () => {
+    const { wrapper } = mountView({ hiddenPorts: [5000] });
+    const input = pref(wrapper, "hiddenPorts").get("input");
+    const alert = () => wrapper.find("[data-row='hiddenPorts'] [role='alert']");
+    for (const typed of ["0", "70000"]) {
+      await input.setValue(typed);
+      await input.trigger("keydown", { key: "Enter" });
+      expect(alert().text()).toBe("Enter a port from 1 to 65535.");
+      expect(alert().classes()).toContain("text-red-ink");
+      expect(input.attributes("aria-invalid")).toBe("true");
+      // While there is a complaint the field is described by it too.
+      expect(alert().attributes("id")).toBe("pref-hiddenPorts-error");
+      expect(input.attributes("aria-describedby")).toBe("pref-hiddenPorts-hint pref-hiddenPorts-error");
+    }
+    // The next key takes the complaint away.
+    await input.setValue("5000");
+    expect(alert().exists()).toBe(false);
+    expect(input.attributes("aria-invalid")).toBeUndefined();
+    expect(input.attributes("aria-describedby")).toBe("pref-hiddenPorts-hint");
+    await pref(wrapper, "hiddenPorts").get("[data-action='hide-port']").trigger("click");
+    expect(alert().text()).toBe("Port 5000 is already hidden.");
+    expect(wrapper.emitted("patch")).toBeUndefined();
+    wrapper.unmount();
+
+    // The core's refusal shows in the same place.
+    const { wrapper: refused } = mountView({}, { error: { hiddenPorts: "the store is read-only" } });
+    const coreAlert = refused.get("[data-row='hiddenPorts'] [role='alert']");
+    expect(coreAlert.text()).toBe("the store is read-only");
+    expect(coreAlert.attributes("id")).toBe("pref-hiddenPorts-error");
+    expect(pref(refused, "hiddenPorts").get("input").attributes("aria-describedby")).toBe(
+      "pref-hiddenPorts-hint pref-hiddenPorts-error",
+    );
+    refused.unmount();
+  });
+
+  it("Hidden ports: at MAX_HIDDEN_PORTS Enter and Hide say why under the row and send nothing; the row says Saved", async () => {
+    const full = Array.from({ length: MAX_HIDDEN_PORTS }, (_, i) => 1000 + i);
+    const { wrapper } = mountView({ hiddenPorts: full }, { saved: new Set(["hiddenPorts"]) });
+    const row = wrapper.get("[data-row='hiddenPorts']");
+    const reason = `${MAX_HIDDEN_PORTS} is the most: show one again to hide another.`;
+    expect(row.findAll("[data-hidden-port]")).toHaveLength(MAX_HIDDEN_PORTS);
+    // Dimmed and announced as unavailable, but still pressable, so it can say why.
+    const hide = pref(wrapper, "hiddenPorts").get("[data-action='hide-port']");
+    expect(hide.attributes("aria-disabled")).toBe("true");
+    expect(hide.attributes("disabled")).toBeUndefined();
+    expect(hide.classes()).toContain("opacity-60");
+    expect(wrapper.get("#pref-hiddenPorts-hint").text()).toContain(reason);
+    expect(row.get(".transition-opacity").classes()).toContain("opacity-100");
+    const alert = () => row.find("[role='alert']");
+    expect(alert().exists()).toBe(false);
+
+    // Enter says why in the row's alert, and nothing is sent.
+    const input = pref(wrapper, "hiddenPorts").get("input");
+    await input.setValue("5000");
+    await input.trigger("keydown", { key: "Enter" });
+    expect(alert().text()).toBe(reason);
+    expect(input.attributes("aria-describedby")).toBe("pref-hiddenPorts-hint pref-hiddenPorts-error");
+    // The next key clears it; Hide says it again.
+    await input.setValue("5001");
+    expect(alert().exists()).toBe(false);
+    await hide.trigger("click");
+    expect(alert().text()).toBe(reason);
+    expect(wrapper.emitted("patch")).toBeUndefined();
+
+    // A port shown again makes room: the complaint is out of date and goes with it.
+    await wrapper.get("button[aria-label='Show port 1000 again']").trigger("click");
+    expect(wrapper.emitted("patch")).toEqual([[{ field: "hiddenPorts", value: full.slice(1) }]]);
+    expect(alert().exists()).toBe(false);
+    wrapper.unmount();
+  });
+
+  it("Hidden ports: the field keeps the list's keys, and lets Esc and the window's other ⌘ chords through", async () => {
+    const { wrapper } = mountView();
+    const input = pref(wrapper, "hiddenPorts").get("input").element;
+    const keys: KeyboardEventInit[] = [
+      { key: "Backspace", metaKey: true },
+      { key: "Enter" },
+      { key: "Enter", metaKey: true },
+      { key: "ArrowDown" },
+      { key: "ArrowUp" },
+      { key: "5" },
+      { key: "f", metaKey: true },
+      { key: "Escape" },
+    ];
+    const reached: string[] = [];
+    const onWindow = (e: KeyboardEvent) => reached.push(`${e.metaKey ? "⌘" : ""}${e.key}`);
+    window.addEventListener("keydown", onWindow);
+    try {
+      for (const init of keys) {
+        input.dispatchEvent(new KeyboardEvent("keydown", { ...init, bubbles: true, cancelable: true }));
+      }
+      // ⌘⌫, Enter, ⌘↩, the arrows and a digit are the field's; ⌘F (the search) and Esc go on.
+      expect(reached).toEqual(["⌘f", "Escape"]);
+    } finally {
+      window.removeEventListener("keydown", onWindow);
+      wrapper.unmount();
+    }
   });
 
   it("Check for Updates… asks the core; in a browser it says so", async () => {
