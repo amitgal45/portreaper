@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { nextTick } from "vue";
 import { createMockApi, MOCK_ENTRIES } from "../api/mock";
-import type { PortApi, PortEntry, TasklineEvent } from "../types";
-import { QUICK_CACHE_KEY, type QuickCache, useQuick } from "./useQuick";
+import type { LaunchdJob, PortApi, PortEntry, TasklineEvent } from "../types";
+import { armedText, QUICK_CACHE_KEY, type QuickCache, useQuick } from "./useQuick";
 
 const { hideCurrentWindow } = vi.hoisted(() => ({ hideCurrentWindow: vi.fn(async () => false) }));
 vi.mock("../api/window", () => ({ hideCurrentWindow }));
@@ -383,6 +383,53 @@ describe("useQuick: a protected entry", () => {
     expect(quick.armed.value).toBeNull();
 
     expect(freePort).not.toHaveBeenCalled();
+  });
+
+  it("a brew service launchd restarts says so when armed, and names the core's command that stops it", async () => {
+    const api = createMockApi();
+    const freePort = vi.spyOn(api, "freePort");
+    const quick = await loaded(api);
+    quick.query.value = "ollama";
+    await nextTick();
+    expect(quick.selected.value?.port).toBe(11434);
+    expect(quick.selected.value?.protected).toBe(true);
+
+    quick.handleKey(key("Enter"));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(freePort).not.toHaveBeenCalled();
+    expect(quick.armed.value).toEqual({
+      key: "32014:11434:tcp",
+      text: "ollama restarts after a kill (launchd). Enter again to kill it anyway;",
+      hint: "brew services stop ollama stops it.",
+    });
+    // The row shows the text, then the hint: one sentence.
+    const armed = quick.armed.value;
+    expect(`${armed?.text} ${armed?.hint}`).toBe(
+      "ollama restarts after a kill (launchd). Enter again to kill it anyway; brew services stop ollama stops it.",
+    );
+
+    // Kill anyway is the second Enter, as for any protected row.
+    quick.handleKey(key("Enter"));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(freePort).toHaveBeenCalledWith(11434, false);
+    expect(quick.result.value?.text).toBe("Freed :11434 · ollama (32014)");
+  });
+
+  it("armedText: a restarting job without a stop command, a job that stays down, and a cached entry", () => {
+    const ollama = MOCK_ENTRIES.find((e) => e.port === 11434) as PortEntry;
+    const job = ollama.launchd as LaunchdJob;
+    expect(armedText({ ...ollama, launchd: { ...job, stopCommand: null } }, "amit")).toEqual({
+      text: "ollama restarts after a kill (launchd).",
+      hint: "Enter again to kill it anyway.",
+    });
+    const protectedText = {
+      text: "This is a protected process (ollama).",
+      hint: "Press Enter again to kill it.",
+    };
+    expect(armedText({ ...ollama, launchd: { ...job, restarts: false } }, "amit")).toEqual(protectedText);
+    // The session cache can hold an entry from a core that did not send `launchd` yet.
+    const cached = { ...ollama, launchd: undefined } as unknown as PortEntry;
+    expect(armedText(cached, "amit")).toEqual(protectedText);
   });
 
   it("⌥Enter on an armed row forces", async () => {

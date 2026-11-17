@@ -103,6 +103,30 @@ describe("QuickApp", () => {
     expect(option(7000).find("[data-framework]").classes()).toContain("bg-canvas");
   });
 
+  it("a brew service launchd restarts: Restarts in the protected tint, and the armed row names what stops it", async () => {
+    const { wrapper, freePort } = await mountQuick();
+    await wrapper.find("input").setValue("ollama");
+    const ollama = () => wrapper.find("[role='option'][data-port='11434']");
+    const pill = ollama().find("[data-status]");
+    expect(pill.text()).toBe("Restarts");
+    expect(pill.attributes("data-status")).toBe("restarts");
+    expect(pill.attributes("title")).toBe("launchd starts it again after a kill — asks twice");
+    expect(pill.classes()).toEqual(expect.arrayContaining(["bg-blue-tint", "text-blue-ink"]));
+    expect(ollama().find("[aria-label='lost terminal']").exists()).toBe(false);
+
+    key("Enter");
+    await flushPromises();
+    expect(freePort).not.toHaveBeenCalled();
+    expect(ollama().text().replace(/\s+/g, " ")).toContain(
+      "ollama restarts after a kill (launchd). Enter again to kill it anyway; brew services stop ollama stops it.",
+    );
+    expect(ollama().classes()).toContain("bg-orange-tint");
+    key("Escape");
+    await flushPromises();
+    expect(ollama().text()).not.toContain("restarts after a kill");
+    expect(freePort).not.toHaveBeenCalled();
+  });
+
   it("an ai row's pill carries its memory", async () => {
     // A model server nothing protects (not a launchd job): the one pill is the memory it holds.
     const unprotected = { protected: false, parentPid: 900, launchd: null };

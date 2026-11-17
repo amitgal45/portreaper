@@ -1,10 +1,13 @@
-import type { PortEntry } from "../types";
+import type { LaunchdJob, PortEntry } from "../types";
 
 /**
  * Why a process is `protected`, in the words the confirm dialog uses. The contract carries only
- * the boolean, so the reason is derived from what the core does tell us: the tool, the process
- * name, the owner and the executable. When nothing matches, say "a protected process" rather
- * than guess.
+ * the boolean, so the reason is derived from what the core does tell us: the launchd job that
+ * starts it again after a kill, the tool, the process name, the owner and the executable. When
+ * nothing matches, say "a protected process" rather than guess.
+ *
+ * `entry.launchd` is read with `?.`: the Quick strip's session cache can hold entries from a
+ * core that did not send the field yet.
  */
 
 const CONTAINER = /docker|containerd|colima|podman|lima|orbstack/i;
@@ -13,6 +16,13 @@ const DATABASE =
 const SYSTEM_PATH = /^\/(System|usr\/(sbin|libexec)|Library)\//;
 
 export function protectionReason(entry: PortEntry, currentUser: string | null): string {
+  // A kill that launchd undoes (KeepAlive) is the reason to ask, whatever the process is.
+  const job = entry.launchd;
+  if (job?.restarts === true) {
+    return job.brew
+      ? `a Homebrew service (${job.brew}) that launchd starts again after a kill`
+      : "a launchd job that launchd starts again after a kill";
+  }
   const tool = entry.project?.tool ?? "";
   if (tool.toLowerCase() === "docker" || CONTAINER.test(entry.processName)) return "Docker";
   if (DATABASE.test(entry.processName) || DATABASE.test(tool) || DATABASE.test(entry.project?.name ?? "")) {
@@ -23,6 +33,18 @@ export function protectionReason(entry: PortEntry, currentUser: string | null): 
     return "a system process";
   if (currentUser && entry.user && entry.user !== currentUser) return "another user's process";
   return "a protected process";
+}
+
+/** What a kill does to a launchd job (`LaunchdJob.restarts`), for the row's hint and the inspector. */
+export function restartsText(restarts: boolean | null | undefined): string {
+  if (restarts === true) return "a kill is undone in about 10 s";
+  if (restarts === false) return "a kill lasts until the next login";
+  return "launchd may start it again";
+}
+
+/** The hint of a row's `launchd` chip: who runs it, and what a kill does to it. */
+export function launchdHint(job: LaunchdJob): string {
+  return `started by launchd (${job.label}): ${restartsText(job.restarts)}`;
 }
 
 /** The likeliest current user: whoever owns most of the unprotected processes. */

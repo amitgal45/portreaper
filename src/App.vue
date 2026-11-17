@@ -142,6 +142,11 @@ provideActions({
   openInBrowser: (entry) => void leave(openInBrowser(entry.port), null),
   copyKill: (entry) => void leave(copyText(`kill -9 ${entry.pid}`), `Copied kill -9 ${entry.pid}`),
   copyCommand: (entry) => void leave(copyText(entry.command), "Copied the command line"),
+  // The core's string, untouched: the UI never builds a command, and never runs this one.
+  copyStopCommand: (entry) => {
+    const command = entry.launchd?.stopCommand;
+    if (command) void leave(copyText(command), `Copied ${command}`);
+  },
   revealFolder: (entry) => void leave(revealFolder(entry.project?.root ?? ""), null),
   watch: (target) => void watchStore.toggle(target),
   defaultForce: () => prefs.value.defaultForce,

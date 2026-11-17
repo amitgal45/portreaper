@@ -340,6 +340,9 @@ describe("usePorts: kill", () => {
     const byPort = (port: number) => store.entries.value.find((e) => e.port === port) as PortEntry;
     expect(store.reasonFor(byPort(5432))).toBe("Docker");
     expect(store.reasonFor(byPort(7000))).toBe("a system process");
+    expect(store.reasonFor(byPort(11434))).toBe(
+      "a Homebrew service (ollama) that launchd starts again after a kill",
+    );
     expect(store.currentUser.value).toBe("amit");
   });
 });

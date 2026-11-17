@@ -26,6 +26,7 @@ function spies(): UiActions {
     openInBrowser: vi.fn(),
     copyKill: vi.fn(),
     copyCommand: vi.fn(),
+    copyStopCommand: vi.fn(),
     revealFolder: vi.fn(),
     watch: vi.fn(),
   };
@@ -132,6 +133,46 @@ describe("Inspector", () => {
     expect(actions.copyCommand).toHaveBeenCalledWith(byPort(3000));
     await button(/Reveal folder/)?.trigger("click");
     expect(actions.revealFolder).toHaveBeenCalledWith(byPort(3000));
+  });
+
+  it("shows the launchd job: its label, what a kill does, and copies the command that stops it", async () => {
+    const ollama = byPort(11434);
+    const { wrapper, actions } = await mountInspector(ollama);
+    const card = wrapper.get("[data-section='launchd']");
+    expect(card.text()).toContain("launchd");
+    expect(card.text()).toContain("homebrew.mxcl.ollama");
+    expect(card.text()).toContain("a kill is undone in about 10 s");
+    const copy = button(/^Copy brew services stop ollama$/);
+    expect(copy).not.toBeNull();
+    await copy?.trigger("click");
+    expect(actions.copyStopCommand).toHaveBeenCalledWith(ollama);
+    expect(actions.copyCommand).not.toHaveBeenCalled();
+    expect(actions.copyKill).not.toHaveBeenCalled();
+    wrapper.unmount();
+
+    // A job that stays down, with no command the core would put in a shell: the text, no button.
+    const agent = {
+      ...ollama,
+      launchd: { label: "com.example.agent", restarts: false, brew: null, stopCommand: null },
+    };
+    const { wrapper: stays } = await mountInspector(agent);
+    expect(stays.get("[data-section='launchd']").text()).toContain("com.example.agent");
+    expect(stays.get("[data-section='launchd']").text()).toContain("a kill lasts until the next login");
+    expect(stays.get("[data-section='launchd']").find("button").exists()).toBe(false);
+    stays.unmount();
+
+    const vagueJob = { ...agent.launchd, restarts: null };
+    const { wrapper: vague } = await mountInspector({ ...agent, launchd: vagueJob });
+    expect(vague.get("[data-section='launchd']").text()).toContain("launchd may start it again");
+    vague.unmount();
+
+    // Every other process, and an entry from a core that did not send `launchd` yet: no card.
+    const { wrapper: plain } = await mountInspector(byPort(3000));
+    expect(plain.find("[data-section='launchd']").exists()).toBe(false);
+    plain.unmount();
+    const older = { ...byPort(3000), launchd: undefined } as unknown as PortEntry;
+    const { wrapper: cached } = await mountInspector(older);
+    expect(cached.find("[data-section='launchd']").exists()).toBe(false);
   });
 
   it("asks to close on the ✕", async () => {

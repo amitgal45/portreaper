@@ -94,6 +94,40 @@ describe("App", () => {
     expect(wrapper.text()).toContain("Ports 5432 and 6379 are free.");
   });
 
+  it("a brew service launchd restarts: the dialog names the stop command; Copy command copies it and stays open", async () => {
+    const writeText = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue(undefined);
+    try {
+      const { wrapper, killProcess } = await mountApp();
+      await wrapper.get("[role='row'][data-port='11434'] button[aria-label='Kill']").trigger("click");
+      await flushPromises();
+      expect(killProcess).not.toHaveBeenCalled();
+      expect(dialog()?.textContent).toContain("Kill ollama (32014)?");
+      expect(dialog()?.textContent).toContain(
+        "a Homebrew service (ollama) that launchd starts again after a kill",
+      );
+      expect(dialog()?.textContent).toContain("To stop it for good, run brew services stop ollama.");
+
+      const copy = dialog()?.querySelector<HTMLButtonElement>("[data-action='copy-stop-command']");
+      expect(copy?.textContent?.trim()).toBe("Copy command");
+      copy?.click();
+      await flushPromises();
+      // The core's string, as it came; a toast says so; the dialog is still up and nothing died.
+      expect(writeText).toHaveBeenCalledWith("brew services stop ollama");
+      expect(wrapper.text()).toContain("Copied brew services stop ollama");
+      expect(dialog()?.textContent).toContain("Kill ollama (32014)?");
+      expect(killProcess).not.toHaveBeenCalled();
+
+      [...(dialog()?.querySelectorAll("button") ?? [])]
+        .find((b) => b.textContent?.trim() === "Cancel")
+        ?.click();
+      await flushPromises();
+      expect(wrapper.find("[role='row'][data-port='11434']").exists()).toBe(true);
+      expect(killProcess).not.toHaveBeenCalled();
+    } finally {
+      writeText.mockRestore();
+    }
+  });
+
   it("Esc clears the search, then the filter, then the selection; a digit from the list starts a search", async () => {
     const { wrapper } = await mountApp();
     const input = wrapper.get("input[aria-label='Search ports']");

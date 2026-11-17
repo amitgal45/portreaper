@@ -108,6 +108,7 @@ test("status pills: Running, Zombie, Public, Protected, AI with its memory; bran
   // The brew service launchd restarts: protected, and never a zombie however launchd parents it.
   await expect(row(page, 11434).locator("[data-badge='protected']")).toHaveText("Protected");
   await expect(row(page, 11434).locator("[data-badge='zombie']")).toHaveCount(0);
+  await expect(row(page, 11434).locator("[data-badge='launchd']")).toHaveText("launchd");
   // A system daemon on every interface is protected, not "public" (the filter agrees).
   await expect(row(page, 53).locator("[data-badge='protected']")).toHaveText("Protected");
   await expect(row(page, 53).locator("[data-badge='public']")).toHaveCount(0);

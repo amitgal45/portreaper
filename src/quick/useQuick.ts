@@ -79,12 +79,33 @@ function storageCache(): QuickCache | null {
 
 /**
  * A protected row after its first Enter. The row shows `text` ("This is Docker (com.docker.backend).")
- * and `hint` ("Press Enter again to kill it.") until the second Enter or any other key.
+ * and `hint` ("Press Enter again to kill it.") until the second Enter or any other key. The hint
+ * never wraps, so it stays short: for a launchd job it is only the command that stops it.
  */
 export interface Armed {
   key: string;
   text: string;
   hint: string;
+}
+
+/**
+ * What an armed row says. A launchd job that launchd starts again after a kill says so and names
+ * the core's stop command, copied as it came (`?.`: a cached entry from an older core has no
+ * `launchd`): "ollama restarts after a kill (launchd). Enter again to kill it anyway; brew services
+ * stop ollama stops it." Anything else names why it is protected.
+ */
+export function armedText(entry: PortEntry, currentUser: string | null): Omit<Armed, "key"> {
+  const job = entry.launchd;
+  if (job?.restarts === true) {
+    const restarts = `${entry.processName} restarts after a kill (launchd).`;
+    return job.stopCommand
+      ? { text: `${restarts} Enter again to kill it anyway;`, hint: `${job.stopCommand} stops it.` }
+      : { text: restarts, hint: "Enter again to kill it anyway." };
+  }
+  return {
+    text: `This is ${protectionReason(entry, currentUser)} (${entry.processName}).`,
+    hint: "Press Enter again to kill it.",
+  };
 }
 
 /** What replaces a row after Enter: "Freed :3000 · node (48213)", a refusal, or the transport failure. */
@@ -297,12 +318,7 @@ export function useQuick(api: PortApi, options: UseQuickOptions = {}) {
 
   function arm(entry: PortEntry) {
     disarm();
-    const reason = protectionReason(entry, currentUser.value);
-    armed.value = {
-      key: quickKey(entry),
-      text: `This is ${reason} (${entry.processName}).`,
-      hint: "Press Enter again to kill it.",
-    };
+    armed.value = { key: quickKey(entry), ...armedText(entry, currentUser.value) };
     armTimer = setTimeout(disarm, armMs);
   }
 

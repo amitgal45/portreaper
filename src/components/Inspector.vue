@@ -9,6 +9,7 @@ import { killLabels, useActions } from "../composables/useActions";
 import type { RestartState } from "../composables/useKillFlow";
 import { useWatched } from "../composables/useWatch";
 import { formatBytes, formatUptime } from "../lib/format";
+import { restartsText } from "../lib/protection";
 import type { PortEntry, ProcessNode } from "../types";
 import FrameworkIcon from "./FrameworkIcon.vue";
 
@@ -56,6 +57,12 @@ const uptime = computed(() => formatUptime(props.entry.startedAt));
 const memory = computed(() => formatBytes(props.entry.memoryBytes));
 /** The image a container runs, which the core hands over as the entry's project (WP-20). */
 const image = computed(() => (props.entry.project?.tool === "docker" ? props.entry.project.name : null));
+/**
+ * The launchd job that runs the process, when there is one: its label, what a kill does to it, and
+ * the command that stops it for good, copied exactly as the core built it. `?.`: an entry from an
+ * older core has no `launchd`.
+ */
+const job = computed(() => props.entry.launchd ?? null);
 /** The Container card's mark is Docker's whatever the header's framework icon says. */
 const DOCKER_MARK = { framework: "Docker", processName: "docker" } as const;
 const isPublic = computed(() => props.entry.bind === "any");
@@ -168,6 +175,22 @@ const ghost =
         </div>
         <p v-if="image" class="truncate font-mono text-[12px] text-ink-2" :title="image">image {{ image }}</p>
         <p class="text-[12px] leading-snug text-ink-2">Kill stops the container; Docker stays up.</p>
+      </div>
+
+      <div v-if="job" data-section="launchd" :class="section">
+        <div :class="heading">launchd</div>
+        <p class="truncate font-mono text-[12px] text-ink" :title="job.label">{{ job.label }}</p>
+        <p class="text-[12px] leading-snug text-ink-2">{{ restartsText(job.restarts) }}</p>
+        <div v-if="job.stopCommand" class="flex pt-1">
+          <button
+            type="button"
+            :class="[ghost, 'min-w-0 max-w-full']"
+            :title="`Copy ${job.stopCommand}: it stops the job for good`"
+            @click="actions.copyStopCommand(entry)"
+          >
+            <Copy :size="11" class="shrink-0" aria-hidden="true" /><span class="truncate">Copy {{ job.stopCommand }}</span>
+          </button>
+        </div>
       </div>
 
       <div data-section="project" :class="section">

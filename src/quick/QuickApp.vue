@@ -29,24 +29,36 @@ const optionId = (key: string) => `quick-option-${key}`;
 const portCount = computed(() => `${entries.value.length} ${entries.value.length === 1 ? "port" : "ports"}`);
 
 /**
- * The status pill at the right of a row: one at most, a tint with its ink (the Board idiom). Protected
- * first, since it is what makes Enter ask twice; then the lost terminal (what the strip is for);
- * then the network exposure; then a local model with the memory it holds, the one thing to know
- * before killing it. A plain running dev server has none.
+ * The status pill at the right of a row: one at most, a tint with its ink (the Board idiom). A
+ * launchd job that launchd starts again after a kill first, as Restarts in the protected tint: that
+ * is why Enter asks twice there. Then Protected, for the same reason; then the lost terminal (what
+ * the strip is for); then the network exposure; then a local model with the memory it holds, the
+ * one thing to know before killing it. A plain running dev server has none. `launchd` is read with
+ * `?.`: the session cache can hold entries from an older core.
  */
-type Status = "protected" | "zombie" | "public" | "ai";
+type Status = "restarts" | "protected" | "zombie" | "public" | "ai";
 interface StatusPill {
   kind: Status;
   text: string;
   title: string;
 }
 const PILL_CLASS: Record<Status, string> = {
+  restarts: "bg-blue-tint text-blue-ink",
   protected: "bg-blue-tint text-blue-ink",
   zombie: "bg-orange-tint text-orange-ink",
   public: "bg-red-tint text-red-ink",
   ai: "bg-purple-tint text-purple-ink",
 };
 function statusOf(e: PortEntry): StatusPill | null {
+  if (e.launchd?.restarts === true) {
+    return {
+      kind: "restarts",
+      text: "Restarts",
+      title: e.protected
+        ? "launchd starts it again after a kill — asks twice"
+        : "launchd starts it again after a kill",
+    };
+  }
   if (e.protected) return { kind: "protected", text: "Protected", title: "protected — asks twice" };
   if (isZombie(e)) {
     return {

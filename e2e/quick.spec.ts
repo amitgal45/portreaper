@@ -11,8 +11,8 @@ import { contrast, paintedColor } from "./helpers";
  * shows six. Relied on: :3000 (a dev server), :5432 (protected, Docker, which also holds :6379),
  * :5174 and :4000 (the lost-terminal zombies, newest first, so :5174 heads an empty query) and
  * :11434 (Ollama, the `ai` row, a brew service launchd restarts after a kill: protected, so a
- * query has to ask for it). When the mock changes, the numbers here change with it, in the same
- * commit.
+ * query has to ask for it, and its pill reads Restarts). When the mock changes, the numbers here
+ * change with it, in the same commit.
  */
 test.use({ viewport: { width: 480, height: 320 } });
 test.describe.configure({ mode: "parallel" });
@@ -20,7 +20,7 @@ test.describe.configure({ mode: "parallel" });
 const input = (page: Page): Locator => page.getByRole("combobox", { name: "Free a port" });
 const options = (page: Page): Locator => page.getByRole("option");
 const option = (page: Page, port: number): Locator => page.locator(`[role="option"][data-port="${port}"]`);
-/** The status pill at the right of a row (Zombie, Public, Protected, AI · memory); a plain dev server has none. */
+/** The status pill at the right of a row (Restarts, Protected, Zombie, Public, AI · memory); a plain dev server has none. */
 const status = (row: Locator): Locator => row.locator("[data-status]");
 /** The brand mark for a known stack (`data-brand` names it). */
 const brand = (row: Locator): Locator => row.getByTestId("framework-icon");
@@ -248,9 +248,13 @@ test("Esc clears a query; on an empty query it is a no-op in the browser and the
   expect(thrown).toEqual([]);
 });
 
-test("a brew service is one word away, protected, and never a lost terminal", async ({ page }) => {
+test("a brew service is one word away, never a lost terminal, and its second Enter names what stops it", async ({
+  page,
+}) => {
   await openQuick(page);
-  // Protected (launchd starts it again after a kill): not in the pre-selection, one word away.
+  // Protected (launchd starts it again after a kill): not in the pre-selection, whose zombies are
+  // the two lost terminals only; one word away.
+  await expect.poll(() => shownPorts(page)).toEqual([5174, 4000, 5173, 3000, 8080, 9335]);
   await expect(option(page, 11434)).toHaveCount(0);
   await page.keyboard.type("ollama");
   await expect.poll(() => shownPorts(page)).toEqual([11434]);
@@ -260,11 +264,23 @@ test("a brew service is one word away, protected, and never a lost terminal", as
   await expect(ollama).toHaveAttribute("aria-selected", "true");
   await expect(ollama).toContainText("ollama");
   await expect(ollama).toContainText("32014");
-  // One pill per row, protection first: the memory pill is for a model server nothing protects.
-  await expect(status(ollama)).toHaveText("Protected");
-  await expect(status(ollama)).toHaveAttribute("data-status", "protected");
+  // One pill per row, the restart first: the memory pill is for a model server nothing protects.
+  await expect(status(ollama)).toHaveText("Restarts");
+  await expect(status(ollama)).toHaveAttribute("data-status", "restarts");
   await expect(brand(ollama)).toHaveAttribute("data-brand", "Ollama");
   await expect(ollama.getByLabel("lost terminal")).toHaveCount(0);
+
+  // The first Enter arms it and says launchd brings it back; the command is the core's, copied as is.
+  await page.keyboard.press("Enter");
+  await expect(ollama).toContainText(
+    "ollama restarts after a kill (launchd). Enter again to kill it anyway; brew services stop ollama stops it.",
+  );
+  await expect(ollama).toContainText("↩ kill");
+  // Esc backs out: nothing was killed, the row is whole again.
+  await page.keyboard.press("Escape");
+  await expect(ollama).not.toContainText("restarts after a kill");
+  await expect(ollama).toContainText("32014");
+  await expect(ollama).toContainText("↩ free");
 });
 
 for (const scheme of ["light", "dark"] as const) {
