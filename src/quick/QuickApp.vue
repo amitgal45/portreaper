@@ -34,8 +34,9 @@ const portCount = computed(() => `${entries.value.length} ${entries.value.length
  * is why Enter asks twice there. Then Protected, for the same reason (a job that only may restart,
  * `restarts` null, is protected by the core and shows this one); then the lost terminal (what
  * the strip is for); then the network exposure; then a local model with the memory it holds, the
- * one thing to know before killing it. A plain running dev server has none. `launchd` is read with
- * `?.`: the session cache can hold entries from an older core.
+ * one thing to know before killing it. A plain running dev server has none. A system job (a piece
+ * of macOS: ControlCenter on :5000) is never Restarts: it is Protected, a system process.
+ * `launchd` is read with `?.`: the session cache can hold entries from an older core.
  */
 type Status = "restarts" | "protected" | "zombie" | "public" | "ai";
 interface StatusPill {
@@ -51,7 +52,7 @@ const PILL_CLASS: Record<Status, string> = {
   ai: "bg-purple-tint text-purple-ink",
 };
 function statusOf(e: PortEntry): StatusPill | null {
-  if (e.launchd?.restarts === true) {
+  if (e.launchd?.restarts === true && !e.launchd?.system) {
     return {
       kind: "restarts",
       text: "Restarts",

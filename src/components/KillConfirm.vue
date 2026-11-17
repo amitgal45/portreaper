@@ -2,7 +2,8 @@
 // The second confirmation for a protected process, a group with one, or a big reap. Cancel takes
 // focus, so Enter twice never kills. A launchd job that comes back after a kill, or may, says so (its
 // reason line), names the command that stops it for good and offers to copy it when the core built
-// one (never for a piece of macOS); PortReaper never runs it.
+// one; PortReaper never runs it. A system job (a piece of macOS: ControlCenter on :5000) is only "a
+// system process": no launchd sentence, nothing to copy.
 import {
   AlertDialogCancel,
   AlertDialogContent,
@@ -32,14 +33,16 @@ const who = (e: PortEntry) => `${e.processName} (${e.pid})`;
 
 /**
  * The entry's launchd job when launchd starts it again after a kill, or may (`restarts` null: nobody
- * can tell, and the core asks first then too). `?.`: an older core sends no `launchd`.
+ * can tell, and the core asks first then too), unless it is a system job: that one reads as a system
+ * process, and there is nothing to stop it with. `?.`: an older core sends no `launchd`, or no
+ * `system` in it.
  */
 const restarting = computed(() => {
   const t = props.target;
   if (t?.kind !== "entry" || t.entry.container) return null;
   const job = t.entry.launchd;
-  const restarts = job?.restarts;
-  return job && restarts !== false ? job : null;
+  if (!job || job.system) return null;
+  return job.restarts !== false ? job : null;
 });
 
 /** "Copy command" copies what the core built, and leaves the dialog open: the user still decides. */

@@ -242,6 +242,7 @@ export const MOCK_ENTRIES: PortEntry[] = [
       restarts: true,
       brew: "ollama",
       stopCommand: "brew services stop ollama",
+      system: false,
     },
   }),
   entry({

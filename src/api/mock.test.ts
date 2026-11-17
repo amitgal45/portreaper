@@ -101,6 +101,7 @@ describe("mock api: launchd jobs", () => {
         restarts: true,
         brew: "ollama",
         stopCommand: "brew services stop ollama",
+        system: false,
       },
     });
     // No other row is a launchd job.

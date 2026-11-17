@@ -148,6 +148,34 @@ describe("QuickApp", () => {
     );
   });
 
+  it("ControlCenter on :5000, Apple's job: the Protected pill, never Restarts, and the ordinary armed text", async () => {
+    const exe = "/System/Library/CoreServices/ControlCenter.app/Contents/MacOS/ControlCenter";
+    const launchd: LaunchdJob = {
+      label: "com.apple.controlcenter",
+      restarts: true,
+      brew: null,
+      stopCommand: null,
+      system: true,
+    };
+    const airplay = MOCK_ENTRIES.find((e) => e.port === 7000) as PortEntry;
+    const controlCenter: PortEntry = { ...airplay, port: 5000, exe, command: exe, protected: true, launchd };
+    const seed = MOCK_ENTRIES.map((e) => (e.port === 7000 ? controlCenter : e));
+    const { wrapper, freePort } = await mountQuick(createMockApi(seed));
+    await wrapper.find("input").setValue("5000");
+    const row = () => wrapper.find("[role='option'][data-port='5000']");
+    const pill = row().find("[data-status]");
+    expect(pill.text()).toBe("Protected");
+    expect(pill.attributes("data-status")).toBe("protected");
+
+    key("Enter");
+    await flushPromises();
+    expect(freePort).not.toHaveBeenCalled();
+    const armed = row().text().replace(/\s+/g, " ");
+    expect(armed).toContain("This is a system process (ControlCenter). Press Enter again to kill it.");
+    expect(armed).not.toContain("(launchd)");
+    expect(armed).not.toContain("launchctl");
+  });
+
   it("an ai row's pill carries its memory", async () => {
     // A model server nothing protects (not a launchd job): the one pill is the memory it holds.
     const unprotected = { protected: false, parentPid: 900, launchd: null };

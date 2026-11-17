@@ -86,6 +86,14 @@ export interface LaunchdJob {
    * nobody knows: a piece of macOS is not the user's to disable.
    */
   stopCommand: string | null;
+  /**
+   * An Apple job, or one run from the system's folders: no stop command, and the UI calls it a system
+   * process. Apple's: its label starts with `com.apple.`, in any case. The system's folders: the
+   * process's exe is under the core's `SYSTEM_PREFIXES`. An exe nobody knows withholds the stop command,
+   * but does not make a job a system one. Read it as `entry.launchd?.system`: a cached entry from an
+   * older core has no such field.
+   */
+  system: boolean;
 }
 
 export interface KillRequest {

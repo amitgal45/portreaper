@@ -5,7 +5,7 @@ import { createMockApi, MOCK_ENTRIES } from "../api/mock";
 import { ACTIONS_KEY, type UiActions } from "../composables/useActions";
 import type { RestartState } from "../composables/useKillFlow";
 import { WATCHED_KEY } from "../composables/useWatch";
-import type { PortApi, PortEntry } from "../types";
+import type { LaunchdJob, PortApi, PortEntry } from "../types";
 import Inspector from "./Inspector.vue";
 
 const byPort = (port: number): PortEntry => {
@@ -59,6 +59,21 @@ async function mountInspector(
   await flushPromises();
   return { wrapper, api, actions };
 }
+
+const CONTROL_CENTER_EXE = "/System/Library/CoreServices/ControlCenter.app/Contents/MacOS/ControlCenter";
+
+/** ControlCenter on :5000 (AirPlay Receiver) as the core sends it: Apple's job, a system one. */
+const controlCenter: PortEntry = {
+  ...byPort(7000),
+  port: 5000,
+  pid: 635,
+  processName: "ControlCenter",
+  command: CONTROL_CENTER_EXE,
+  exe: CONTROL_CENTER_EXE,
+  parentPid: 1,
+  protected: true,
+  launchd: { label: "com.apple.controlcenter", restarts: null, brew: null, stopCommand: null, system: true },
+};
 
 const text = () => mounted?.text().replace(/\s+/g, " ") ?? "";
 const button = (name: RegExp) => mounted?.findAll("button").find((b) => name.test(b.text())) ?? null;
@@ -153,7 +168,7 @@ describe("Inspector", () => {
     // A job that stays down, with no command the core would put in a shell: the text, no button.
     const agent = {
       ...ollama,
-      launchd: { label: "com.example.agent", restarts: false, brew: null, stopCommand: null },
+      launchd: { label: "com.example.agent", restarts: false, brew: null, stopCommand: null, system: false },
     };
     const { wrapper: stays } = await mountInspector(agent);
     expect(stays.get("[data-section='launchd']").text()).toContain("com.example.agent");
@@ -175,21 +190,28 @@ describe("Inspector", () => {
     expect(cached.find("[data-section='launchd']").exists()).toBe(false);
   });
 
-  it("ControlCenter on AirPlay, a piece of macOS the core gives no stop command: the launchd card has nothing to copy", async () => {
-    const controlCenter: PortEntry = {
-      ...byPort(7000),
-      launchd: { label: "com.apple.controlcenter", restarts: true, brew: null, stopCommand: null },
-    };
-    const reason = "a launchd job that launchd starts again after a kill";
-    const { wrapper } = await mountInspector(controlCenter, { reason });
+  it("ControlCenter on :5000, Apple's job, a system process: the launchd card shows its label and has nothing to copy", async () => {
+    const api = createMockApi(MOCK_ENTRIES.map((e) => (e.port === 7000 ? controlCenter : e)));
+    const { wrapper } = await mountInspector(controlCenter, { api, reason: "a system process" });
     const card = wrapper.get("[data-section='launchd']");
     expect(card.text()).toContain("com.apple.controlcenter");
-    expect(card.text()).toContain("a kill is undone within seconds");
     expect(card.find("button").exists()).toBe(false);
-    // The only copy verbs left are the process's own: its command line and kill -9.
+    // No button mentions launchctl; the only copy verbs left are the process's own: its command line and kill -9.
     expect(button(/launchctl/)).toBeNull();
     const copies = wrapper.findAll("button").filter((b) => b.text().includes("Copy"));
     expect(copies.map((b) => b.text().trim())).toEqual(["Copy", "Copy kill -9 635"]);
+    // Restart is blocked with the same reason the dialog gives.
+    expect(button(/Restart/)?.attributes("title")).toContain("ControlCenter is a system process");
+    wrapper.unmount();
+
+    // Whatever launchd does to it: still nothing that would stop it for good.
+    const apple = controlCenter.launchd as LaunchdJob;
+    const { wrapper: restarting } = await mountInspector({
+      ...controlCenter,
+      launchd: { ...apple, restarts: true },
+    });
+    expect(restarting.get("[data-section='launchd']").text()).toContain("com.apple.controlcenter");
+    expect(button(/launchctl/)).toBeNull();
   });
 
   it("asks to close on the ✕", async () => {
