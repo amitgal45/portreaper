@@ -77,6 +77,7 @@ mod tests {
             category: Category::Other,
             framework: None,
             container: None,
+            launchd: None,
         }
     }
 

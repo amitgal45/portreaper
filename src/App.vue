@@ -38,6 +38,7 @@ import { useToasts } from "./composables/useToasts";
 import { selectFromTray, useTrayListener } from "./composables/useTray";
 import { demoUpdate, useUpdate } from "./composables/useUpdate";
 import { provideWatched, useWatch } from "./composables/useWatch";
+import { offeredStopCommand } from "./lib/protection";
 import { MAX_HIDDEN_PORTS, type PortEntry } from "./types";
 
 const api = provideApi();
@@ -179,6 +180,12 @@ provideActions({
   openInBrowser: (entry) => void leave(openInBrowser(entry.port), null),
   copyKill: (entry) => void leave(copyText(`kill -9 ${entry.pid}`), `Copied kill -9 ${entry.pid}`),
   copyCommand: (entry) => void leave(copyText(entry.command), "Copied the command line"),
+  // The core's string, untouched: the UI never builds a command, and never runs this one. Never
+  // for a system job, whatever the core sent.
+  copyStopCommand: (entry) => {
+    const command = offeredStopCommand(entry.launchd);
+    if (command) void leave(copyText(command), `Copied ${command}`);
+  },
   revealFolder: (entry) => void leave(revealFolder(entry.project?.root ?? ""), null),
   watch: (target) => void watchStore.toggle(target),
   hide: (entry) => void hide(entry),

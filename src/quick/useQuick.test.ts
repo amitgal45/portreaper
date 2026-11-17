@@ -2,8 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { nextTick } from "vue";
 import { SETTINGS_CHANGED_EVENT } from "../api/events";
 import { createMockApi, MOCK_ENTRIES } from "../api/mock";
-import type { PortApi, PortEntry, TasklineEvent } from "../types";
-import { QUICK_CACHE_KEY, type QuickCache, useQuick } from "./useQuick";
+import type { LaunchdJob, PortApi, PortEntry, TasklineEvent } from "../types";
+import { armedText, QUICK_CACHE_KEY, type QuickCache, useQuick } from "./useQuick";
 
 const { hideCurrentWindow } = vi.hoisted(() => ({ hideCurrentWindow: vi.fn(async () => false) }));
 vi.mock("../api/window", () => ({ hideCurrentWindow }));
@@ -17,9 +17,24 @@ const key = (k: string, init: KeyboardEventInit = {}) =>
 
 /**
  * What an empty query shows on the mock: the lost-terminal :5174 and :4000 first (newest first),
- * then the rest newest first, nothing protected, six at most (the 12-day-old Ollama is seventh).
+ * then the rest newest first, nothing protected (Ollama, a brew service launchd restarts, is), six at most.
  */
 const PRESELECTED = [5174, 4000, 5173, 3000, 8080, 9335];
+
+const CONTROL_CENTER_EXE = "/System/Library/CoreServices/ControlCenter.app/Contents/MacOS/ControlCenter";
+
+/** ControlCenter on :5000 (AirPlay Receiver) as the core sends it: Apple's job, a system one. */
+const controlCenter: PortEntry = {
+  ...(MOCK_ENTRIES.find((e) => e.port === 7000) as PortEntry),
+  port: 5000,
+  pid: 635,
+  processName: "ControlCenter",
+  command: CONTROL_CENTER_EXE,
+  exe: CONTROL_CENTER_EXE,
+  parentPid: 1,
+  protected: true,
+  launchd: { label: "com.apple.controlcenter", restarts: null, brew: null, stopCommand: null, system: true },
+};
 
 /** A strip that has loaded once and is not polling. */
 async function loaded(api: PortApi = createMockApi()) {
@@ -390,6 +405,137 @@ describe("useQuick: a protected entry", () => {
     expect(freePort).not.toHaveBeenCalled();
   });
 
+  it("a brew service launchd restarts says so when armed, and names the core's command that stops it", async () => {
+    const api = createMockApi();
+    const freePort = vi.spyOn(api, "freePort");
+    const quick = await loaded(api);
+    quick.query.value = "ollama";
+    await nextTick();
+    expect(quick.selected.value?.port).toBe(11434);
+    expect(quick.selected.value?.protected).toBe(true);
+
+    quick.handleKey(key("Enter"));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(freePort).not.toHaveBeenCalled();
+    expect(quick.armed.value).toEqual({
+      key: "32014:11434:tcp",
+      text: "ollama restarts after a kill (launchd). Enter again to kill it anyway;",
+      hint: "brew services stop ollama stops it.",
+    });
+    // The row shows the text, then the hint: one sentence.
+    const armed = quick.armed.value;
+    expect(`${armed?.text} ${armed?.hint}`).toBe(
+      "ollama restarts after a kill (launchd). Enter again to kill it anyway; brew services stop ollama stops it.",
+    );
+
+    // Kill anyway is the second Enter, as for any protected row.
+    quick.handleKey(key("Enter"));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(freePort).toHaveBeenCalledWith(11434, false);
+    expect(quick.result.value?.text).toBe("Freed :11434 · ollama (32014)");
+  });
+
+  it("armedText: a restarting job without a stop command, a job that stays down, and a cached entry", () => {
+    const ollama = MOCK_ENTRIES.find((e) => e.port === 11434) as PortEntry;
+    const job = ollama.launchd as LaunchdJob;
+    expect(armedText({ ...ollama, launchd: { ...job, stopCommand: null } }, "amit")).toEqual({
+      text: "ollama restarts after a kill (launchd).",
+      hint: "Enter again to kill it anyway.",
+    });
+    const protectedText = {
+      text: "This is a protected process (ollama).",
+      hint: "Press Enter again to kill it.",
+    };
+    expect(armedText({ ...ollama, launchd: { ...job, restarts: false } }, "amit")).toEqual(protectedText);
+    // The session cache can hold an entry from a core that did not send `launchd` yet.
+    const cached = { ...ollama, launchd: undefined } as unknown as PortEntry;
+    expect(armedText(cached, "amit")).toEqual(protectedText);
+  });
+
+  it("armedText: a job nobody can tell about may restart, with the stop hint only when the core built one", () => {
+    const ollama = MOCK_ENTRIES.find((e) => e.port === 11434) as PortEntry;
+    const vague: LaunchdJob = { ...(ollama.launchd as LaunchdJob), restarts: null };
+    expect(armedText({ ...ollama, launchd: vague }, "amit")).toEqual({
+      text: "ollama may restart after a kill (launchd). Enter again to kill it anyway;",
+      hint: "brew services stop ollama stops it.",
+    });
+    expect(armedText({ ...ollama, launchd: { ...vague, stopCommand: null } }, "amit")).toEqual({
+      text: "ollama may restart after a kill (launchd).",
+      hint: "Enter again to kill it anyway.",
+    });
+  });
+
+  it("armedText: a system job gets the ordinary protected text, whatever launchd does to it", () => {
+    const protectedText = {
+      text: "This is a system process (ControlCenter).",
+      hint: "Press Enter again to kill it.",
+    };
+    expect(armedText(controlCenter, "amit")).toEqual(protectedText);
+    const apple = controlCenter.launchd as LaunchdJob;
+    expect(armedText({ ...controlCenter, launchd: { ...apple, restarts: true } }, "amit")).toEqual(
+      protectedText,
+    );
+    // A cached entry from a core that sent no `system`: the launchd text, as before.
+    const older = {
+      ...controlCenter,
+      launchd: { label: "com.apple.controlcenter", restarts: true, brew: null, stopCommand: null },
+    } as unknown as PortEntry;
+    expect(armedText(older, "amit")).toEqual({
+      text: "ControlCenter restarts after a kill (launchd).",
+      hint: "Enter again to kill it anyway.",
+    });
+  });
+
+  it("ControlCenter on :5000, Apple's job: the first Enter arms it with the protected text, the second kills", async () => {
+    const api = createMockApi(MOCK_ENTRIES.map((e) => (e.port === 7000 ? controlCenter : e)));
+    const freePort = vi.spyOn(api, "freePort");
+    const quick = await loaded(api);
+    quick.query.value = "5000";
+    await nextTick();
+    expect(quick.selected.value?.pid).toBe(635);
+    expect(quick.selected.value?.protected).toBe(true);
+
+    quick.handleKey(key("Enter"));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(freePort).not.toHaveBeenCalled();
+    expect(quick.armed.value).toEqual({
+      key: "635:5000:tcp",
+      text: "This is a system process (ControlCenter).",
+      hint: "Press Enter again to kill it.",
+    });
+    expect(quick.armed.value?.text).not.toContain("(launchd)");
+
+    quick.handleKey(key("Enter"));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(freePort).toHaveBeenCalledWith(5000, false);
+    expect(freePort).toHaveBeenCalledTimes(1);
+  });
+
+  it("a job nobody can tell about asks first: the first Enter arms it with may restart, the second kills", async () => {
+    const ollama = MOCK_ENTRIES.find((e) => e.port === 11434) as PortEntry;
+    const job = ollama.launchd as LaunchdJob;
+    const unknown: PortEntry = { ...ollama, launchd: { ...job, restarts: null } };
+    const api = createMockApi(MOCK_ENTRIES.map((e) => (e.port === 11434 ? unknown : e)));
+    const freePort = vi.spyOn(api, "freePort");
+    const quick = await loaded(api);
+    quick.query.value = "ollama";
+    await nextTick();
+    expect(quick.selected.value?.protected).toBe(true);
+
+    quick.handleKey(key("Enter"));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(freePort).not.toHaveBeenCalled();
+    expect(quick.armed.value).toEqual({
+      key: "32014:11434:tcp",
+      text: "ollama may restart after a kill (launchd). Enter again to kill it anyway;",
+      hint: "brew services stop ollama stops it.",
+    });
+
+    quick.handleKey(key("Enter"));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(freePort).toHaveBeenCalledWith(11434, false);
+  });
+
   it("⌥Enter on an armed row forces", async () => {
     const api = createMockApi();
     const freePort = vi.spyOn(api, "freePort");
@@ -556,8 +702,9 @@ describe("useQuick: the cached list", () => {
     await vi.advanceTimersByTimeAsync(0);
     expect(listPorts).toHaveBeenCalledTimes(1);
     expect(quick.entries.value.some((e) => e.port === 5173)).toBe(false);
-    // The seventh, the 12-day-old Ollama, moves up into the six.
-    expect(quick.matches.value.map((e) => e.port)).toEqual([5174, 4000, 3000, 8080, 9335, 11434]);
+    // Nothing moves up into the six: the seventh, Ollama, is a brew service launchd restarts, and
+    // a protected row is never preselected.
+    expect(quick.matches.value.map((e) => e.port)).toEqual([5174, 4000, 3000, 8080, 9335]);
     expect(write).toHaveBeenCalledTimes(1);
     expect(write.mock.calls[0]?.[0]).toHaveLength(MOCK_ENTRIES.length - 1);
     quick.stop();

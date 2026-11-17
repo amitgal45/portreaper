@@ -23,6 +23,7 @@ const base: PortEntry = {
   category: "other",
   framework: null,
   container: null,
+  launchd: null,
 };
 
 const entry = (partial: Partial<PortEntry>): PortEntry => ({ ...base, ...partial });
@@ -95,10 +96,11 @@ describe("recents", () => {
     expect(recents(entries).map((e) => e.port)).toEqual([4, 5, 1, 3]);
   });
 
-  it("on the mock: the unprotected entries newest first, six of the seven", () => {
+  it("on the mock: the six unprotected entries newest first, never the protected brew service", () => {
     expect(recents(MOCK_ENTRIES).map((e) => e.port)).toEqual([5173, 3000, 8080, 5174, 9335, 4000]);
     expect(recents(MOCK_ENTRIES, 2).map((e) => e.port)).toEqual([5173, 3000]);
-    expect(recents(MOCK_ENTRIES, 7).map((e) => e.port)).toEqual([5173, 3000, 8080, 5174, 9335, 4000, 11434]);
+    // Ollama, a launchd job that restarts after a kill, is protected: a query reaches it, an empty one not.
+    expect(recents(MOCK_ENTRIES, 7).map((e) => e.port)).toEqual([5173, 3000, 8080, 5174, 9335, 4000]);
   });
 });
 

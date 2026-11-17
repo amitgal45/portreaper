@@ -88,6 +88,33 @@ describe("mock api v0.2", () => {
   });
 });
 
+describe("mock api: launchd jobs", () => {
+  it("runs Ollama as a brew service: launchd's child on purpose, protected, and never reaped", async () => {
+    const api = createMockApi();
+    const ollama = (await api.listPorts()).find((e) => e.port === 11434);
+    expect(ollama).toMatchObject({
+      pid: 32014,
+      parentPid: 1,
+      orphan: false,
+      protected: true,
+      launchd: {
+        label: "homebrew.mxcl.ollama",
+        restarts: true,
+        brew: "ollama",
+        stopCommand: "brew services stop ollama",
+        system: false,
+      },
+    });
+    // No other row is a launchd job.
+    expect(MOCK_ENTRIES.filter((e) => e.launchd !== null).map((e) => e.port)).toEqual([11434]);
+
+    const outcomes = await api.reapZombies();
+    expect(outcomes.map((o) => o.pid)).toEqual([39871, 18402]);
+    expect((await api.listPorts()).some((e) => e.pid === 32014)).toBe(true);
+    expect((await api.tasklineEvents()).some((e) => e.pid === 32014)).toBe(false);
+  });
+});
+
 describe("mock api v0.3", () => {
   it("names one container on its own port, and stops it without touching the other Docker rows", async () => {
     expect(MOCK_ENTRIES.filter((e) => e.container !== null).map((e) => e.port)).toEqual([5433]);

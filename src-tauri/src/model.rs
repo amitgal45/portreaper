@@ -37,6 +37,39 @@ pub struct PortEntry {
     /// The Docker container publishing this port when Docker's backend holds it (WP-20).
     /// `None` for every other process.
     pub container: Option<String>,
+    /// The launchd job behind this process: its own job, or its parent's (then with
+    /// `restarts: None`: its parent, not launchd, decides whether it comes back), when launchd
+    /// runs it in the user's domain (a `brew services` formula, any LaunchAgent).
+    /// `None` for every other process.
+    pub launchd: Option<LaunchdJob>,
+}
+
+/// The launchd job behind a process, when launchd runs it in the user's domain (a
+/// `brew services` formula, any LaunchAgent). Such a process is never an orphan.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct LaunchdJob {
+    pub label: String,
+    /// `Some(true)`: launchd starts it again within seconds of a kill (KeepAlive). `Some(false)`:
+    /// it stays down until the job is loaded again (the next login). `None`: unknown (no readable
+    /// plist, a conditional KeepAlive, a job launchd also starts on demand, or a job's child).
+    /// Anything but `Some(false)` makes the entry `protected`: a kill launchd may undo asks first.
+    /// So does `system`, whatever this says.
+    pub restarts: Option<bool>,
+    /// The Homebrew formula, when `brew services` started it.
+    pub brew: Option<String>,
+    /// What stops it for good, for the user to copy: `brew services stop <formula>`, else
+    /// `launchctl disable gui/<uid>/<label> && launchctl bootout gui/<uid>/<label>` (disabled, so
+    /// the next login does not load it again). `None` when the label is not safe to put in a shell,
+    /// for a system job (`system`), and for a process whose exe nobody knows: a piece of macOS is
+    /// not the user's to disable. Where the exe lives does not withhold it.
+    pub stop_command: Option<String>,
+    /// A piece of macOS, decided from the job alone (`launchd::is_system_label`): its label starts
+    /// with `com.apple.`, in any case, or `/System/Library/LaunchAgents/<label>.plist` exists (only
+    /// that it exists; it is not read). No stop command, the entry is `protected`, and the UI
+    /// calls it a system process. Where the process's exe lives decides nothing: the user's own
+    /// agent that runs `/usr/bin/ssh` is no system job.
+    pub system: bool,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
@@ -319,6 +352,7 @@ mod tests {
             category: Category::Web,
             framework: Some("Next.js".into()),
             container: None,
+            launchd: None,
         };
         let json = serde_json::to_value(&entry).unwrap();
         assert_eq!(json["processName"], "node");
@@ -329,6 +363,86 @@ mod tests {
         assert_eq!(json["category"], "web");
         assert_eq!(json["framework"], "Next.js");
         assert_eq!(json["container"], serde_json::Value::Null);
+        assert_eq!(json["launchd"], serde_json::Value::Null);
+        let back: PortEntry = serde_json::from_value(json).unwrap();
+        assert_eq!(back, entry);
+    }
+
+    #[test]
+    fn launchd_job_serialises_as_the_ui_expects() {
+        let job = LaunchdJob {
+            label: "homebrew.mxcl.ollama".into(),
+            restarts: Some(true),
+            brew: Some("ollama".into()),
+            stop_command: Some("brew services stop ollama".into()),
+            system: false,
+        };
+        let json = serde_json::to_value(&job).unwrap();
+        assert_eq!(
+            json,
+            serde_json::json!({
+                "label": "homebrew.mxcl.ollama",
+                "restarts": true,
+                "brew": "ollama",
+                "stopCommand": "brew services stop ollama",
+                "system": false
+            })
+        );
+        let back: LaunchdJob = serde_json::from_value(json).unwrap();
+        assert_eq!(back, job);
+
+        // Unknown is null, not false: the UI words the two apart.
+        let unknown = LaunchdJob {
+            label: "com.example.agent".into(),
+            restarts: None,
+            brew: None,
+            stop_command: None,
+            system: false,
+        };
+        let json = serde_json::to_value(&unknown).unwrap();
+        assert_eq!(json["restarts"], serde_json::Value::Null);
+        assert_eq!(json["stopCommand"], serde_json::Value::Null);
+
+        // A piece of macOS: `system`, a plain boolean.
+        let apple = LaunchdJob {
+            label: "com.apple.controlcenter".into(),
+            restarts: None,
+            brew: None,
+            stop_command: None,
+            system: true,
+        };
+        let json = serde_json::to_value(&apple).unwrap();
+        assert_eq!(json["system"], true);
+        let back: LaunchdJob = serde_json::from_value(json).unwrap();
+        assert_eq!(back, apple);
+
+        // On an entry it sits under `launchd`, camelCase inside.
+        let entry = PortEntry {
+            port: 11434,
+            protocol: Protocol::Tcp,
+            bind: BindScope::Loopback,
+            address: "127.0.0.1".into(),
+            pid: 32014,
+            process_name: "ollama".into(),
+            command: "/opt/homebrew/opt/ollama/bin/ollama serve".into(),
+            cwd: None,
+            exe: Some("/opt/homebrew/Cellar/ollama/0.13.0/bin/ollama".into()),
+            user: Some("amit".into()),
+            memory_bytes: 0,
+            started_at: None,
+            parent_pid: Some(1),
+            orphan: false,
+            project: None,
+            protected: true,
+            category: Category::Ai,
+            framework: Some("Ollama".into()),
+            container: None,
+            launchd: Some(job),
+        };
+        let json = serde_json::to_value(&entry).unwrap();
+        assert_eq!(json["launchd"]["stopCommand"], "brew services stop ollama");
+        assert_eq!(json["launchd"]["restarts"], true);
+        assert_eq!(json["launchd"]["system"], false);
         let back: PortEntry = serde_json::from_value(json).unwrap();
         assert_eq!(back, entry);
     }
