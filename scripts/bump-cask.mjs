@@ -1,9 +1,9 @@
-// Sets the version and the DMG's SHA-256 in the Homebrew cask template. The release workflow's
-// `cask` job runs it as
+// Sets the version and the DMG's SHA-256 in the Homebrew cask template. scripts/update-tap.sh (run
+// by the release workflow) calls it as
 //
 //   node scripts/bump-cask.mjs packaging/homebrew/portreaper.rb X.Y.Z <sha256> > portreaper.rb
 //
-// and its `tap` job writes the output to Casks/portreaper.rb in amitgal45/homebrew-tap. Only the `version` and
+// and writes the output to Casks/portreaper.rb in amitgal45/homebrew-tap. Only the `version` and
 // `sha256` lines change; every other byte of the template is kept, so the cask is edited in the
 // template and the tap only ever receives a copy of it.
 //
