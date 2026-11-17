@@ -423,4 +423,19 @@ describe("App: preferences (WP-17b)", () => {
     expect((await api.listPorts()).some((e) => e.pid === 48213)).toBe(true);
     expect(wrapper.text()).not.toContain("Killed node (48213)");
   });
+
+  it("no key pressed on the Taskline kills the selection either", async () => {
+    const { wrapper, killProcess } = await mountApp();
+    press("ArrowDown");
+    await flushPromises();
+    expect(wrapper.get("[role='row'][data-port='3000']").attributes("aria-selected")).toBe("true");
+    await wrapper.get("[data-nav='taskline']").trigger("click");
+    await flushPromises();
+    expect(wrapper.find("[role='feed']").exists()).toBe(true);
+    press("Backspace", { metaKey: true });
+    press("Enter");
+    await flushPromises();
+    expect(killProcess).not.toHaveBeenCalled();
+    expect(wrapper.text()).not.toContain("Killed node (48213)");
+  });
 });

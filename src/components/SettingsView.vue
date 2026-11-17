@@ -142,11 +142,15 @@ function onDraft(event: Event) {
 }
 
 /**
- * The field keeps its keys: only Esc (back to the ports) reaches the window. The list's Enter and
- * ⌘⌫ kill the selection, and its arrows move it; none of them belongs to a number field.
+ * The field keeps its keys: the list's Enter and ⌘⌫ kill the selection, and its arrows move it;
+ * none of them belongs to a number field. Esc (back to the ports) and the window's other ⌘ chords
+ * (⌘F, ⌘R, ⌘,) still reach the window.
  */
 function keepKeys(event: KeyboardEvent) {
-  if (event.key !== "Escape") event.stopPropagation();
+  if (event.key === "Escape") return;
+  const chord = event.metaKey || event.ctrlKey;
+  if (chord && event.key !== "Backspace" && event.key !== "Enter") return;
+  event.stopPropagation();
 }
 
 /** Hide and Enter: hides the typed port, or says under the row why not. */
@@ -318,7 +322,7 @@ const chipRemoveMark =
                   autocomplete="off"
                   placeholder="Port"
                   aria-label="Port to hide"
-                  :aria-invalid="draftProblem ? 'true' : undefined"
+                  :aria-invalid="draftProblem && draftProblem !== FULL_REASON ? 'true' : undefined"
                   :aria-describedby="hiddenDescribedBy"
                   :value="draft"
                   :class="portField"

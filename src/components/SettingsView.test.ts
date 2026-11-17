@@ -230,15 +230,17 @@ describe("SettingsView", () => {
     wrapper.unmount();
   });
 
-  it("Hidden ports: the field keeps every key but Esc, so no list shortcut fires from it", async () => {
+  it("Hidden ports: the field keeps the list's keys, and lets Esc and the window's other ⌘ chords through", async () => {
     const { wrapper } = mountView();
     const input = pref(wrapper, "hiddenPorts").get("input").element;
     const keys: KeyboardEventInit[] = [
       { key: "Backspace", metaKey: true },
       { key: "Enter" },
+      { key: "Enter", metaKey: true },
       { key: "ArrowDown" },
       { key: "ArrowUp" },
       { key: "5" },
+      { key: "f", metaKey: true },
       { key: "Escape" },
     ];
     const reached: string[] = [];
@@ -248,8 +250,8 @@ describe("SettingsView", () => {
       for (const init of keys) {
         input.dispatchEvent(new KeyboardEvent("keydown", { ...init, bubbles: true, cancelable: true }));
       }
-      // ⌘⌫, Enter, the arrows and a digit are the field's; only Esc goes on, back to the ports.
-      expect(reached).toEqual(["Escape"]);
+      // ⌘⌫, Enter, ⌘↩, the arrows and a digit are the field's; ⌘F (the search) and Esc go on.
+      expect(reached).toEqual(["⌘f", "Escape"]);
     } finally {
       window.removeEventListener("keydown", onWindow);
       wrapper.unmount();

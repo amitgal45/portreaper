@@ -482,8 +482,9 @@ export function useQuick(api: PortApi, options: UseQuickOptions = {}) {
       heardSettings = true;
       followHidden(settings.hiddenPorts);
     });
-    void readHidden();
+    // The list first: the strip's first rows wait on nothing else.
     void refresh();
+    void readHidden();
     void refreshCollisions();
     target?.addEventListener("keydown", keyListener);
     target?.addEventListener("focus", onFocus);
