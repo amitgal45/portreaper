@@ -1,0 +1,4 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!-- Cut Socket (3a): Refined v0.2 cut socket with 106 px walls, a 132 px curved scythe gap, and a heavier left latch foot that holds up at 16 px. Foreground glyph layer for macOS 26 Icon Composer. -->
+  <path d="M174 248 A24 24 0 0 1 198 224 H532 Q503.7 276.2 480 330 H280 V560 H401.1 Q372.3 674.7 361.6 796 H296 A24 24 0 0 1 272 772 V666 H198 A24 24 0 0 1 174 642 Z M664 224 H826 A24 24 0 0 1 850 248 V642 A24 24 0 0 1 826 666 H752 V772 A24 24 0 0 1 728 796 H493.6 Q498.3 742.4 506.6 690 H646 V560 H744 V330 H612 Q635.7 276.2 664 224 Z" fill="#FF4528"/>
+</svg>

@@ -19,6 +19,7 @@ import {
 } from "../composables/useSettings";
 import { formatChord } from "../lib/shortcut";
 import { DEFAULT_SETTINGS, MAX_HIDDEN_PORTS, type Settings } from "../types";
+import AppMark from "./AppMark.vue";
 import ShortcutRecorder from "./ShortcutRecorder.vue";
 
 const props = defineProps<{
@@ -397,21 +398,7 @@ const chipRemoveMark =
           <h2 id="pref-group-about" :class="heading">About</h2>
           <div :class="card">
             <div :class="row" data-row="about">
-              <span
-                class="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-brand text-white"
-                aria-hidden="true"
-              >
-                <svg width="18" height="16" viewBox="152 198 720 628" fill="currentColor" fill-rule="evenodd">
-                  <mask id="pr-cut-about" maskUnits="userSpaceOnUse" x="0" y="0" width="1024" height="1024">
-                    <rect width="1024" height="1024" fill="white" />
-                    <path d="M388 892 Q398 475 636 132" fill="none" stroke="black" stroke-width="88" />
-                  </mask>
-                  <path
-                    d="M184 258 A24 24 0 0 1 208 234 H816 A24 24 0 0 1 840 258 V646 A24 24 0 0 1 816 670 H730 V766 A24 24 0 0 1 706 790 H318 A24 24 0 0 1 294 766 V670 H208 A24 24 0 0 1 184 646 Z M280 330 V574 H390 V694 H634 V574 H744 V330 Z"
-                    mask="url(#pr-cut-about)"
-                  />
-                </svg>
-              </span>
+              <AppMark class="mt-0.5 h-7 w-7 shrink-0" />
               <div class="min-w-0 flex-1">
                 <div class="flex flex-wrap items-baseline gap-x-2">
                   <span data-version class="text-[13px] font-semibold text-ink">PortReaper {{ version || "…" }}</span>

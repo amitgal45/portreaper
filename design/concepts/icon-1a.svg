@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!-- Ghost in the Socket (1a): Ethernet socket with a tall, symmetric faceless ghost hollow (rounded arch top, three soft sinusoidal waves at the hem). -->
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="#121316"/>
+  <path d="M180 248 A24 24 0 0 1 204 224 H820 A24 24 0 0 1 844 248 V642 A24 24 0 0 1 820 666 H748 V770 A24 24 0 0 1 724 794 H300 A24 24 0 0 1 276 770 V666 H204 A24 24 0 0 1 180 642 Z M686 466 A174 174 0 0 0 338 466 V630 C338 662 364.1 668 393.7 668 C423.3 668 425 610 454.6 610 C484.2 610 482.4 668 512 668 C541.6 668 539.8 610 569.4 610 C599 610 600.7 668 630.3 668 C659.9 668 686 662 686 630 Z" fill="#FF4528" fill-rule="evenodd"/>
+</svg>
