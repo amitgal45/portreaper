@@ -274,6 +274,31 @@ describe("useSettings", () => {
     });
   });
 
+  it("a patch made while the first read is still running waits for it and saves", async () => {
+    const api = createMockApi();
+    await api.setSettings({ ...(await api.getSettings()), notifications: false });
+    let answer: (value: Settings) => void = () => {};
+    const stored = await api.getSettings();
+    vi.spyOn(api, "getSettings").mockReturnValueOnce(new Promise<Settings>((resolve) => (answer = resolve)));
+    const setSettings = vi.spyOn(api, "setSettings");
+    const store = useSettings(api);
+    const loading = store.load();
+    const patching = store.patch({ field: "dockIcon", value: "hide" });
+    const hiding = store.hidePort(5000);
+    expect(setSettings).not.toHaveBeenCalled();
+
+    answer(stored);
+    await loading;
+    expect(await patching).toBe(true);
+    expect(await hiding).toBe(true);
+    expect(store.error.dockIcon).toBeUndefined();
+    expect(await api.getSettings()).toMatchObject({
+      dockIcon: "hide",
+      notifications: false,
+      hiddenPorts: [5000],
+    });
+  });
+
   it("a settings:changed from the core counts as a read: a patch goes through after it", async () => {
     tauri.__TAURI_INTERNALS__ = {};
     listen.mockResolvedValue(vi.fn());

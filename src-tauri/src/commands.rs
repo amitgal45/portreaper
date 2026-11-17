@@ -70,10 +70,18 @@ pub fn reap_zombies(app: AppHandle) -> Result<Vec<KillOutcome>, String> {
 }
 
 /// What Reap kills: the distinct, sorted pids of the entries that are orphans, not protected
-/// and not on a hidden port. `ports::listing` made protection pid-wide, so a pid protected on
-/// any of its sockets, a hidden one included, is never a target.
+/// and not on a hidden port. A pid protected on any of its sockets, a hidden one included, is
+/// never a target: `ports::listing` already makes protection pid-wide, and this checks it again so
+/// the rule holds for any list it is given (as `tray::visible_model` does).
 pub(crate) fn reap_targets(entries: &[PortEntry], hidden: &[u16]) -> Vec<u32> {
-    let mut pids: Vec<u32> = entries.iter().filter(|e| reapable(e, hidden)).map(|e| e.pid).collect();
+    let mut protected: Vec<u32> = entries.iter().filter(|e| e.protected).map(|e| e.pid).collect();
+    protected.sort_unstable();
+    protected.dedup();
+    let mut pids: Vec<u32> = entries
+        .iter()
+        .filter(|e| reapable(e, hidden) && protected.binary_search(&e.pid).is_err())
+        .map(|e| e.pid)
+        .collect();
     pids.sort_unstable();
     pids.dedup();
     pids
@@ -261,5 +269,13 @@ mod tests {
             "pid 10 is protected on :3000 too, and pid 30 holds only a hidden port"
         );
         assert_eq!(reap_targets(&entries, &[]), [20, 30], "nothing hidden: the orphan on :5000 is a target, pid 10 still not");
+    }
+
+    #[test]
+    fn reap_spares_a_pid_protected_on_another_socket_even_in_a_list_listing_did_not_make() {
+        // No `protect_whole_pids` here: pid 10's :3000 row still says unprotected.
+        let entries = vec![entry(3000, 10, true, false), entry(5432, 10, true, true), entry(4000, 20, true, false)];
+        assert_eq!(reap_targets(&entries, &crate::hidden::normalize(&[5432])), [20]);
+        assert_eq!(reap_targets(&entries, &[]), [20]);
     }
 }

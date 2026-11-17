@@ -74,8 +74,27 @@ export function useSettings(api: PortApi, options: UseSettingsOptions = {}) {
   const offs: Array<() => void> = [];
   /** The core's preferences were read at least once; until then a patch would save the defaults. */
   let read = false;
+  /** The read in flight, so a patch made while it runs waits for it instead of being refused. */
+  let reading: Promise<void> | null = null;
 
-  async function load(): Promise<void> {
+  function load(): Promise<void> {
+    const run = readOnce().finally(() => {
+      if (reading === run) reading = null;
+    });
+    reading = run;
+    return run;
+  }
+
+  /**
+   * The first read while it is still running, for a patch to wait on (it never rejects); null once
+   * read, or with no read in flight. A patch awaits only a non-null one, so once the preferences
+   * were read its optimistic update still lands before the call returns.
+   */
+  function pendingRead(): Promise<void> | null {
+    return read ? null : reading;
+  }
+
+  async function readOnce(): Promise<void> {
     try {
       const fromCore = await api.getSettings();
       // The seam applies once: Got it stores the flag and the next load reads it back.
@@ -124,6 +143,8 @@ export function useSettings(api: PortApi, options: UseSettingsOptions = {}) {
    * false, sending nothing, while the core's preferences were never read.
    */
   async function patch({ field, value }: SettingsPatch): Promise<boolean> {
+    const wait = pendingRead();
+    if (wait) await wait;
     if (unread(field)) return false;
     const before = settings.value;
     const next: Settings = { ...before, [field]: value };
@@ -149,9 +170,11 @@ export function useSettings(api: PortApi, options: UseSettingsOptions = {}) {
    * false when the core refused the save, which rolls back like any patch.
    */
   async function hidePort(port: number): Promise<boolean> {
-    const current = settings.value.hiddenPorts;
     if (!isHideablePort(port)) return false;
+    const wait = pendingRead();
+    if (wait) await wait;
     if (unread("hiddenPorts")) return false;
+    const current = settings.value.hiddenPorts;
     if (current.includes(port)) return true;
     if (current.length >= MAX_HIDDEN_PORTS) return false;
     return patch({ field: "hiddenPorts", value: withHiddenPort(current, port) });
@@ -162,6 +185,8 @@ export function useSettings(api: PortApi, options: UseSettingsOptions = {}) {
    * or, like `hidePort`, while the core's preferences were never read.
    */
   async function unhidePort(port: number): Promise<boolean> {
+    const wait = pendingRead();
+    if (wait) await wait;
     if (unread("hiddenPorts")) return false;
     const current = settings.value.hiddenPorts;
     if (!current.includes(port)) return true;
