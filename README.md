@@ -2,17 +2,30 @@
 
 **Kill ports. See what is behind them.**
 
+[![Release](https://img.shields.io/github/v/release/amitgal45/portreaper)](https://github.com/amitgal45/portreaper/releases/latest) ![Notarized by Apple](https://img.shields.io/badge/Apple-Notarized-000000?logo=apple) [![MIT](https://img.shields.io/github/license/amitgal45/portreaper)](LICENSE) [![Homebrew](https://img.shields.io/badge/homebrew-amitgal45%2Ftap-orange?logo=homebrew)](#homebrew)
+
+![⌘⇧K from any app: the port in your way is already selected; ↵ frees it](docs/quick-kill.gif)
+
+*⌘⇧K from any app, then ↵.*
+
+<!-- docs/quick-kill.gif: Amit records it; commit it before this merges. -->
+
 PortReaper is a small macOS app that lists every listening port on your machine, names the
 project and git branch behind each one, and kills the process in one click. It lives in the Dock
 and in the menu bar. Instead of `node 48213` you see `shop-api · feature/cart · vite`.
 
-Status: **v0.4, macOS (Universal: Apple Silicon & Intel).** Signed with an Apple Developer ID,
+Status: **v0.5, macOS (Universal: Apple Silicon & Intel).** Signed with an Apple Developer ID,
 notarized, and auto-updating.
 
-![PortReaper: eleven listening ports grouped by project, the first one selected](docs/screenshot.png)
+## Why I built this
 
-*Mock data, from the browser build (`pnpm dev`), 760×540. Regenerate with `pnpm screenshot`;
-`docs/screenshot-dark.png` is the same window with the process drawer open; `docs/screenshot-quick.png` is the ⌘⇧K strip.*
+Coding agents leave things running. When a Claude Code or Cursor session ends, its dev servers,
+MCP servers, Playwright browsers and test workers are often still there. Every time a port was
+taken I ran `lsof -i :3000`, then `kill`, and the ones that hold no port never showed up in
+`lsof -i` at all. I wanted to see which project and branch each process belongs to, and free it
+in one keystroke. So I built PortReaper.
+
+<!-- Draft by Shimi from Amit's notes: Amit rewrites this in his own words. -->
 
 ## The instant flow
 
@@ -24,10 +37,16 @@ name works too), press ↵. The process gets SIGTERM, up to 3 s to close its soc
 The strip reads `Freed :3000 · node (48213)`, disappears about 180 ms later, and focus is back in
 your terminal.
 
-⌥↵ sends SIGKILL at once. A protected process (database, Docker, system daemon) asks for ↵ a
-second time. Esc backs out one step: disarms, clears the query, hides the strip.
+⌥↵ sends SIGKILL at once. A protected process (database, Docker, system daemon, a launchd job
+that would start again) asks for ↵ a second time. Esc backs out one step: disarms, clears the
+query, hides the strip.
 
 ## What it does
+
+![PortReaper: eleven listening ports grouped by project, the first one selected](docs/screenshot.png)
+
+*Mock data, from the browser build (`pnpm dev`), 1040×660. Regenerate with `pnpm screenshot`;
+`docs/screenshot-dark.png` is the same window in dark; `docs/screenshot-quick.png` is the ⌘⇧K strip.*
 
 - **Every listening port, classified.** TCP and UDP, IPv4 and IPv6 merged, each with the process
   behind it (name, command line, working directory, user, memory, uptime) and a category: `web`
@@ -40,7 +59,14 @@ second time. Esc backs out one step: disarms, clears the query, hides the strip.
   `vitest`/`jest` workers, `esbuild`, and `rust-analyzer` processes often get re-parented to
   `launchd` (`PID 1`) and keep eating gigabytes of RAM without holding a port. PortReaper spots
   both lost-terminal servers and portless `stdio` orphans, badges them as `Zombie`, shows the RAM
-  they hold, and reaps them all in one click (`Reap zombies`).
+  they hold, and reaps them all in one click (`Reap zombies`). A process launchd runs on purpose,
+  as a job, is not an orphan (next item).
+- **launchd and Homebrew services.** A process launchd runs as a job (`brew services`, any
+  LaunchAgent) is never called a Zombie and never reaped. The drawer shows the job's label and the
+  command that stops it for good, to copy: `brew services stop <formula>`, or
+  `launchctl disable gui/<uid>/<label> && launchctl bootout gui/<uid>/<label>` for any other job.
+  A job launchd starts again after a kill (KeepAlive) would be back within seconds, so killing it
+  asks first, says why, and offers the same command. PortReaper never runs it.
 - **The project behind the port.** Name from `package.json`, `Cargo.toml`, `pyproject.toml` or
   `go.mod` (else the folder), the git branch read from `.git/HEAD` (worktrees included), and the
   tool from the command line: `vite`, `next`, `node`, `docker`, `postgres`... When it is not sure
@@ -54,29 +80,62 @@ second time. Esc backs out one step: disarms, clears the query, hides the strip.
   remembered command and working directory.
 - **Kill in one click.** SIGTERM, up to 3 s to close sockets cleanly, then SIGKILL. ⌥-click
   sends SIGKILL at once. "Kill all" frees a whole project.
-- **Guards.** It never signals pid 0, pid 1 or itself. Databases, Docker, system daemons and
-  other users' processes are protected and ask a second time before dying, in the window and in
-  the strip alike.
-- **One window, one search box.** Dark only. Grouped by project, filtered by category pill,
-  keyboard driven (↑ ↓ Enter ⌘⌫ Esc, type a port number to search), refreshed every 2 s while
-  visible; the header shows the live count and the real round-trip of the last scan. Row
-  actions: open `localhost:<port>` in the browser, copy `kill -9 <pid>`, copy the command line,
-  reveal the project folder.
+- **Guards.** It never signals pid 0, pid 1 or itself. Databases, Docker, system daemons,
+  launchd jobs that would start again and other users' processes are protected and ask a second
+  time before dying, in the window and in the strip alike.
+- **Hidden ports.** Some ports are always there and never the one you want to free: macOS's
+  AirPlay Receiver listens on 5000 and 7000. Add a port in Preferences → Hidden ports, or choose
+  "Hide :5000" in a row's menu. A hidden port is left out of the list, the search, ⌘⇧K, the menu
+  bar's count and every bulk kill; the status line says how many are hidden.
+- **One window, one search box.** Light and dark, following macOS. Grouped by project, filtered
+  by category pill, keyboard driven (↑ ↓ Enter ⌘⌫ Esc, type a port number to search), refreshed
+  every 2 s while visible; the header shows the live count and the real round-trip of the last
+  scan. Row actions: open `localhost:<port>` in the browser, copy `kill -9 <pid>`, copy the
+  command line, reveal the project folder.
 - **Menu bar.** An icon with the count of open ports and one "Free :3000 · shop-api" item per
   port. ⌘⇧P brings the window up from anywhere. Closing the window hides it; the app stays in the
   Dock; Quit lives in the tray menu and the app menu.
 - **Nothing leaves the machine.** No analytics, no crash reporting. The one network request is
   the update check (below), and it carries nothing about you.
 
+## How it compares
+
+PortReaper next to what you would otherwise use: LeftOpen (a macOS app that lists TCP listeners
+by project), `lsof -i` and `kill` in a terminal, the `kill-port` npm package, and Activity Monitor.
+
+| What you want to know | PortReaper | LeftOpen | `lsof -i` + `kill` | kill-port | Activity Monitor |
+| --- | --- | --- | --- | --- | --- |
+| Which project and git branch is behind a port | Project and branch | Project, not the branch | No | No | No |
+| Portless leftovers of agents and test runs (stdio MCP servers, Playwright's headless Chrome, vitest/jest workers) | Yes | No (TCP listeners only) | No (they hold no port) | No | Listed as processes, with no hint |
+| launchd / `brew services` jobs that come back after a kill | Says so and offers the stop command | Warns and suggests `brew services stop` | No | No | No |
+| Hide ports | Yes | Yes | n/a | n/a | n/a |
+| One global shortcut to free the port in your way | ⌘⇧K | No | No | No | No |
+| Docker | Names the container and stops it instead of killing Docker Desktop | Labels Docker's listeners only | No | No | No |
+| UDP | Yes | No (TCP only) | Yes | Yes | n/a |
+| A CLI | No (planned) | Yes (`leftopen`) | Yes | Yes | No |
+| History of what was killed, and relaunch | Yes | No | No | No | No |
+| Updates | Installs signed updates itself | Checks daily and shows the `brew upgrade` command | Ships with macOS | Through npm | Ships with macOS |
+| Needs | macOS 12 or later | macOS 14 or later | Built in | Node.js | Built in |
+| License and price | MIT, free | MIT, free | Built in | MIT | Built in |
+
+LeftOpen does things PortReaper does not: fixed `*.localhost` URLs through Portless, Start for
+stopped projects (including those in `.claude/launch.json`), a "Copy Setup Prompt for AI",
+sounds, and a Chinese translation. `lsof` sees other users' processes only with `sudo`.
+
+Compared on 2026-11-17 with LeftOpen v0.5.8, from its README and source. Corrections welcome:
+[open an issue](https://github.com/amitgal45/portreaper/issues).
+
 ## Install
 
 ### Homebrew
+
+<!-- Keep this line only if github.com/amitgal45/homebrew-tap has Casks/portreaper.rb before this merges. -->
 
 ```bash
 brew install --cask amitgal45/tap/portreaper
 ```
 
-*(Or directly from the formula in this repository: `brew install --cask packaging/homebrew/portreaper.rb`.)*
+Every release updates the cask, and the cask pins the DMG's SHA-256.
 
 ### Direct Download
 
@@ -103,8 +162,8 @@ pnpm tauri build --bundles app
 open src-tauri/target/release/bundle/macos/PortReaper.app
 ```
 
-Once the repository has a GitHub remote, CI (`.github/workflows/ci.yml`) builds an unsigned
-`.app` for every push that can be downloaded from the workflow run.
+CI (`.github/workflows/ci.yml`) builds an unsigned `.app` for every push to `main` and every pull
+request; download it from the workflow run (`PortReaper-macos-unsigned`).
 
 ## Updates
 
@@ -151,16 +210,31 @@ Settings → Privacy & Security and click "Open Anyway", or run
 
 **What does it read, and where does it go?**
 The list of listening sockets, and for each process behind one: pid, name, command line, working
-directory, executable path, user, memory, start time and parent pid. It reads them to show them
-and to find the project. None of it is sent anywhere: the only network request the core makes is
-the update check, a GET of the latest release's `latest.json` on GitHub (see Updates); the UI is
-bundled with the app and loads nothing remote, and there is no analytics SDK.
+directory, executable path, user, memory, start time and parent pid. To tell a launchd job from
+an orphan it also runs `/bin/launchctl list` (your own jobs: pid and label) and reads a job's
+plist in `~/Library/LaunchAgents` for its KeepAlive. It reads them to show them and to find the
+project. None of it is sent anywhere: the only network request the core makes is the update
+check, a GET of the latest release's `latest.json` on GitHub (see Updates); the UI is bundled
+with the app and loads nothing remote, and there is no analytics SDK.
 
 **Why does it not ask for sudo?**
 Your own processes can be listed and signalled by your own user, and a dev server is your own
 process. Processes of other users (root daemons, for example) show up with what the kernel reveals
 to a normal user and cannot be killed; the app says so instead of asking for a password. There is
 no privileged helper.
+
+**Why did a process come back after I killed it?**
+launchd started it again. A `brew services` job such as ollama, or any LaunchAgent with
+KeepAlive, is back within seconds of a kill. PortReaper marks such a process as a launchd job,
+asks before killing it, and offers the command that stops it for good:
+`brew services stop <formula>`, or
+`launchctl disable gui/<uid>/<label> && launchctl bootout gui/<uid>/<label>` for any other job.
+Copy it and run it in a terminal; PortReaper never runs it.
+
+**How do I get AirPlay's 5000 and 7000 out of the list?**
+Hide them: Preferences (⌘,) → Hidden ports, add 5000 and 7000, or choose "Hide :5000" in the
+row's menu. A hidden port stays out of the list, the search, ⌘⇧K, the menu bar's count and every
+bulk kill until you remove it; the status line says how many are hidden.
 
 ## License
 
