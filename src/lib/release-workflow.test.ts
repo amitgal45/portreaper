@@ -4,8 +4,8 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 /**
- * No secret is read without the owner's approval: every secret lives in the `release` environment,
- * which waits for that approval, and every job that names a secret names that environment. A job
+ * No secret is read outside main and `v*` tags: every secret lives in the `release` environment,
+ * whose deployment rules admit only those refs, and every job that names a secret names it. A job
  * that reads a secret outside it would read a repository secret, which a workflow on any branch can.
  * Pinned here, by reading every workflow file as text: a new job, a new workflow, or a secret added
  * to an existing step cannot slip past the environment unnoticed. The settings are the guarantee;
