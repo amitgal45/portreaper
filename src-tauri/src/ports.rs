@@ -4,6 +4,8 @@
 //! - one entry per (pid, port, protocol); an IPv4 and an IPv6 socket of the same process on the
 //!   same port are one entry, with `bind` describing the widest reach;
 //! - sorted by port, then pid;
+//! - protected by pid, not by socket: kill is by pid, so a pid protected on one of its sockets is
+//!   protected on all of them ([`protect_whole_pids`]);
 //! - never panics on a process that vanished between the socket scan and the process lookup;
 //! - fills `project` through `crate::project::detect`.
 //!
@@ -244,6 +246,9 @@ pub(crate) fn listing() -> Result<Listing, PortsError> {
     if entries.iter().any(|e| is_docker_process(&e.process_name, e.exe.as_deref())) {
         attach_containers(&mut entries, &crate::docker::containers());
     }
+    // After the containers, which protect Docker's entries, and before any caller leaves the
+    // hidden ports out: every surface, every kill and the hidden filter see pid-wide protection.
+    protect_whole_pids(&mut entries);
     let argv = details.into_iter().filter(|(_, d)| !d.argv.is_empty()).map(|(pid, d)| (pid, d.argv)).collect();
     Ok(Listing { entries, argv })
 }
@@ -271,6 +276,25 @@ pub(crate) fn attach_containers(entries: &mut [PortEntry], containers: &[Contain
         });
         // Kill stops the container, never the backend; it still asks twice.
         entry.protected = true;
+    }
+}
+
+/// Makes every entry of a pid protected when any entry of that pid is. `listing` decides
+/// `protected` per socket (a `Db` or `System` port protects that socket), but a kill takes the
+/// whole pid: without this, a pid's unprotected socket (or the only one left once the user hid
+/// the protected one) would let a Kill, a group's Kill all or a bulk kill take a database along
+/// without asking.
+pub(crate) fn protect_whole_pids(entries: &mut [PortEntry]) {
+    let mut protected: Vec<u32> = entries.iter().filter(|e| e.protected).map(|e| e.pid).collect();
+    if protected.is_empty() {
+        return;
+    }
+    protected.sort_unstable();
+    protected.dedup();
+    for entry in entries.iter_mut() {
+        if protected.binary_search(&entry.pid).is_ok() {
+            entry.protected = true;
+        }
     }
 }
 
@@ -847,6 +871,44 @@ mod tests {
         let node = &entries[4];
         assert_eq!(node.container, None, "not a Docker process");
         assert_eq!(node.project, None);
+    }
+
+    /// A node process on `port`, built on [`docker_entry`] with everything Docker taken out.
+    fn node_entry(port: u16, pid: u32, protected: bool) -> PortEntry {
+        PortEntry {
+            pid,
+            process_name: "node".into(),
+            command: "node server.js".into(),
+            exe: Some("/opt/homebrew/bin/node".into()),
+            protected,
+            ..docker_entry(port, Protocol::Tcp)
+        }
+    }
+
+    #[test]
+    fn protection_is_by_pid_not_by_socket() {
+        let mut entries = vec![
+            // pid 10 holds a dev port and a database port; the port protected only that socket.
+            node_entry(3000, 10, false),
+            node_entry(5432, 10, true),
+            // No socket of pid 20 is protected: it stays killable on both.
+            node_entry(4000, 20, false),
+            node_entry(4001, 20, false),
+            // Protected already, and nobody else's protection spreads to it or from it.
+            node_entry(6379, 30, true),
+            node_entry(8080, 40, false),
+        ];
+        protect_whole_pids(&mut entries);
+        let flags: Vec<(u16, u32, bool)> = entries.iter().map(|e| (e.port, e.pid, e.protected)).collect();
+        assert_eq!(
+            flags,
+            [(3000, 10, true), (5432, 10, true), (4000, 20, false), (4001, 20, false), (6379, 30, true), (8080, 40, false)]
+        );
+
+        // Nothing protected: nothing changes.
+        let mut plain = vec![node_entry(3000, 10, false), node_entry(3001, 10, false)];
+        protect_whole_pids(&mut plain);
+        assert!(plain.iter().all(|e| !e.protected));
     }
 
     #[test]
