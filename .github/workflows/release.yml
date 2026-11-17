@@ -1,22 +1,68 @@
 name: Release
 
 # A `vX.Y.Z` tag builds the macOS app, signs the updater bundle with the minisign key in the
-# repository's secrets, and publishes a GitHub Release carrying the .dmg, the .app.tar.gz with its
-# .sig, and the latest.json the running app checks (`plugins.updater.endpoints` in
+# release environment's secrets, and publishes a GitHub Release carrying the .dmg, the .app.tar.gz
+# with its .sig, and the latest.json the running app checks (`plugins.updater.endpoints` in
 # src-tauri/tauri.conf.json). The recipe that gets here is in CLAUDE.md: a `## X.Y.Z` section at
 # the top of CHANGELOG.md, the three version fields bumped in one commit, then the tag.
+#
+# Once the release is published, the same job writes the Homebrew cask for it to
+# Casks/portreaper.rb in amitgal45/homebrew-tap (scripts/update-tap.sh: the template with the
+# version and the published DMG's SHA-256), with the TAP_TOKEN secret. A manual run from main
+# (Actions > Release > Run workflow) with `tag` set to an existing release builds and publishes
+# nothing: its `tap` job only rewrites the tap from that release, to backfill one or to retry.
+#
+# Every secret lives in the `release` environment, whose deployment rules admit only runs from the
+# main branch and from `v*` tags; it has no required reviewers, so a run does not wait for an
+# approval. What guards those refs is the rulesets: `protect-main` (nothing lands on main without a
+# PR and the owner's approval) and `release tags` (only its bypass list creates, moves or deletes
+# a `v*` tag). So no workflow pushed to another branch can read a secret, and the code that reads
+# one is code the owner merged. One job per run reads them. Setting it up: CLAUDE.md, "Release".
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "An existing release tag (vX.Y.Z) whose DMG the tap should point at"
+        required: true
+        type: string
 
 permissions:
   contents: write
 
 jobs:
   release:
-    name: Build, sign and publish (macOS)
+    name: Build, sign, publish and update the tap (macOS)
+    # A tag push only; a manual run rewrites the tap and builds nothing.
+    if: github.event_name == 'push'
     runs-on: macos-latest
+    # The secrets live here and nowhere else: only main and `v*` tags may use this environment.
+    environment: release
+    # One write to the tap at a time (this job and a manual `tap` run). GitHub keeps one running
+    # and one pending run per group; a third replaces the pending one, which then shows as
+    # cancelled. A cancelled release is run again from Actions (Re-run all jobs); its tag stays.
+    concurrency:
+      group: homebrew-tap
+      cancel-in-progress: false
     steps:
+      # First, before any action has run: a release that cannot reach the tap would publish a DMG
+      # the cask does not know, so stop before building. Nothing has touched the PATH yet, so this
+      # is the runner's own `gh`. It proves the token can read the tap; a token that cannot write
+      # fails at the last step, after the release is out, and a manual run with `tag` retries.
+      - name: The tap token must reach amitgal45/homebrew-tap
+        env:
+          GH_TOKEN: ${{ secrets.TAP_TOKEN }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::error::the TAP_TOKEN secret is not set in the release environment. Store a fine-grained token for amitgal45/homebrew-tap with Contents: Read and write as its TAP_TOKEN secret, then re-run this workflow; nothing was published." >&2
+            exit 1
+          fi
+          if ! gh api repos/amitgal45/homebrew-tap --jq .full_name; then
+            echo "::error::TAP_TOKEN cannot reach amitgal45/homebrew-tap. Store a fine-grained token for that repository with Contents: Read and write as the release environment's TAP_TOKEN secret, then re-run this workflow; nothing was published." >&2
+            exit 1
+          fi
+
       - uses: actions/checkout@v4
 
       - uses: pnpm/action-setup@v4
@@ -106,7 +152,7 @@ jobs:
             [ -n "${!name}" ] || missing="$missing $name"
           done
           if [ -n "$missing" ]; then
-            echo "::error::repository secrets missing:$missing. Set them (CLAUDE.md, Signing) before tagging; an unsigned release opens as damaged." >&2
+            echo "::error::release environment secrets missing:$missing. Set them (CLAUDE.md, Signing) before tagging; an unsigned release opens as damaged." >&2
             exit 1
           fi
 
@@ -129,3 +175,72 @@ jobs:
           prerelease: false
           includeUpdaterJson: true
           args: --config src-tauri/tauri.release.conf.json --target universal-apple-darwin
+
+      # The cask for the release just published, written to the tap. In this job rather than its
+      # own, so one job of the environment does the whole release. The actions above run in the
+      # same job as TAP_TOKEN, as they already do with the Apple certificate and the updater key;
+      # the token reaches only this step and the check at the top. If this step fails, retry with a manual
+      # run from main with the tag, never "Re-run failed jobs": that rebuilds and re-notarizes the
+      # whole release, and may replace the published assets.
+      - name: Update the Homebrew tap
+        env:
+          TAG: ${{ github.ref_name }}
+          RELEASE_TOKEN: ${{ github.token }}
+          TAP_TOKEN: ${{ secrets.TAP_TOKEN }}
+        run: bash scripts/update-tap.sh
+
+  # A manual run: rewrites the tap from one existing release (a backfill, or a retry after the
+  # release job's last step failed). From main only, since it uses that run's template and
+  # script, and only main's are reviewed; the environment admits main. Anyone with write access
+  # can start one (no approval): it only points the tap at an existing release, so the worst a
+  # stray run does is point it at an older one; a run with the latest tag puts it back.
+  tap:
+    name: Update the Homebrew tap from an existing release
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: read
+    concurrency:
+      group: homebrew-tap
+      cancel-in-progress: false
+    defaults:
+      run:
+        shell: bash
+    steps:
+      # Before any action and before the template is read: main only, and a plain vX.Y.Z.
+      - name: Resolve the tag
+        id: tag
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+          REF: ${{ github.ref }}
+        run: |
+          if [ "$REF" != "refs/heads/main" ]; then
+            echo "::error::run this workflow by hand from main, not $(printf '%q' "$REF"): the cask is written from that run's template and script" >&2
+            exit 1
+          fi
+          re='^v[0-9]+\.[0-9]+\.[0-9]+$'
+          if ! [[ "$INPUT_TAG" =~ $re ]]; then
+            echo "::error::the tag must be vX.Y.Z, got $(printf '%q' "$INPUT_TAG")" >&2
+            exit 1
+          fi
+          echo "tag=$INPUT_TAG" >> "$GITHUB_OUTPUT"
+
+      # main's template and script, not the tag's: tags before the first one with this job
+      # (v0.4.0) have neither scripts/update-tap.sh nor a template the script accepts, and a
+      # backfill of them must still work. No credentials are kept on disk.
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      # No pnpm: scripts/bump-cask.mjs has no dependencies.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Update the Homebrew tap
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+          RELEASE_TOKEN: ${{ github.token }}
+          TAP_TOKEN: ${{ secrets.TAP_TOKEN }}
+        run: bash scripts/update-tap.sh
