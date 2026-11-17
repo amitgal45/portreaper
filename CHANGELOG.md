@@ -5,6 +5,17 @@ section whose heading matches the tag (`v0.2.0` → `## 0.2.0`) into the GitHub 
 app shows it in its update dialog. Add a section for every release before tagging it
 (the recipe is in `CLAUDE.md`).
 
+## 0.5.0
+
+- **New look:** the Prismatic Cut Socket icon in the Dock, Finder, menu bar, app and ⌘⇧K.
+- **Hidden ports:** Preferences → General → Hidden ports, or "Hide :5000" in a row's menu.
+- **launchd and brew services:** a launchd job is never a Zombie or reaped. A kill asks first
+  unless it stays down, and offers the command that stops it for good; macOS's own always ask
+  and get none.
+- **Homebrew:** `brew install --cask amitgal45/tap/portreaper`, updated by every release.
+- **Safer kills:** a process protected on one port asks on all of them, and no key typed outside
+  the port list kills.
+
 ## 0.4.0
 
 - **Agent & MCP Zombie Reaper (WP-23):** Detects orphaned background dev and agent processes that
