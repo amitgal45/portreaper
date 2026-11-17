@@ -21,6 +21,21 @@ const key = (k: string, init: KeyboardEventInit = {}) =>
  */
 const PRESELECTED = [5174, 4000, 5173, 3000, 8080, 9335];
 
+const CONTROL_CENTER_EXE = "/System/Library/CoreServices/ControlCenter.app/Contents/MacOS/ControlCenter";
+
+/** ControlCenter on :5000 (AirPlay Receiver) as the core sends it: Apple's job, a system one. */
+const controlCenter: PortEntry = {
+  ...(MOCK_ENTRIES.find((e) => e.port === 7000) as PortEntry),
+  port: 5000,
+  pid: 635,
+  processName: "ControlCenter",
+  command: CONTROL_CENTER_EXE,
+  exe: CONTROL_CENTER_EXE,
+  parentPid: 1,
+  protected: true,
+  launchd: { label: "com.apple.controlcenter", restarts: null, brew: null, stopCommand: null, system: true },
+};
+
 /** A strip that has loaded once and is not polling. */
 async function loaded(api: PortApi = createMockApi()) {
   const quick = useQuick(api, { isVisible: () => false });
@@ -448,18 +463,52 @@ describe("useQuick: a protected entry", () => {
       text: "ollama may restart after a kill (launchd).",
       hint: "Enter again to kill it anyway.",
     });
-    // ControlCenter, a piece of macOS: the core gives it no stop command, so none is named.
-    const controlCenter = MOCK_ENTRIES.find((e) => e.port === 7000) as PortEntry;
-    const apple: LaunchdJob = {
-      label: "com.apple.controlcenter",
-      restarts: true,
-      brew: null,
-      stopCommand: null,
+  });
+
+  it("armedText: a system job gets the ordinary protected text, whatever launchd does to it", () => {
+    const protectedText = {
+      text: "This is a system process (ControlCenter).",
+      hint: "Press Enter again to kill it.",
     };
-    expect(armedText({ ...controlCenter, launchd: apple }, "amit")).toEqual({
+    expect(armedText(controlCenter, "amit")).toEqual(protectedText);
+    const apple = controlCenter.launchd as LaunchdJob;
+    expect(armedText({ ...controlCenter, launchd: { ...apple, restarts: true } }, "amit")).toEqual(
+      protectedText,
+    );
+    // A cached entry from a core that sent no `system`: the launchd text, as before.
+    const older = {
+      ...controlCenter,
+      launchd: { label: "com.apple.controlcenter", restarts: true, brew: null, stopCommand: null },
+    } as unknown as PortEntry;
+    expect(armedText(older, "amit")).toEqual({
       text: "ControlCenter restarts after a kill (launchd).",
       hint: "Enter again to kill it anyway.",
     });
+  });
+
+  it("ControlCenter on :5000, Apple's job: the first Enter arms it with the protected text, the second kills", async () => {
+    const api = createMockApi(MOCK_ENTRIES.map((e) => (e.port === 7000 ? controlCenter : e)));
+    const freePort = vi.spyOn(api, "freePort");
+    const quick = await loaded(api);
+    quick.query.value = "5000";
+    await nextTick();
+    expect(quick.selected.value?.pid).toBe(635);
+    expect(quick.selected.value?.protected).toBe(true);
+
+    quick.handleKey(key("Enter"));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(freePort).not.toHaveBeenCalled();
+    expect(quick.armed.value).toEqual({
+      key: "635:5000:tcp",
+      text: "This is a system process (ControlCenter).",
+      hint: "Press Enter again to kill it.",
+    });
+    expect(quick.armed.value?.text).not.toContain("(launchd)");
+
+    quick.handleKey(key("Enter"));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(freePort).toHaveBeenCalledWith(5000, false);
+    expect(freePort).toHaveBeenCalledTimes(1);
   });
 
   it("a job nobody can tell about asks first: the first Enter arms it with may restart, the second kills", async () => {

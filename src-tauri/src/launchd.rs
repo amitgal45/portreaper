@@ -31,6 +31,9 @@
 //! ([`stop_command`]) is text for the user to copy, built here once from a validated label, and
 //! never for one of Apple's jobs ([`is_apple_label`]): `launchctl list` names pieces of macOS
 //! (Control Center, which holds :5000 for AirPlay Receiver) as jobs of the user's domain too.
+//! Such a job, and one whose process runs from the system's folders, is a system one
+//! (`LaunchdJob::system`, decided per entry by `ports::is_system_job`): the UI calls it a system
+//! process, not a job launchd may start again.
 
 use std::collections::HashMap;
 use std::ffi::OsString;
@@ -199,8 +202,8 @@ pub fn is_safe_label(label: &str) -> bool {
 /// Whether `label` names one of Apple's jobs: it starts with `com.apple.`, in any case. Such a job
 /// is a piece of macOS that `launchctl list` names in the user's domain like any LaunchAgent
 /// (`com.apple.controlcenter`, which holds :5000 for AirPlay Receiver), and not the user's to
-/// disable: [`stop_command`] builds nothing for it.
-fn is_apple_label(label: &str) -> bool {
+/// disable: [`stop_command`] builds nothing for it, and `ports::is_system_job` makes it a system job.
+pub(crate) fn is_apple_label(label: &str) -> bool {
     // `get`: a label whose first bytes end inside a character is no `com.apple.` one, not a panic.
     label.get(..APPLE_PREFIX.len()).is_some_and(|head| head.eq_ignore_ascii_case(APPLE_PREFIX))
 }
@@ -335,7 +338,9 @@ fn read_plist(path: &Path) -> Option<plist::Value> {
 /// Everything the UI shows about the job `label`: the formula when `brew services` started it,
 /// whether it restarts after a kill (from `<home>/Library/LaunchAgents/<label>.plist`, read only
 /// for a label that is safe in a path: [`is_safe_label`], or a `brew services` label, whose
-/// formula is), and the command that stops it for good.
+/// formula is), the command that stops it for good, and whether it is one of Apple's jobs
+/// (`system`, from the label alone: `ports::job_for_entry` decides it again per entry, with the
+/// process's exe).
 pub fn describe(label: &str, home: Option<&Path>, uid: u32) -> LaunchdJob {
     let brew = brew_formula(label);
     let restarts = match home {
@@ -345,7 +350,7 @@ pub fn describe(label: &str, home: Option<&Path>, uid: u32) -> LaunchdJob {
         _ => None,
     };
     let stop = stop_command(label, brew.as_deref(), uid);
-    LaunchdJob { label: label.to_string(), restarts, brew, stop_command: stop }
+    LaunchdJob { label: label.to_string(), restarts, brew, stop_command: stop, system: is_apple_label(label) }
 }
 
 /// How many parents [`job_of`] looks through: one, so a job's direct child counts (a job whose
@@ -815,6 +820,7 @@ mod tests {
                 restarts: Some(true),
                 brew: Some("ollama".into()),
                 stop_command: Some("brew services stop ollama".into()),
+                system: false,
             }
         );
         // A brew label with `@` is not safe in a command, but its formula is, and so is the path.
@@ -843,15 +849,27 @@ mod tests {
 
         // An unsafe label is shown, and nothing is built from it.
         let evil = describe("../../evil", Some(home.path()), 501);
-        assert_eq!(evil, LaunchdJob { label: "../../evil".into(), restarts: None, brew: None, stop_command: None });
+        assert_eq!(
+            evil,
+            LaunchdJob { label: "../../evil".into(), restarts: None, brew: None, stop_command: None, system: false }
+        );
 
-        // Apple's job (its plist is under /System, not this home): shown, and no command that would
-        // disable a piece of macOS.
+        // Apple's job (its plist is under /System, not this home): shown, a system job, and no
+        // command that would disable a piece of macOS.
         let control_center = describe("com.apple.controlcenter", Some(home.path()), 501);
         assert_eq!(
             control_center,
-            LaunchdJob { label: "com.apple.controlcenter".into(), restarts: None, brew: None, stop_command: None }
+            LaunchdJob {
+                label: "com.apple.controlcenter".into(),
+                restarts: None,
+                brew: None,
+                stop_command: None,
+                system: true,
+            }
         );
+        assert!(describe("COM.APPLE.x", Some(home.path()), 501).system, "Apple's in any case");
+        assert!(!plain.system, "the user's own agent is no system job");
+        assert!(!gone.system);
     }
 
     #[test]
@@ -899,6 +917,7 @@ mod tests {
             restarts: Some(true),
             brew: Some("mysql".into()),
             stop_command: Some("brew services stop mysql".into()),
+            system: false,
         };
         assert_eq!(for_link(&mysql, Link::Own), mysql);
         assert_eq!(for_link(&mysql, Link::Child), LaunchdJob { restarts: None, ..mysql.clone() });

@@ -63,6 +63,11 @@ pub struct LaunchdJob {
     /// for one of Apple's jobs (`com.apple.*`), and for a process that runs from the system's
     /// folders or from an exe nobody knows: a piece of macOS is not the user's to disable.
     pub stop_command: Option<String>,
+    /// An Apple job, or one run from the system's folders: no stop command, and the UI calls it a
+    /// system process. Apple's: its label starts with `com.apple.`, in any case. The system's
+    /// folders: the process's exe is under `ports::SYSTEM_PREFIXES`. An exe nobody knows withholds
+    /// the stop command, but does not make a job a system one.
+    pub system: bool,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
@@ -368,6 +373,7 @@ mod tests {
             restarts: Some(true),
             brew: Some("ollama".into()),
             stop_command: Some("brew services stop ollama".into()),
+            system: false,
         };
         let json = serde_json::to_value(&job).unwrap();
         assert_eq!(
@@ -376,17 +382,37 @@ mod tests {
                 "label": "homebrew.mxcl.ollama",
                 "restarts": true,
                 "brew": "ollama",
-                "stopCommand": "brew services stop ollama"
+                "stopCommand": "brew services stop ollama",
+                "system": false
             })
         );
         let back: LaunchdJob = serde_json::from_value(json).unwrap();
         assert_eq!(back, job);
 
         // Unknown is null, not false: the UI words the two apart.
-        let unknown = LaunchdJob { label: "com.example.agent".into(), restarts: None, brew: None, stop_command: None };
+        let unknown = LaunchdJob {
+            label: "com.example.agent".into(),
+            restarts: None,
+            brew: None,
+            stop_command: None,
+            system: false,
+        };
         let json = serde_json::to_value(&unknown).unwrap();
         assert_eq!(json["restarts"], serde_json::Value::Null);
         assert_eq!(json["stopCommand"], serde_json::Value::Null);
+
+        // A piece of macOS: `system`, a plain boolean.
+        let apple = LaunchdJob {
+            label: "com.apple.controlcenter".into(),
+            restarts: None,
+            brew: None,
+            stop_command: None,
+            system: true,
+        };
+        let json = serde_json::to_value(&apple).unwrap();
+        assert_eq!(json["system"], true);
+        let back: LaunchdJob = serde_json::from_value(json).unwrap();
+        assert_eq!(back, apple);
 
         // On an entry it sits under `launchd`, camelCase inside.
         let entry = PortEntry {
@@ -414,6 +440,7 @@ mod tests {
         let json = serde_json::to_value(&entry).unwrap();
         assert_eq!(json["launchd"]["stopCommand"], "brew services stop ollama");
         assert_eq!(json["launchd"]["restarts"], true);
+        assert_eq!(json["launchd"]["system"], false);
         let back: PortEntry = serde_json::from_value(json).unwrap();
         assert_eq!(back, entry);
     }

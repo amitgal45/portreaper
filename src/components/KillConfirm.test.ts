@@ -35,13 +35,13 @@ function spies(): UiActions {
 
 let mounted: VueWrapper | null = null;
 
-/** The dialog on `target`, the way App.vue feeds it: the reasons and the ports from the mock. */
-async function mountConfirm(target: KillTarget, actions = spies()) {
+/** The dialog on `target`, the way App.vue feeds it: the reasons, and the ports from `entries` (the mock's). */
+async function mountConfirm(target: KillTarget, actions = spies(), entries: PortEntry[] = MOCK_ENTRIES) {
   const wrapper = mount(KillConfirm, {
     props: {
       target,
       reasonFor: (e: PortEntry) => protectionReason(e, "amit"),
-      portsOf: (pid: number) => MOCK_ENTRIES.filter((e) => e.pid === pid && e.port > 0).map((e) => e.port),
+      portsOf: (pid: number) => entries.filter((e) => e.pid === pid && e.port > 0).map((e) => e.port),
     },
     global: { provide: { [ACTIONS_KEY as symbol]: actions } },
     attachTo: document.body,
@@ -67,6 +67,23 @@ function reset() {
 
 const ollama = byPort(11434);
 const job = ollama.launchd as LaunchdJob;
+
+const CONTROL_CENTER_EXE = "/System/Library/CoreServices/ControlCenter.app/Contents/MacOS/ControlCenter";
+
+/** ControlCenter on :5000 (AirPlay Receiver) as the core sends it: Apple's job, a system one. */
+const controlCenter: PortEntry = {
+  ...byPort(7000),
+  port: 5000,
+  pid: 635,
+  processName: "ControlCenter",
+  command: CONTROL_CENTER_EXE,
+  exe: CONTROL_CENTER_EXE,
+  parentPid: 1,
+  protected: true,
+  launchd: { label: "com.apple.controlcenter", restarts: null, brew: null, stopCommand: null, system: true },
+};
+/** The mock machine with ControlCenter on :5000 instead of :7000: pid 635 holds that one port. */
+const withControlCenter = MOCK_ENTRIES.map((e) => (e.port === 7000 ? controlCenter : e));
 
 describe("KillConfirm", () => {
   afterEach(reset);
@@ -128,26 +145,43 @@ describe("KillConfirm", () => {
     expect(actions.copyStopCommand).toHaveBeenCalledWith(entry);
   });
 
-  it("ControlCenter on AirPlay, a piece of macOS the core gives no stop command: nothing to copy", async () => {
-    // `com.apple.controlcenter` is a job of the user's domain; the core builds no command for it.
-    const controlCenter = byPort(7000);
-    for (const restarts of [true, null]) {
-      const launchd: LaunchdJob = {
-        label: "com.apple.controlcenter",
-        restarts,
-        brew: null,
-        stopCommand: null,
-      };
-      await mountConfirm({ kind: "entry", entry: { ...controlCenter, launchd }, force: false });
-      const again = restarts ? "starts again" : "may start again";
-      expect(text()).toContain(
-        [
-          `ControlCenter is a launchd job that launchd ${again} after a kill.`,
-          "It holds port 7000.",
-          "This sends SIGTERM and waits up to 3 s before SIGKILL.",
-        ].join(" "),
+  it("ControlCenter on :5000, Apple's job: a system process that asks, with no launchd sentence and nothing to copy", async () => {
+    const { wrapper } = await mountConfirm(
+      { kind: "entry", entry: controlCenter, force: false },
+      spies(),
+      withControlCenter,
+    );
+    expect(text()).toContain("Kill ControlCenter (635)?");
+    expect(text()).toContain(
+      [
+        "ControlCenter is a system process.",
+        "It holds port 5000.",
+        "This sends SIGTERM and waits up to 3 s before SIGKILL.",
+      ].join(" "),
+    );
+    expect(text()).not.toContain("To stop it for good");
+    expect(text()).not.toContain("launchctl");
+    expect(text()).not.toContain("launchd");
+    // It asks: Kill anyway is the second step, and nothing to copy sits beside it.
+    expect(buttons()).toEqual(["Cancel", "Kill anyway"]);
+    button("Kill anyway")?.click();
+    expect(wrapper.emitted("confirm")).toHaveLength(1);
+    reset();
+
+    // Whatever launchd does to it, and even with a command a buggy core sent: still a system process.
+    const apple = controlCenter.launchd as LaunchdJob;
+    const stopCommand =
+      "launchctl disable gui/501/com.apple.controlcenter && launchctl bootout gui/501/com.apple.controlcenter";
+    for (const launchd of [
+      { ...apple, restarts: true },
+      { ...apple, restarts: true, stopCommand },
+    ]) {
+      await mountConfirm(
+        { kind: "entry", entry: { ...controlCenter, launchd }, force: false },
+        spies(),
+        withControlCenter,
       );
-      expect(text()).not.toContain("To stop it for good");
+      expect(text()).toContain("ControlCenter is a system process. It holds port 5000.");
       expect(text()).not.toContain("launchctl");
       expect(buttons()).toEqual(["Cancel", "Kill anyway"]);
       reset();

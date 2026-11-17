@@ -94,12 +94,14 @@ export interface Armed {
  * the core's stop command when there is one, copied as it came (`?.`: a cached entry from an older
  * core has no `launchd`): "ollama restarts after a kill (launchd). Enter again to kill it anyway;
  * brew services stop ollama stops it." One that nobody can tell about (`restarts` null, which the
- * core protects too) says it "may restart". Anything else names why it is protected.
+ * core protects too) says it "may restart". A system job (a piece of macOS: ControlCenter on :5000)
+ * is none of these: it gets the ordinary protected text, "This is a system process (ControlCenter)."
+ * (`?.system`: a cached entry may lack the field). Anything else names why it is protected.
  */
 export function armedText(entry: PortEntry, currentUser: string | null): Omit<Armed, "key"> {
   const job = entry.launchd;
   const restarts = job?.restarts;
-  if (job && restarts !== false) {
+  if (job && !job.system && restarts !== false) {
     const verb = restarts === true ? "restarts" : "may restart";
     const statement = `${entry.processName} ${verb} after a kill (launchd).`;
     return job.stopCommand
