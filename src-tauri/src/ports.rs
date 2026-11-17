@@ -1246,7 +1246,9 @@ mod tests {
             stop_command: None,
             system: true,
         };
-        apply_launchd(&mut entry, Some(job_for_entry(&apple, crate::launchd::Link::Own, entry.exe.as_deref())));
+        // Two statements: the carried job borrows `entry.exe`, which `apply_launchd` then writes beside.
+        let carried = job_for_entry(&apple, crate::launchd::Link::Own, entry.exe.as_deref());
+        apply_launchd(&mut entry, Some(carried));
         assert!(entry.protected, "a system job asks first, whatever its plist says");
         assert!(!entry.orphan);
         assert_eq!(entry.launchd, Some(apple));
