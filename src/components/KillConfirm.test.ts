@@ -29,6 +29,7 @@ function spies(): UiActions {
     copyStopCommand: vi.fn(),
     revealFolder: vi.fn(),
     watch: vi.fn(),
+    hide: vi.fn(),
   };
 }
 
