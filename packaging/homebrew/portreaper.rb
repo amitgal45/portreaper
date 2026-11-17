@@ -1,7 +1,7 @@
-# The template for Casks/portreaper.rb in the tap (amitgal45/homebrew-tap). The `tap` job in
-# .github/workflows/release.yml copies packaging/homebrew/portreaper.rb from amitgal45/portreaper,
-# sets `version` and `sha256` to the release and the SHA-256 of its notarized DMG
-# (scripts/bump-cask.mjs), and writes it to the tap. The template keeps the last pair written
+# The template for Casks/portreaper.rb in the tap (amitgal45/homebrew-tap). On every release,
+# .github/workflows/release.yml (its `cask` job) copies packaging/homebrew/portreaper.rb from
+# amitgal45/portreaper and sets `version` and `sha256` to the release and the SHA-256 of its
+# notarized DMG (scripts/bump-cask.mjs); its `tap` job writes the result to the tap. The template keeps the last pair written
 # into it by hand (0.4.0); the tap's copy is the one `brew` reads. Everything else changes in
 # the template first: the next release overwrites the tap's copy.
 cask "portreaper" do

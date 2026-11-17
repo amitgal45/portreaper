@@ -7,8 +7,9 @@ import { bumpCask } from "../../scripts/bump-cask.mjs";
 
 /**
  * packaging/homebrew/portreaper.rb is the template for Casks/portreaper.rb in the tap
- * (amitgal45/homebrew-tap). The release workflow's `tap` job runs scripts/bump-cask.mjs on it with
- * the release's version and the SHA-256 of its notarized DMG, and writes the result to the tap.
+ * (amitgal45/homebrew-tap). The release workflow's `cask` job runs scripts/bump-cask.mjs on it with
+ * the release's version and the SHA-256 of its notarized DMG, and its `tap` job writes the result
+ * to the tap.
  * Pinned here: the template carries a real checksum and the URL of the DMG the release publishes,
  * and the script changes those two lines and nothing else.
  */
@@ -96,7 +97,13 @@ describe("bumpCask", () => {
 
 /** `node scripts/bump-cask.mjs <args>`, the way the release workflow's `cask` job runs it. */
 function cli(...args: string[]) {
-  return spawnSync(process.execPath, ["scripts/bump-cask.mjs", ...args], { cwd: root, encoding: "utf8" });
+  // No inherited NODE_OPTIONS: a warning it caused would come before the script's own stderr.
+  const env = { ...process.env, NODE_OPTIONS: "" };
+  return spawnSync(process.execPath, ["scripts/bump-cask.mjs", ...args], {
+    cwd: root,
+    encoding: "utf8",
+    env,
+  });
 }
 
 describe("scripts/bump-cask.mjs on the command line", () => {

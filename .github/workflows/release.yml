@@ -294,11 +294,15 @@ jobs:
   tap:
     name: Update the Homebrew tap
     needs: cask
+    # Keep `!cancelled()`: without it the implied `success()` also looks at the jobs above `cask`,
+    # and on a manual run `tap-token` and `release` are skipped, which would skip this job too.
     if: ${{ !cancelled() && needs.cask.result == 'success' }}
     runs-on: ubuntu-latest
     permissions: {}
-    # One write to the tap at a time, in the order the runs started: two releases finishing close
-    # together never interleave their reads and writes of the cask.
+    # One write to the tap at a time: two releases finishing close together never interleave their
+    # reads and writes of the cask. GitHub keeps one running and one pending job per group; a third
+    # replaces the pending one, so the newest cask wins and the replaced run shows as cancelled
+    # (run Release by hand with its tag if that one mattered).
     concurrency:
       group: homebrew-tap
       cancel-in-progress: false
