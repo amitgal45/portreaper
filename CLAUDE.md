@@ -46,7 +46,13 @@ Part of: PortReaper (`~/work/portreaper`). Startup-wide rules come from the pare
      its bypass list create a `v*` tag). The run starts at once, with no approval:
      `.github/workflows/release.yml` refuses a tag that does not match the app version, builds,
      signs and publishes the release with the `.dmg`, the `.app.tar.gz` + `.sig` and
-     `latest.json`.
+     `latest.json`. Releases here are immutable (Settings > General > Releases): a published
+     release can never gain, replace or lose a file, and its tag name can never be used again,
+     even after the release is deleted. So the release stays a draft until all four files are on
+     it, and one step publishes it (`src/lib/release-workflow.test.ts` pins that order). v0.5.0
+     was lost to the old order, published first and uploaded after: GitHub refused the upload,
+     kept an empty release under that name, and its changes shipped as 0.5.1. A draft the publish
+     step refuses publishes nothing: delete the draft, then re-run the release; the tag stays.
   4. The same job then writes `Casks/portreaper.rb` in `amitgal45/homebrew-tap`
      (`scripts/update-tap.sh`) from `packaging/homebrew/portreaper.rb`, the template, with the
      new version and the published DMG's SHA-256. It needs the `TAP_TOKEN` secret: a
