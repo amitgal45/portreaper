@@ -62,6 +62,47 @@ test("a protected port asks first; Cancel keeps it; Kill anyway takes every port
   );
 });
 
+test("a launchd job that restarts asks first, names the command that stops it, and Cancel leaves it running", async ({
+  page,
+}) => {
+  await open(page);
+  // Ollama in the mock is `brew services` ollama: launchd starts it again after a kill (KeepAlive).
+  const ollama = row(page, 11434);
+
+  await killButton(ollama).click();
+  const dialog = confirmDialog(page);
+  await expect(dialog).toBeVisible();
+  await expect(dialog).toContainText("Kill ollama (32014)?");
+  await expect(dialog).toContainText(
+    "ollama is a Homebrew service (ollama) that launchd starts again after a kill.",
+  );
+  await expect(dialog).toContainText(
+    "It holds port 11434. To stop it for good, run brew services stop ollama.",
+  );
+  await expect(dialog).not.toContainText("starts it again");
+
+  // Cancel still takes the focus, so Enter twice never kills; Copy command sits left of it.
+  const cancel = dialog.getByRole("button", { name: "Cancel" });
+  const copy = dialog.getByRole("button", { name: "Copy command" });
+  await expect(cancel).toBeFocused();
+  await expect(copy).toBeVisible();
+  const [copyBox, cancelBox] = await Promise.all([copy.boundingBox(), cancel.boundingBox()]);
+  expect(copyBox, "Copy command has a box").not.toBeNull();
+  expect(cancelBox, "Cancel has a box").not.toBeNull();
+  expect((copyBox as { x: number }).x).toBeLessThan((cancelBox as { x: number }).x);
+
+  // Copying decides nothing: the dialog stays up, and Cancel is still there to press. What the
+  // clipboard does differs per engine (copied, or refused with a toast), so only the dialog is checked.
+  await copy.click();
+  await expect(dialog).toBeVisible();
+  await expect(dialog).toContainText("Kill ollama (32014)?");
+
+  await cancel.click();
+  await expect(dialog).toHaveCount(0);
+  await expect(ollama).toBeVisible();
+  await expect(rows(page)).toHaveCount(MOCK_PORT_COUNT);
+});
+
 test("⌥-click forces the kill", async ({ page }) => {
   await open(page);
 
@@ -72,9 +113,9 @@ test("⌥-click forces the kill", async ({ page }) => {
   const toast = toasts(page).getByRole("button");
   await expect(toast).toHaveText("Force-killed node (51022). Port 5173 is free.");
 
-  // With the toast still up, the ✕ of the last row stays clickable: toasts are a band under the
-  // list, not an overlay. The confirm for a protected row names the signal: ⌥-click on
-  // ControlCenter must say SIGKILL, not SIGTERM.
+  // With the toast still up, the ✕ of a row at the foot of the list stays clickable: toasts are a
+  // band under the list, not an overlay. The confirm for a protected row names the signal:
+  // ⌥-click on ControlCenter must say SIGKILL, not SIGTERM.
   await expect(toast).toBeVisible();
   await killButton(row(page, 7000)).click({ modifiers: ["Alt"] });
   const dialog = confirmDialog(page);

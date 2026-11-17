@@ -218,7 +218,9 @@ test("Kill from the inspector goes through the gate; the column moves on once th
   await expect(row(page, 5433)).toHaveAttribute("aria-selected", "true");
 });
 
-test("the row menu: Inspect, Open localhost, the copies, Reveal folder, Force kill", async ({ page }) => {
+test("the row menu: Inspect, Watch, Hide, Open localhost, the copies, Reveal folder, Force kill", async ({
+  page,
+}) => {
   await open(page);
   await moreButton(row(page, 3000)).click();
   const menu = page.getByRole("menu");
@@ -226,6 +228,7 @@ test("the row menu: Inspect, Open localhost, the copies, Reveal folder, Force ki
   await expect(menu.getByRole("menuitem")).toHaveText([
     "Inspect",
     "Watch :3000",
+    "Hide :3000",
     "Open localhost:3000",
     "Copy kill -9 48213",
     "Copy command",

@@ -7,8 +7,10 @@
 //! "Start at login" and quit.
 //!
 //! The pure parts are [`shortcuts_model`], built on [`menu_model`] (the port list in, every
-//! port line out), and [`FOOTER`], the fixed lines under the submenu in order. Everything the
-//! tray shows is derived from them, so they are the parts that get unit tests.
+//! port line out), [`visible_model`] (the same without the hidden ports, `crate::hidden`), and
+//! [`FOOTER`], the fixed lines under the submenu in order. Everything the tray shows is derived
+//! from them, so they are the parts that get unit tests. A hidden port is in no line, no count
+//! and neither bulk kill; the watches still see it (`crate::watch::observe` runs first).
 //!
 //! A Tauri 2 tray menu is static once built, so a background thread re-reads the ports every
 //! `refreshMs` of the settings (and at once whenever the window is shown or a setting changed)
@@ -170,6 +172,32 @@ pub fn shortcuts_model(entries: &[PortEntry]) -> ShortcutsModel {
         orphans: distinct_pids(entries, |e| e.orphan && unprotected(e)),
         dev_servers: distinct_pids(entries, |e| e.project.is_some() && unprotected(e)),
     }
+}
+
+/// [`shortcuts_model`] for the ports the user did not hide. A process that holds only hidden
+/// ports is in neither bulk list. One protected on a hidden socket stays protected: the port
+/// decides `protected` for some categories, and hiding a port must narrow what a bulk kill
+/// reaches, never widen it. `ports::listing` already spreads protection over the whole pid
+/// (`protect_whole_pids`); the rule stays so the model holds for any list it is given.
+pub fn visible_model(entries: &[PortEntry], hidden: &[u16]) -> ShortcutsModel {
+    if hidden.is_empty() {
+        return shortcuts_model(entries);
+    }
+    shown_model(entries, &crate::hidden::visible(entries.to_vec(), hidden))
+}
+
+/// [`visible_model`] for a caller that already holds `shown`, the entries of `entries` that are
+/// not hidden: the same rule, without filtering or copying the listing again.
+fn shown_model(entries: &[PortEntry], shown: &[PortEntry]) -> ShortcutsModel {
+    let mut model = shortcuts_model(shown);
+    // Nothing was left out: `shortcuts_model` already kept every protected pid out of both lists.
+    if shown.len() == entries.len() {
+        return model;
+    }
+    let protected = distinct_pids(entries, |e| e.protected);
+    model.orphans.retain(|pid| protected.binary_search(pid).is_err());
+    model.dev_servers.retain(|pid| protected.binary_search(pid).is_err());
+    model
 }
 
 /// `"PortReaper · N ports"` with the freeable count the title shows; `no ports` at zero.
@@ -426,10 +454,20 @@ fn take_snapshot(app: &AppHandle) -> Snapshot {
         Vec::new()
     });
     crate::watch::observe(app, &entries);
+    // The watches saw every port; the menu, the title and the tooltip show the ones not hidden,
+    // filtered once for all three. With nothing hidden they read the listing itself: no copy.
+    let hidden = crate::hidden::hidden_ports(app);
+    let filtered;
+    let shown: &[PortEntry] = if hidden.is_empty() {
+        &entries
+    } else {
+        filtered = crate::hidden::visible(entries.clone(), &hidden);
+        &filtered
+    };
     Snapshot {
-        shortcuts: shortcuts_model(&entries),
-        title: tray_title(&entries),
-        tooltip: tray_tooltip(&entries),
+        shortcuts: shown_model(&entries, shown),
+        title: tray_title(shown),
+        tooltip: tray_tooltip(shown),
         autostart: autostart_enabled(app),
         accelerators: shortcuts::current(app),
     }
@@ -741,7 +779,9 @@ fn bulk_kill(app: &AppHandle, bulk: Bulk) {
         }
     };
     let entries = &listing.entries;
-    let model = shortcuts_model(entries);
+    // Decided from the ports the user can see; the kills still record against the whole listing.
+    let hidden = crate::hidden::hidden_ports(app);
+    let model = visible_model(entries, &hidden);
     let pids = bulk.pids(&model);
     if pids.is_empty() {
         notify(app, bulk.nothing_to_kill());
@@ -751,8 +791,9 @@ fn bulk_kill(app: &AppHandle, bulk: Bulk) {
     let mut freed: Vec<u32> = Vec::new();
     let mut refused = 0;
     for &pid in pids {
-        // The model's pids come from these entries, so each has one; the first is its lowest port.
-        let Some(entry) = entries.iter().find(|e| e.pid == pid) else {
+        // The model's pids come from the shown entries, so each has one; the first is its lowest
+        // shown port, which is what the feed names.
+        let Some(entry) = entries.iter().find(|e| e.pid == pid && !crate::hidden::is_hidden(e.port, &hidden)) else {
             continue;
         };
         let name = entry.process_name.as_str();
@@ -831,6 +872,7 @@ mod tests {
             category: Category::Other,
             framework: None,
             container: None,
+            launchd: None,
         }
     }
 
@@ -1129,6 +1171,50 @@ mod tests {
         // control: the same construction over a dev server still counts, so the test can fail
         let node = launchd_child(3000, 31, "node", "/opt/homebrew/bin/node");
         assert_eq!(shortcuts_model(&[node]).orphans, [31]);
+    }
+
+    #[test]
+    fn a_hidden_port_leaves_the_lines_the_count_and_both_bulk_lists() {
+        let entries = vec![
+            orphan(with_project(entry(3000, Protocol::Tcp, "127.0.0.1", 10, "node"), "shop-api")),
+            // Only ever on 5000: hidden, it is in no bulk list.
+            orphan(with_project(entry(5000, Protocol::Tcp, "127.0.0.1", 20, "python3"), "flask-app")),
+            with_project(entry(8080, Protocol::Tcp, "127.0.0.1", 30, "node"), "specmate"),
+        ];
+        let all = shortcuts_model(&entries);
+        assert_eq!(all.header, "PortReaper · 3 ports");
+        assert_eq!(all.orphans, [10, 20]);
+        assert_eq!(all.dev_servers, [10, 20, 30]);
+
+        let shown = shortcuts_model(&crate::hidden::visible(entries.clone(), &[5000]));
+        assert_eq!(labels(&shown.ports), ["Free :3000 · shop-api", "Free :8080 · specmate"], "no :5000 line");
+        assert_eq!(shown.header, "PortReaper · 2 ports", "one lower");
+        assert_eq!(shown.orphans, [10]);
+        assert_eq!(shown.dev_servers, [10, 30]);
+        assert_eq!(tray_title(&crate::hidden::visible(entries.clone(), &[5000])), "2");
+        assert_eq!(visible_model(&entries, &[5000]), shown, "the tray's model is that one");
+        assert_eq!(visible_model(&entries, &[]), all, "nothing hidden: the model as it was");
+    }
+
+    #[test]
+    fn a_pid_protected_on_a_hidden_socket_stays_out_of_the_bulk_lists() {
+        // A generic process on a database port: the port made that socket protected.
+        let entries = vec![
+            orphan(with_project(entry(3000, Protocol::Tcp, "127.0.0.1", 10, "node"), "shop-api")),
+            orphan(protected(with_project(entry(5432, Protocol::Tcp, "127.0.0.1", 10, "node"), "shop-api"))),
+            orphan(with_project(entry(4000, Protocol::Tcp, "127.0.0.1", 11, "ruby"), "legacy-docs")),
+        ];
+        assert_eq!(shortcuts_model(&entries).orphans, [11]);
+        let model = visible_model(&entries, &[5432]);
+        assert_eq!(labels(&model.ports), ["Free :3000 · shop-api", "Free :4000 · legacy-docs"]);
+        assert_eq!(model.orphans, [11], "hiding :5432 does not make pid 10 killable in bulk");
+        assert_eq!(model.dev_servers, [11]);
+        // The tray's tick filters once and hands both lists over: the same model, the same rule.
+        let shown = crate::hidden::visible(entries.clone(), &[5432]);
+        assert_eq!(shown_model(&entries, &shown), model);
+        // A hidden port nothing holds leaves the listing whole: the plain model.
+        assert_eq!(visible_model(&entries, &[9999]), shortcuts_model(&entries));
+        assert_eq!(shown_model(&entries, &entries), shortcuts_model(&entries));
     }
 
     #[test]

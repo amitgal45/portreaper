@@ -11,8 +11,9 @@
 //! A change goes through [`update`]: validate, store, apply, emit, in that order
 //! ([`apply_order`]). Applying means the thing happens now: the Dock icon through the activation
 //! policy, start at login through the autostart plugin, the shortcuts through
-//! `crate::shortcuts`. The refresh interval and the notification switch are applied to nothing:
-//! the tray reads them from the store on every tick, the UI from `get_settings`. A shortcut the
+//! `crate::shortcuts`. The refresh interval, the notification switch and the hidden ports are
+//! applied to nothing: the tray reads them from the store on every tick, the listing commands on
+//! every call, the UI from `get_settings`. A shortcut the
 //! plugin rejects or another app owns is the one failure that is an error (`Err` naming the
 //! field; the old accelerator stays registered and stored); every other failure is a warning in
 //! the log and the state stays valid.
@@ -31,6 +32,7 @@ use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_autostart::ManagerExt as _;
 use tauri_plugin_store::StoreExt as _;
 
+use crate::hidden;
 use crate::model::{DockIcon, Settings};
 use crate::shortcuts;
 use crate::tray::{info, warn};
@@ -74,7 +76,8 @@ pub fn clamp_refresh_ms(ms: u32) -> u32 {
 /// The settings in a store's entries: every field that is present and well-formed, the default
 /// for every other one. Keys that are not settings (`firstRunDone`) are ignored, a value of the
 /// wrong shape costs only its own field, a shortcut the plugin would not take goes back to its
-/// default, and `refreshMs` is clamped. Anything that is not an object is an empty store.
+/// default, `refreshMs` is clamped and `hiddenPorts` is normalized (`hidden::normalize`).
+/// Anything that is not an object is an empty store.
 pub fn merge_defaults(stored: &Value) -> Settings {
     let defaults = Settings::default();
     let Some(stored) = stored.as_object() else {
@@ -102,6 +105,7 @@ pub fn merge_defaults(stored: &Value) -> Settings {
     if shortcuts::validate_accelerator(&settings.window_shortcut).is_err() {
         settings.window_shortcut = shortcuts::DEFAULT_WINDOW.into();
     }
+    settings.hidden_ports = hidden::normalize(&settings.hidden_ports);
     settings
 }
 
@@ -175,6 +179,8 @@ pub fn current(app: &AppHandle) -> Settings {
 pub fn update(app: &AppHandle, settings: Settings) -> Result<Settings, String> {
     let mut settings = settings;
     settings.refresh_ms = clamp_refresh_ms(settings.refresh_ms);
+    // Stored as every reader expects it: sorted for `hidden::is_hidden`, and within the cap.
+    settings.hidden_ports = hidden::normalize(&settings.hidden_ports);
     let before = load(app);
     let mut effective = settings.clone();
     let mut failure: Option<String> = None;
@@ -226,8 +232,9 @@ pub fn apply(app: &AppHandle, settings: &Settings) -> Result<Settings, String> {
     apply_dock_icon(app, settings.dock_icon);
     apply_start_at_login(app, settings.start_at_login);
     shortcuts::apply(app, settings)?;
-    // refreshMs, notifications, defaultForce, onboardingDone: stored, and read by whoever needs
-    // them (the tray on its next tick, the UI through get_settings).
+    // refreshMs, notifications, defaultForce, onboardingDone, hiddenPorts: stored, and read by
+    // whoever needs them (the tray on its next tick, the listing commands, the UI through
+    // get_settings).
     Ok(current(app))
 }
 
@@ -380,12 +387,14 @@ mod tests {
             "refreshMs": 500,
             "notifications": false,
             "quickShortcut": "Ctrl+Alt+K",
+            "hiddenPorts": [7000, 0, 5000, 7000],
         });
         let settings = merge_defaults(&stored);
         assert_eq!(settings.dock_icon, DockIcon::Hide);
         assert_eq!(settings.refresh_ms, MIN_REFRESH_MS, "clamped on the way in");
         assert!(!settings.notifications);
         assert_eq!(settings.quick_shortcut, "Ctrl+Alt+K");
+        assert_eq!(settings.hidden_ports, [5000, 7000], "normalized on the way in: no 0, sorted, once each");
         let defaults = Settings::default();
         assert_eq!(settings.window_shortcut, defaults.window_shortcut);
         assert_eq!(settings.start_at_login, defaults.start_at_login);
@@ -409,6 +418,14 @@ mod tests {
         assert_eq!(settings.quick_shortcut, defaults.quick_shortcut, "a shortcut the plugin cannot parse is dropped");
         assert_eq!(settings.window_shortcut, defaults.window_shortcut);
         assert!(settings.onboarding_done, "the well-formed field next to them survives");
+
+        // A hidden list that does not parse as port numbers is dropped whole, not port by port:
+        // the UI never writes one, so nothing in it is a choice worth keeping.
+        for bad in [json!("5000"), json!([70000]), json!([-1]), json!([5000, 70000]), json!(["5000"])] {
+            let settings = merge_defaults(&json!({ "hiddenPorts": bad, "onboardingDone": true }));
+            assert!(settings.hidden_ports.is_empty(), "{settings:?}");
+            assert!(settings.onboarding_done, "the well-formed field next to it survives: {settings:?}");
+        }
     }
 
     #[test]
@@ -422,6 +439,7 @@ mod tests {
             default_force: true,
             notifications: false,
             onboarding_done: true,
+            hidden_ports: vec![5000, 7000],
         };
         let entries = to_entries(&settings);
         assert_eq!(entries["dockIcon"], "hide");
@@ -430,7 +448,8 @@ mod tests {
         assert_eq!(entries["refreshMs"], 10_000);
         assert_eq!(entries["defaultForce"], true);
         assert_eq!(entries["onboardingDone"], true);
-        assert_eq!(entries.len(), 8, "one key per field, nothing else");
+        assert_eq!(entries["hiddenPorts"], json!([5000, 7000]));
+        assert_eq!(entries.len(), 9, "one key per field, nothing else");
         assert!(!entries.contains_key(FIRST_RUN_DONE));
         assert_eq!(merge_defaults(&Value::Object(entries)), settings);
     }

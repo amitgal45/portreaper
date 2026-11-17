@@ -13,6 +13,10 @@
 //! without a word. The watches survive a restart: the store key [`STORE_KEY`] in `settings.json`
 //! holds `[{port, protocol}]`; the state is not stored, it is read again on launch.
 //!
+//! A watched port the user also hid (`crate::hidden`) says nothing: the book still follows it,
+//! so its baseline stays true, but its transitions are not emitted, recorded or notified, and
+//! [`list`] leaves it out. The watch itself stays stored; unhide the port and it is back.
+//!
 //! Nothing here panics: a poisoned mutex yields the book it holds, a missing state is a warning,
 //! and every `app`-level function is safe to call from any thread.
 
@@ -310,6 +314,11 @@ pub fn observe(app: &AppHandle, entries: &[PortEntry]) {
     if transitions.is_empty() {
         return;
     }
+    // The book moved on for every watch above; hiding wins over watching for what is told.
+    let transitions = without_hidden(transitions, &crate::hidden::hidden_ports(app));
+    if transitions.is_empty() {
+        return;
+    }
     let notify = notifications_enabled(app);
     for watch in &transitions {
         emit(app, watch);
@@ -324,6 +333,12 @@ pub fn observe(app: &AppHandle, entries: &[PortEntry]) {
     }
 }
 
+/// The watches on ports the user did not hide, in their order: what [`observe`] tells and what
+/// [`list`] answers. Pure, so the rule is tested without an app.
+fn without_hidden(watches: Vec<WatchedPort>, hidden: &[u16]) -> Vec<WatchedPort> {
+    watches.into_iter().filter(|w| !crate::hidden::is_hidden(w.port, hidden)).collect()
+}
+
 /// One listing through [`observe`], so a watch that was never looked at gets its baseline. A
 /// transition found here is real and is told like any other.
 fn refresh(app: &AppHandle) {
@@ -334,10 +349,11 @@ fn refresh(app: &AppHandle) {
 }
 
 /// Every watch in its current state, after one fresh listing: a new session answers with real
-/// states, not with baselines still to be taken.
+/// states, not with baselines still to be taken. A watch on a hidden port is left out.
 pub fn list(app: &AppHandle) -> Vec<WatchedPort> {
     refresh(app);
-    state(app).map(|w| w.list()).unwrap_or_default()
+    let watches = state(app).map(|w| w.list()).unwrap_or_default();
+    without_hidden(watches, &crate::hidden::hidden_ports(app))
 }
 
 /// Watches `port`, stores the set, and answers with every watch in its current state.
@@ -415,6 +431,7 @@ mod tests {
             category: Category::Web,
             framework: Some("Next.js".into()),
             container: None,
+            launchd: None,
         }
     }
 
@@ -589,6 +606,22 @@ mod tests {
         book.diff(&[], T0 + 5);
         let taken = book.diff(&[entry(3000, 7, "")], T0 + 6);
         assert_eq!(notification_text(&taken[0]).1, "process (7) · shop-api");
+    }
+
+    #[test]
+    fn a_hidden_port_is_not_told_and_another_still_is() {
+        let mut book = Book::from_keys([tcp(3000), tcp(5000)], T0);
+        book.diff(&[entry(3000, 48213, "node"), entry(5000, 635, "ControlCenter")], T0);
+        let freed = book.diff(&[], T0 + 1);
+        assert_eq!(freed.iter().map(|w| w.port).collect::<Vec<_>>(), [3000, 5000], "both went free");
+        let told = without_hidden(freed, &[5000]);
+        assert_eq!(told.iter().map(|w| w.port).collect::<Vec<_>>(), [3000]);
+        assert_eq!(told[0].state, WatchState::Free);
+        // The book followed the hidden watch too: shown again, it reads free and replays nothing.
+        assert_eq!(book.list()[1].state, WatchState::Free);
+        assert!(book.diff(&[], T0 + 2).is_empty());
+        assert_eq!(without_hidden(book.list(), &[]).len(), 2, "nothing hidden: every watch is listed");
+        assert_eq!(without_hidden(book.list(), &[5000]).len(), 1);
     }
 
     #[test]

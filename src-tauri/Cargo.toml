@@ -37,6 +37,9 @@ listeners = "0.6"
 sysinfo = "0.39"
 libc = "0.2"
 thiserror = "2"
+# Reads a LaunchAgent's KeepAlive (does launchd start the job again after a kill?). Already in
+# the lock through Tauri, one version only.
+plist = "1.10"
 
 [dev-dependencies]
 tempfile = "3"
