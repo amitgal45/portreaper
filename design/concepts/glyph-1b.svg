@@ -1,0 +1,4 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!-- Ghost in the Socket (1b): Ethernet socket with a flared, extra-wide ghost hollow and deeper 3-wave hem so the waves stay crisp down to 16–32 px. Foreground glyph layer for macOS 26 Icon Composer. -->
+  <path d="M174 244 A24 24 0 0 1 198 220 H826 A24 24 0 0 1 850 244 V642 A24 24 0 0 1 826 666 H760 V772 A24 24 0 0 1 736 796 H288 A24 24 0 0 1 264 772 V666 H198 A24 24 0 0 1 174 642 Z M696 468 A184 184 0 0 0 328 468 L310 622 C307 662 339 668 374.6 668 C410.2 668 409.7 598 445.3 598 C480.9 598 476.4 668 512 668 C547.6 668 543.1 598 578.7 598 C614.3 598 613.8 668 649.4 668 C685 668 717 662 714 622 Z" fill="#FF4528" fill-rule="evenodd"/>
+</svg>

@@ -7,6 +7,7 @@
 import { Clock, Database, Eye, Globe, LayoutGrid, Settings, Sparkles, Terminal, Zap } from "lucide-vue-next";
 import type { CategoryCounts, CategoryFilter } from "../composables/usePorts";
 import { bannerText, percentOf, type UpdateState } from "../composables/useUpdate";
+import AppMark from "./AppMark.vue";
 
 export type View = "studio" | "taskline" | "settings";
 
@@ -95,19 +96,7 @@ function pick(key: CategoryFilter) {
          beside them. The brand gets its own row below, the way Slack places the workspace name. -->
     <div data-tauri-drag-region class="h-[52px] shrink-0"></div>
     <div class="flex h-9 shrink-0 items-center gap-2 px-2 pb-1">
-      <span class="flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-md bg-brand text-white" aria-hidden="true">
-        <!-- The socket glyph of design/icon.svg, cut by the scythe. -->
-        <svg width="14" height="12" viewBox="152 198 720 628" fill="currentColor" fill-rule="evenodd">
-          <mask id="pr-cut" maskUnits="userSpaceOnUse" x="0" y="0" width="1024" height="1024">
-            <rect width="1024" height="1024" fill="white" />
-            <path d="M388 892 Q398 475 636 132" fill="none" stroke="black" stroke-width="88" />
-          </mask>
-          <path
-            d="M184 258 A24 24 0 0 1 208 234 H816 A24 24 0 0 1 840 258 V646 A24 24 0 0 1 816 670 H730 V766 A24 24 0 0 1 706 790 H318 A24 24 0 0 1 294 766 V670 H208 A24 24 0 0 1 184 646 Z M280 330 V574 H390 V694 H634 V574 H744 V330 Z"
-            mask="url(#pr-cut)"
-          />
-        </svg>
-      </span>
+      <AppMark class="h-[22px] w-[22px] shrink-0" />
       <span class="truncate text-[13.5px] font-semibold text-ink">PortReaper</span>
     </div>
 

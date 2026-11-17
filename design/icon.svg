@@ -1,35 +1,117 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
   <!--
-    PortReaper app icon, v0.2 "Cyber Scythe". Source of truth: `pnpm icons` renders this to
-    src-tauri/icons/.
+    PortReaper app icon, "Cyber Scythe — Prismatic Cut Socket" (3B).
+    Source of truth: `pnpm icons` renders this to src-tauri/icons/.
 
-    Two colours: Signal Coral (#FF4528) on Tactical Obsidian (#121316), the tokens in
-    src/style.css (see design/README.md). The plate sits on Apple's icon grid (824 px square,
-    100 px margin, 185 px corner radius). On it, one glyph: the face of an Ethernet socket drawn
-    as a bold ring (96 px wall), cut in two by one sweep of a scythe. The cut is the whole story:
-    a port, and the act of freeing it. No blade drawn, no skull, no gradient, no text.
-
-    The ring is a filled path (outer boundary clockwise, hollow counter-clockwise, even-odd).
-    v0.1 stroked the centreline with round joins, which rounded every outer corner to 48 px and
-    made the socket read as a speech bubble; here the outer corners are 24 px and the hollow is
-    sharp. Centreline for reference: M232 282 H792 V622 H682 V742 H342 V622 H232 Z, wall 96.
-
-    The cut is a quadratic arc from (388,892) to (636,132): v0.1's diagonal (72 degrees from
-    horizontal) bowed 60 px toward the upper-left at its middle, so the heavier left piece is the
-    one that was swept. 88 px wide, square ends. The mask region is set in user space on purpose:
-    the default (-10 %..120 % of the glyph's box) would clip the ring.
+    Built on Apple's macOS icon grid (824 px square plate, 100 px transparent margin, 185 px
+    corner radius) using the palette tokens from src/style.css (see design/README.md):
+      - Base plate: Tactical Obsidian (#121316) to Void Black (#0A0B0E) with a subtle radar/grid
+        overlay, ambient Signal Coral (#FF4528) and Azure (#4EA1FF) subsurface glow, and a
+        top-lit specular glass rim.
+      - Foreground glyph: The Ethernet socket ring (wide upper body + narrower lower latch tab)
+        sliced in two by a tapered scythe arc (164 px top entry to 128 px bottom exit) and
+        sheared 20 px along the cut line.
+      - Left severed bracket: Signal Coral (#FF4528) to Neon Amber (#FF9A3C) liquid glass.
+      - Right severed bracket: Azure (#4EA1FF) to Violet (#A78BFA) to Signal Coral (#FF4528)
+        liquid glass, floating over a translucent frosted-glass echo chamber.
   -->
   <defs>
-    <mask id="cut" maskUnits="userSpaceOnUse" x="0" y="0" width="1024" height="1024">
-      <rect width="1024" height="1024" fill="#fff"/>
-      <path d="M388 892 Q398 475 636 132" fill="none" stroke="#000" stroke-width="88"/>
-    </mask>
+    <clipPath id="squircle">
+      <rect x="100" y="100" width="824" height="824" rx="185"/>
+    </clipPath>
+
+    <!-- Anodized Obsidian-to-Void base gradient -->
+    <linearGradient id="bg-grad" x1="15%" y1="8%" x2="85%" y2="95%">
+      <stop offset="0%" stop-color="#1E222D"/>
+      <stop offset="45%" stop-color="#121316"/>
+      <stop offset="100%" stop-color="#0A0B0E"/>
+    </linearGradient>
+
+    <!-- Top-left studio light sheen -->
+    <radialGradient id="top-sheen" cx="28%" cy="14%" r="65%">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.09"/>
+      <stop offset="55%" stop-color="#FFFFFF" stop-opacity="0.02"/>
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- Subsurface token aura (Signal Coral #FF4528 -> Azure #4EA1FF) -->
+    <radialGradient id="aura" cx="512" cy="512" r="390" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FF4528" stop-opacity="0.34"/>
+      <stop offset="50%" stop-color="#4EA1FF" stop-opacity="0.14"/>
+      <stop offset="100%" stop-color="#0A0B0E" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- Specular glass rim gradient -->
+    <linearGradient id="rim-grad" x1="20%" y1="0%" x2="80%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.42"/>
+      <stop offset="30%" stop-color="#FF4528" stop-opacity="0.28"/>
+      <stop offset="70%" stop-color="#4EA1FF" stop-opacity="0.22"/>
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0.08"/>
+    </linearGradient>
+
+    <!-- Volumetric drop shadow + Signal Coral bloom -->
+    <filter id="drop-glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="22" stdDeviation="24" flood-color="#000000" flood-opacity="0.65"/>
+      <feDropShadow dx="0" dy="4" stdDeviation="16" flood-color="#FF4528" flood-opacity="0.28"/>
+    </filter>
+
+    <!-- Left Bracket: Neon Amber (#FF9A3C) to Signal Coral (#FF4528) -->
+    <linearGradient id="prism-left" x1="10%" y1="0%" x2="90%" y2="100%">
+      <stop offset="0%" stop-color="#FFB74D"/>
+      <stop offset="45%" stop-color="#FF4528"/>
+      <stop offset="100%" stop-color="#E11D48"/>
+    </linearGradient>
+
+    <!-- Right Bracket: Azure (#4EA1FF) to Violet (#A78BFA) to Signal Coral (#FF4528) -->
+    <linearGradient id="prism-right" x1="15%" y1="0%" x2="85%" y2="100%">
+      <stop offset="0%" stop-color="#4EA1FF"/>
+      <stop offset="45%" stop-color="#A78BFA"/>
+      <stop offset="100%" stop-color="#FF4528"/>
+    </linearGradient>
+
+    <!-- Translucent Frosted Glass Echo Plate inside the socket cavity -->
+    <linearGradient id="echo-glass" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.16"/>
+      <stop offset="100%" stop-color="#A78BFA" stop-opacity="0.06"/>
+    </linearGradient>
   </defs>
 
-  <!-- the plate -->
-  <rect x="100" y="100" width="824" height="824" rx="185" fill="#121316"/>
+  <!-- Main squircle plate on Apple's 1024 grid (824 px square, 100 px margin, rx 185) -->
+  <g clip-path="url(#squircle)">
+    <rect x="100" y="100" width="824" height="824" fill="url(#bg-grad)"/>
+    <rect x="100" y="100" width="824" height="824" fill="url(#aura)"/>
+    <rect x="100" y="100" width="824" height="824" fill="url(#top-sheen)"/>
 
-  <!-- the socket: a wide body with the narrower latch tab below, cut by the sweep -->
-  <path d="M184 258 A24 24 0 0 1 208 234 H816 A24 24 0 0 1 840 258 V646 A24 24 0 0 1 816 670 H730 V766 A24 24 0 0 1 706 790 H318 A24 24 0 0 1 294 766 V670 H208 A24 24 0 0 1 184 646 Z M280 330 V574 H390 V694 H634 V574 H744 V330 Z"
-        fill="#FF4528" fill-rule="evenodd" mask="url(#cut)"/>
+    <!-- Precision radar & cartesian micro-grid -->
+    <g stroke="#FFFFFF" stroke-opacity="0.035" stroke-width="1.5" fill="none">
+      <circle cx="512" cy="512" r="180"/>
+      <circle cx="512" cy="512" r="290"/>
+      <circle cx="512" cy="512" r="400"/>
+      <line x1="100" y1="330" x2="924" y2="330"/>
+      <line x1="100" y1="512" x2="924" y2="512"/>
+      <line x1="100" y1="694" x2="924" y2="694"/>
+      <line x1="330" y1="100" x2="330" y2="924"/>
+      <line x1="512" y1="100" x2="512" y2="924"/>
+      <line x1="694" y1="100" x2="694" y2="924"/>
+    </g>
+  </g>
+
+  <!-- Specular inner glass rim -->
+  <rect x="103" y="103" width="818" height="818" rx="182" fill="none" stroke="url(#rim-grad)" stroke-width="6"/>
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="none" stroke="#050608" stroke-width="2" stroke-opacity="0.6"/>
+
+  <!-- Frosted Glass Echo Plate inside the socket cavity -->
+  <rect x="252" y="298" width="520" height="296" rx="44" fill="url(#echo-glass)" stroke="#FFFFFF" stroke-opacity="0.18" stroke-width="3"/>
+
+  <!-- Displaced Prismatic Glass Socket Brackets (sheared along the tapered scythe arc) -->
+  <g filter="url(#drop-glow)">
+    <path d="M166 264 A26 26 0 0 1 192 238 H492.4 Q465.6 291.7 442.2 346 H278 V566 H368.1 Q353.3 683 347.9 802 H294 A26 26 0 0 1 268 776 V674 H192 A26 26 0 0 1 166 648 Z"
+          fill="url(#prism-left)" stroke="#FFFFFF" stroke-opacity="0.65" stroke-width="5"/>
+    <path d="M669.8 218 H830 A26 26 0 0 1 856 244 V630 A26 26 0 0 1 830 656 H756 V756 A26 26 0 0 1 730 782 H499.1 Q503.8 728 512.7 674 H648 V546 H746 V326 H613.2 Q639.7 271.7 669.8 218 Z"
+          fill="url(#prism-right)" stroke="#FFFFFF" stroke-opacity="0.65" stroke-width="5"/>
+  </g>
+
+  <!-- Specular Top-Edge Highlights -->
+  <path d="M198 242 H478" fill="none" stroke="#FFFFFF" stroke-width="6" stroke-linecap="round" stroke-opacity="0.7"/>
+  <path d="M680 222 H824" fill="none" stroke="#FFFFFF" stroke-width="6" stroke-linecap="round" stroke-opacity="0.7"/>
 </svg>

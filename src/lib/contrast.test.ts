@@ -102,7 +102,7 @@ describe.each<Scheme>(["light", "dark"])("Board text contrast (%s)", (scheme) =>
     }
   });
 
-  it("white on the brand clears 3:1: the brand mark (not text) and the selection bar", () => {
+  it("white on the brand clears 3:1: the switch's thumb on a checked toggle (not text) and the selection bar", () => {
     expect(contrast(WHITE, t("brand"))).toBeGreaterThanOrEqual(3);
   });
 });
@@ -145,7 +145,8 @@ describe("the components", () => {
   it("use tokens only: no hex, no Tailwind palette, no light-mode twins", () => {
     for (const file of files) {
       const source = readFileSync(file, "utf8");
-      // The sidebar's brand mark is an inline SVG with a black-and-white mask: not a colour choice.
+      // The app mark (AppMark.vue) is an inline SVG with a black-and-white mask: not a colour choice.
+      // Its colours come from lib/app-icon.ts, which only AppMark.vue imports (AppMark.test.ts).
       const withoutMask = source.replace(/<mask[\s\S]*?<\/mask>/g, "");
       expect(withoutMask, `${file} has a hex colour`).not.toMatch(/#[0-9a-f]{3,8}\b/i);
       expect(source, `${file} uses the Tailwind palette`).not.toMatch(
@@ -155,16 +156,14 @@ describe("the components", () => {
     }
   });
 
-  it("paint white only on the brand mark; text on a solid colour is the surface on a <c>-ink", () => {
-    // `text-white` is the logo's glyph and nothing else: an aria-hidden element on `bg-brand`.
-    // Every other filled control says `text-surface`, and only on a `bg-<c>-ink` (the pairing the
-    // token tests prove in both schemes); the five solid colours carry no text at all.
-    const mark = /<[a-z][^>]*\baria-hidden="true"[^>]*>/gi;
+  it("paint no white text; text on a solid colour is the surface on a <c>-ink", () => {
+    // The app mark draws its own colours (AppMark.vue), so no component paints `text-white`.
+    // Every filled control says `text-surface`, and only on a `bg-<c>-ink` (the pairing the token
+    // tests prove in both schemes); the five solid colours carry no text at all.
     const quoted = /"([^"]*)"|'([^']*)'/g;
     for (const file of files) {
       const source = readFileSync(file, "utf8");
-      const withoutMarks = source.replace(mark, (tag) => (/\bbg-brand\b/.test(tag) ? "" : tag));
-      expect(withoutMarks, `${file} paints text-white outside the brand mark`).not.toMatch(/\btext-white\b/);
+      expect(source, `${file} paints text-white`).not.toMatch(/\btext-white\b/);
       for (const m of source.matchAll(quoted)) {
         const classes = m[1] ?? m[2] ?? "";
         if (/(?:^|[\s:])text-surface\b/.test(classes)) {

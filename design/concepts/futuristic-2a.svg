@@ -1,0 +1,122 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+    
+  <defs>
+    <clipPath id="squircle-f2a">
+      <rect x="100" y="100" width="824" height="824" rx="185"/>
+    </clipPath>
+
+    <!-- Anodized Obsidian-to-Void base gradient -->
+    <linearGradient id="bg-grad-f2a" x1="15%" y1="8%" x2="85%" y2="95%">
+      <stop offset="0%" stop-color="#1E222D"/>
+      <stop offset="45%" stop-color="#111319"/>
+      <stop offset="100%" stop-color="#07080B"/>
+    </linearGradient>
+
+    <!-- Top-left studio light sheen on squircle -->
+    <radialGradient id="top-sheen-f2a" cx="28%" cy="14%" r="65%">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.09"/>
+      <stop offset="55%" stop-color="#FFFFFF" stop-opacity="0.02"/>
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- Subsurface neon aura -->
+    <radialGradient id="aura-1-f2a" cx="440" cy="512" r="390" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FF4528" stop-opacity="0.34"/>
+      <stop offset="50%" stop-color="#FF9A3C" stop-opacity="0.14"/>
+      <stop offset="100%" stop-color="#0A0B0E" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- Specular glass rim gradient -->
+    <linearGradient id="rim-grad-f2a" x1="20%" y1="0%" x2="80%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.42"/>
+      <stop offset="30%" stop-color="#FF4528" stop-opacity="0.28"/>
+      <stop offset="70%" stop-color="#FF9A3C" stop-opacity="0.22"/>
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0.08"/>
+    </linearGradient>
+
+    <!-- Soft volumetric drop shadow + neon bloom -->
+    <filter id="drop-glow-f2a" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="22" stdDeviation="24" flood-color="#000000" flood-opacity="0.65"/>
+      <feDropShadow dx="0" dy="4" stdDeviation="16" flood-color="#FF4528" flood-opacity="0.28"/>
+    </filter>
+
+    <filter id="neon-bloom-f2a" x="-35%" y="-35%" width="170%" height="170%">
+      <feGaussianBlur stdDeviation="18" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Outer squircle shadow on canvas -->
+  <rect x="100" y="114" width="824" height="824" rx="185" fill="#000000" fill-opacity="0.28"/>
+
+  <!-- Main squircle plate -->
+  <g clip-path="url(#squircle-f2a)">
+    <rect x="100" y="100" width="824" height="824" fill="url(#bg-grad-f2a)"/>
+    <rect x="100" y="100" width="824" height="824" fill="url(#aura-1-f2a)"/>
+    <rect x="100" y="100" width="824" height="824" fill="url(#top-sheen-f2a)"/>
+
+    <!-- Subtle cmux/Antigravity precision radar & cartesian micro-grid -->
+    <g stroke="#FFFFFF" stroke-opacity="0.035" stroke-width="1.5" fill="none">
+      <circle cx="512" cy="512" r="180"/>
+      <circle cx="512" cy="512" r="290"/>
+      <circle cx="512" cy="512" r="400"/>
+      <line x1="100" y1="330" x2="924" y2="330"/>
+      <line x1="100" y1="512" x2="924" y2="512"/>
+      <line x1="100" y1="694" x2="924" y2="694"/>
+      <line x1="330" y1="100" x2="330" y2="924"/>
+      <line x1="512" y1="100" x2="512" y2="924"/>
+      <line x1="694" y1="100" x2="694" y2="924"/>
+    </g>
+  </g>
+
+  <!-- Apple macOS 26 specular inner rim highlight -->
+  <rect x="103" y="103" width="818" height="818" rx="182" fill="none" stroke="url(#rim-grad-f2a)" stroke-width="6"/>
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="none" stroke="#050608" stroke-width="2" stroke-opacity="0.6"/>
+  
+    <defs>
+      <linearGradient id="blade-spine-f2a" x1="0%" y1="0%" x2="80%" y2="100%">
+        <stop offset="0%" stop-color="#FF6E4A"/>
+        <stop offset="45%" stop-color="#D92638"/>
+        <stop offset="100%" stop-color="#4C1D57"/>
+      </linearGradient>
+      <linearGradient id="blade-laser-f2a" x1="20%" y1="0%" x2="80%" y2="100%">
+        <stop offset="0%" stop-color="#FFFFFF"/>
+        <stop offset="25%" stop-color="#FFB74D"/>
+        <stop offset="65%" stop-color="#FF4528"/>
+        <stop offset="100%" stop-color="#FF1E56"/>
+      </linearGradient>
+      <linearGradient id="port-glass-f2a" x1="15%" y1="0%" x2="85%" y2="100%">
+        <stop offset="0%" stop-color="#FF8356"/>
+        <stop offset="50%" stop-color="#FF4528"/>
+        <stop offset="100%" stop-color="#8B5CF6"/>
+      </linearGradient>
+    </defs>
+
+    <!-- Volumetric plasma glow along the inner edge of the scythe -->
+    <g filter="url(#neon-bloom-f2a)">
+      <path d="M676 188 C436 212 278 320 268 480 C258 624 356 760 516 832 C396 770 338 658 346 528 C356 362 480 238 676 188 Z" fill="#FF4528" fill-opacity="0.45"/>
+    </g>
+
+    <!-- 3D Dual-Faceted Cyber Scythe Crescent -->
+    <g filter="url(#drop-glow-f2a)">
+      <path d="M676 188 C336 156 172 348 184 548 C192 704 318 820 516 832 C396 770 338 658 346 528 C356 362 480 238 676 188 Z" fill="url(#blade-spine-f2a)"/>
+      <path d="M676 188 C436 212 278 320 268 480 C258 624 356 760 516 832 C396 770 338 658 346 528 C356 362 480 238 676 188 Z" fill="url(#blade-laser-f2a)"/>
+      <path d="M676 188 C336 156 172 348 184 548 C192 704 318 820 516 832 C396 770 338 658 346 528 C356 362 480 238 676 188 Z" fill="none" stroke="#FFFFFF" stroke-opacity="0.48" stroke-width="4"/>
+    </g>
+
+    <!-- Floating Frosted-Glass Port Socket Module -->
+    <g filter="url(#drop-glow-f2a)">
+      <path d="M480 418 A28 28 0 0 1 508 390 H812 A28 28 0 0 1 840 418 V606 A28 28 0 0 1 812 634 H762 V702 A26 26 0 0 1 736 728 H584 A26 26 0 0 1 558 702 V634 H508 A28 28 0 0 1 480 606 Z" fill="url(#port-glass-f2a)" stroke="#FFD2C2" stroke-opacity="0.65" stroke-width="4.5"/>
+      <path d="M544 456 A14 14 0 0 1 558 442 H762 A14 14 0 0 1 776 456 V568 A14 14 0 0 1 762 582 H706 V652 A12 12 0 0 1 694 664 H626 A12 12 0 0 1 614 652 V582 H558 A14 14 0 0 1 544 568 Z" fill="#0B0D13" fill-opacity="0.78" stroke="#FF9A3C" stroke-opacity="0.4" stroke-width="3"/>
+      <!-- Glowing RJ45 pins inside the floating socket -->
+      <g fill="#FFB74D" opacity="0.85">
+        <rect x="596" y="444" width="12" height="32" rx="6"/>
+        <rect x="632" y="444" width="12" height="40" rx="6"/>
+        <rect x="668" y="444" width="12" height="40" rx="6"/>
+        <rect x="704" y="444" width="12" height="32" rx="6"/>
+      </g>
+    </g>
+  </svg>
