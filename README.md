@@ -240,8 +240,10 @@ killing it, and offers the command that stops it for good:
 Copy it and run it in a terminal; PortReaper never runs it. To bring the job back later:
 `brew services start <formula>`, or `launchctl enable gui/<uid>/<label>` and then
 `launchctl bootstrap gui/<uid> ~/Library/LaunchAgents/<label>.plist` (or log out and in).
-macOS's own processes, such as ControlCenter on AirPlay's 5000, get no command: they read as a
-system process. Hide the port instead (next question).
+Your own agent gets its command even when it runs a system binary, such as an `/usr/bin/ssh`
+tunnel. macOS's own jobs (an Apple label, or a plist in `/System/Library/LaunchAgents`), such as
+ControlCenter on AirPlay's 5000, get none: they read as a system process and always ask first.
+Hide the port instead (next question).
 
 **How do I get AirPlay's 5000 and 7000 out of the list?**
 Hide them in Preferences → General → Hidden ports (⌘, opens Preferences): add 5000 and 7000, or

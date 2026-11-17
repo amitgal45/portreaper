@@ -9,8 +9,9 @@ app shows it in its update dialog. Add a section for every release before taggin
 
 - **Hidden ports:** Preferences → General → Hidden ports, or "Hide :5000" in a row's menu. A
   hidden port leaves the list, ⌘⇧K, the menu bar and every bulk kill.
-- **launchd and brew services:** a launchd job is never a Zombie and never reaped. A kill asks
-  first unless the job stays down, and offers the command that stops it for good.
+- **launchd and brew services:** a launchd job is never a Zombie or reaped. A kill asks first
+  unless it stays down, and offers the command that stops it for good; macOS's own always ask
+  and get none.
 - **Homebrew:** `brew install --cask amitgal45/tap/portreaper`, updated by every release.
 - **Safer kills:** a process protected on one port asks on all of them, and no key typed outside
   the port list kills.
