@@ -19,6 +19,20 @@
 //!
 //! WP-20 names the container behind a port Docker's backend holds ([`attach_containers`], from
 //! one `crate::docker::containers()` per listing that has a Docker process, cached there).
+//!
+//! A process launchd runs as a job in the user's domain (`brew services`, any LaunchAgent) carries
+//! that job (`launchd`), and so does a direct child of one (`launchd::MAX_JOB_HOPS`), with
+//! `restarts: None`: its parent, not launchd, decides whether it comes back. The jobs come from
+//! one `crate::launchd::running_jobs()` per listing that has a process of the user's that launchd
+//! parents, cached there, and asked again at once when one of those that would read as lost
+//! ([`is_refetch_trigger`]) started since the cached answer (a job launchd just restarted, with a
+//! new pid). Such a process is never an orphan, so a portless one is never listed, and it asks
+//! first unless its own job's plist says a kill keeps it down ([`apply_launchd`]). One that runs
+//! from the system's folders, or from an exe nobody knows, is offered no stop command
+//! ([`withhold_stop_command`]; Apple's jobs get none in the first place: `launchd::stop_command`).
+//! When `launchctl` gives no answer (not macOS, a timeout, a failure), the jobs are unknown, not
+//! none: then no process launchd parents is an orphan in that listing, and none is listed
+//! portless ([`hold_orphans_while_jobs_unknown`]), so no zombie reap reaches a job nobody named.
 
 use std::collections::HashMap;
 use std::net::IpAddr;
@@ -30,7 +44,9 @@ use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System, Uid, UpdateKin
 use thiserror::Error;
 
 use crate::docker::Container;
-use crate::model::{BindScope, Category, PortEntry, ProcessNode, ProjectInfo, ProjectKind, Protocol};
+use crate::model::{
+    BindScope, Category, LaunchdJob, PortEntry, ProcessNode, ProjectInfo, ProjectKind, Protocol,
+};
 
 /// Executables under these roots belong to macOS, not to the user: never an orphan, always protected.
 pub const SYSTEM_PREFIXES: &[&str] =
@@ -159,6 +175,50 @@ pub(crate) fn listing() -> Result<Listing, PortsError> {
     let users = users();
     let current_user = user_name(users, raw_uid);
 
+    // launchd parents every job it runs: with no process of the user's that it parents (socket
+    // holders and orphan candidates alike; a job's child is listed through its parent, which is
+    // one of them), there is no job to ask `launchctl` about. Of those, the ones that would read
+    // as lost ([`is_refetch_trigger`], from the exe the detail refresh just read) go with their
+    // start times, so one that started since the cached answer (a job launchd just restarted,
+    // with a new pid) makes it ask again; a new app, XPC service or piece of macOS does not.
+    // PortReaper itself is never a job it reports (`launchd::without_own`). `answer` is `None` when
+    // `launchctl` gave no answer: the jobs are unknown ([`hold_orphans_while_jobs_unknown`]). With
+    // no child of launchd's to ask about, there is no job: an answer that names none.
+    let launchd_children: Vec<_> = detail_pids
+        .iter()
+        .filter_map(|&pid| system.process(pid))
+        .filter(|p| p.parent().map(|pp| pp.as_u32()) == Some(1) && p.user_id() == current_uid.as_ref())
+        .collect();
+    let answer: Option<HashMap<u32, String>> = if launchd_children.is_empty() {
+        Some(HashMap::new())
+    } else {
+        let triggers: Vec<(u32, u64)> = launchd_children
+            .iter()
+            .filter(|p| {
+                let exe = p.exe().map(|e| e.to_string_lossy());
+                let user = p.user_id().and_then(|uid| users.get_user_by_id(uid)).map(|u| u.name());
+                is_refetch_trigger(p.parent().map(|pp| pp.as_u32()), exe.as_deref(), user, current_user)
+            })
+            .map(|p| (p.pid().as_u32(), p.start_time()))
+            .collect();
+        crate::launchd::running_jobs(&triggers).map(|jobs| crate::launchd::without_own(jobs, std::process::id()))
+    };
+    let no_jobs: HashMap<u32, String> = HashMap::new();
+    let jobs: &HashMap<u32, String> = answer.as_ref().unwrap_or(&no_jobs);
+    let home = std::env::var_os("HOME");
+    let home = home.as_deref().map(Path::new);
+    // One description per job and listing: its plist is read once however many sockets it has.
+    // What an entry carries of it also depends on the process: its link to the job and where it
+    // runs from (`job_for_entry`); `exe` is the one the entry shows.
+    let mut described: HashMap<String, LaunchdJob> = HashMap::new();
+    let mut launchd_of = |pid: u32, exe: Option<&str>| -> Option<LaunchdJob> {
+        let (label, link) = crate::launchd::job_of(pid, jobs, |p| parent_of(&system, p))?;
+        let job = described
+            .entry(label.to_string())
+            .or_insert_with(|| crate::launchd::describe(label, home, raw_uid));
+        Some(job_for_entry(job, link, exe))
+    };
+
     let mut details: HashMap<u32, ProcessDetails> = HashMap::new();
     let mut entries: Vec<PortEntry> = sockets
         .into_iter()
@@ -170,7 +230,7 @@ pub(crate) fn listing() -> Result<Listing, PortsError> {
             let tool = d.project.as_ref().and_then(|p| p.tool.as_deref());
             let (category, framework) =
                 crate::classify::classify(socket.port, socket.protocol, tool, &d.name, d.exe.as_deref(), &d.command);
-            PortEntry {
+            let mut entry = PortEntry {
                 port: socket.port,
                 protocol: socket.protocol,
                 bind: socket.bind,
@@ -191,14 +251,27 @@ pub(crate) fn listing() -> Result<Listing, PortsError> {
                 category,
                 framework,
                 container: None,
-            }
+                launchd: None,
+            };
+            apply_launchd(&mut entry, launchd_of(socket.pid, d.exe.as_deref()));
+            entry
         })
         .collect();
+    // No answer from launchctl: launchd's children keep their rows, but none is an orphan.
+    hold_orphans_while_jobs_unknown(&mut entries, answer.as_ref());
 
     // Append portless (`port: 0`, `address: "stdio"`) orphaned agent/MCP/browser/test processes
     // sorted by pid after the socket entries (WP-23).
     for pid in orphan_pids {
         let p = pid.as_u32();
+        // A job, or a job's child, is where it is on purpose, not lost.
+        if crate::launchd::job_of(p, jobs, |pp| parent_of(&system, pp)).is_some() {
+            continue;
+        }
+        // No answer from launchctl: launchd's child may be a job, and is listed here only as lost.
+        if held_while_jobs_unknown(parent_of(&system, p), answer.as_ref()) {
+            continue;
+        }
         let placeholder = Socket {
             pid: p,
             port: 0,
@@ -238,6 +311,7 @@ pub(crate) fn listing() -> Result<Listing, PortsError> {
             category,
             framework,
             container: None,
+            launchd: None,
         });
         details.insert(p, d);
     }
@@ -296,6 +370,71 @@ pub(crate) fn protect_whole_pids(entries: &mut [PortEntry]) {
             entry.protected = true;
         }
     }
+}
+
+/// What launchd running a process as a job, or as a job's child, changes about its entry: it is
+/// never an orphan (it is where it is on purpose), and it is protected unless PortReaper knows a
+/// kill keeps it down (`restarts == Some(false)`): launchd starts it again (`Some(true)`), or
+/// nobody can tell (`None`: no readable plist, as with `brew services run` or an agent outside
+/// `~/Library/LaunchAgents`; a conditional KeepAlive; a job's child, `launchd::for_link`). So no
+/// bulk kill reaches it, and every single one asks. A job never lifts a protection the entry
+/// already had. `None` leaves the entry as it was.
+fn apply_launchd(entry: &mut PortEntry, job: Option<LaunchdJob>) {
+    let Some(job) = job else {
+        return;
+    };
+    entry.orphan = false;
+    if job.restarts != Some(false) {
+        entry.protected = true;
+    }
+    entry.launchd = Some(job);
+}
+
+/// Whether a process is held back from the orphans because `launchctl` gave no answer (`jobs` is
+/// `None`): its parent is launchd (pid 1), which parents every job it runs, and without an answer
+/// a `brew services` job (ollama) has exactly a lost dev server's signature ([`is_orphan`]). A
+/// parent nobody knows (`None`) or a living one is no job's, and stays as it was; an answer, even
+/// one that names no job, holds nothing back.
+fn held_while_jobs_unknown(parent_pid: Option<u32>, jobs: Option<&HashMap<u32, String>>) -> bool {
+    jobs.is_none() && parent_pid == Some(1)
+}
+
+/// Clears `orphan` on every entry [`held_while_jobs_unknown`] holds back. An orphan gets the
+/// Zombie mark, ⌘⇧K's zombie tier, Reap zombies and the tray's "Kill lost-terminal servers", and
+/// a job killed that way is started again by launchd; until `launchctl` answers, nobody can tell
+/// a job from a lost process. The row stays, and every other field with it.
+fn hold_orphans_while_jobs_unknown(entries: &mut [PortEntry], jobs: Option<&HashMap<u32, String>>) {
+    for entry in entries.iter_mut().filter(|e| held_while_jobs_unknown(e.parent_pid, jobs)) {
+        entry.orphan = false;
+    }
+}
+
+/// The job as the entry of a process carries it: as `launchd::for_link` has it for the
+/// process's `link` to the job, and without a stop command when the process runs from the
+/// system's folders or from an exe nobody knows ([`withhold_stop_command`]). Per entry, not per
+/// job: the description is shared by every process of the job, the exe is the process's own.
+fn job_for_entry(job: &LaunchdJob, link: crate::launchd::Link, exe: Option<&str>) -> LaunchdJob {
+    let mut job = crate::launchd::for_link(job, link);
+    withhold_stop_command(&mut job, exe);
+    job
+}
+
+/// Drops the job's stop command unless its process runs from outside the system's folders
+/// ([`SYSTEM_PREFIXES`]). A job launchd runs from `/System` or `/usr/libexec` is a piece of macOS
+/// (Control Center, `/System/Library/CoreServices/ControlCenter.app`, holds :5000 for AirPlay
+/// Receiver), and disabling it could keep it from loading at the next login; an exe nobody knows
+/// could be one of them. The rest of the job stays: the process is still no orphan, and what a
+/// kill does to it is still worth saying.
+fn withhold_stop_command(job: &mut LaunchdJob, exe: Option<&str>) {
+    let user_space = exe.is_some_and(|exe| !is_system_path(exe));
+    if !user_space {
+        job.stop_command = None;
+    }
+}
+
+/// The parent sysinfo reports for `pid`, when it knows the pid.
+fn parent_of(system: &System, pid: u32) -> Option<u32> {
+    system.process(Pid::from_u32(pid)).and_then(|p| p.parent()).map(|p| p.as_u32())
 }
 
 /// Whether this is one of the processes that hold a container's port on the host
@@ -457,6 +596,22 @@ pub fn is_orphan(parent_pid: Option<u32>, exe: Option<&str>, user: Option<&str>,
     let reparented = matches!(parent_pid, None | Some(1));
     let mine = user.is_some() && user == current_user;
     reparented && mine && !exe.is_some_and(is_system_path) && !is_app_bundle(exe)
+}
+
+/// Whether a new process of the listing makes it ask `launchctl list` again before the cached
+/// answer's refresh is up (`launchd::needs_refetch`): only launchd's child that [`is_orphan`]
+/// flags, the one that gets the Zombie mark and falls into the bulk reaps until the answer names
+/// it. A GUI app and its helpers (inside a `.app`; LaunchServices' `application.*` jobs, which
+/// the answer never names), a piece of macOS and another user's process are launchd's children
+/// too, but never read as lost whatever the answer says: a new one is no reason to run
+/// `launchctl`. A parent nobody knows is no job launchd started.
+fn is_refetch_trigger(
+    parent_pid: Option<u32>,
+    exe: Option<&str>,
+    user: Option<&str>,
+    current_user: Option<&str>,
+) -> bool {
+    parent_pid == Some(1) && is_orphan(parent_pid, exe, user, current_user)
 }
 
 /// Whether killing this process deserves a second confirmation. An unknown owner counts as
@@ -701,6 +856,22 @@ mod tests {
     }
 
     #[test]
+    fn only_a_would_be_zombie_makes_the_listing_ask_launchctl_again_early() {
+        let me = Some("amit");
+        // launchd's children that never read as lost, whatever launchctl says.
+        let helper = "/Applications/Slack.app/Contents/Frameworks/Slack Helper.app/Contents/MacOS/Slack Helper";
+        assert!(!is_refetch_trigger(Some(1), Some(helper), me, me), "a GUI app's helper, inside a .app");
+        let mdworker = "/System/Library/Frameworks/CoreServices.framework/Frameworks/Metadata.framework/Versions/A/Support/mdworker_shared";
+        assert!(!is_refetch_trigger(Some(1), Some(mdworker), me, me), "a system binary");
+        assert!(!is_refetch_trigger(Some(1), Some("/opt/homebrew/bin/node"), Some("root"), me), "another user's process");
+        // A brew service's binary: a Zombie until the answer names it.
+        assert!(is_refetch_trigger(Some(1), Some("/opt/homebrew/Cellar/ollama/0.13.0/bin/ollama"), me, me));
+        // Not launchd's child, or a parent nobody knows: no job launchd just started.
+        assert!(!is_refetch_trigger(Some(4242), Some("/opt/homebrew/bin/node"), me, me));
+        assert!(!is_refetch_trigger(None, Some("/opt/homebrew/bin/node"), me, me));
+    }
+
+    #[test]
     fn reapable_orphan_accepts_mcp_playwright_and_dev_workers_and_rejects_app_bundles_and_shells() {
         let node = Some("/opt/homebrew/bin/node");
         // MCP stdio servers
@@ -822,6 +993,7 @@ mod tests {
             category,
             framework,
             container: None,
+            launchd: None,
         }
     }
 
@@ -931,6 +1103,246 @@ mod tests {
         let entries = list().unwrap();
         let ours = entries.iter().find(|e| e.port == port && e.pid == pid).expect("our listener");
         assert_eq!(ours.container, None);
+    }
+
+    /// `ollama serve` as `brew services` runs it: launchd's child, owned by the current user,
+    /// under /opt/homebrew, so WP-1's rule calls it an orphan.
+    fn brew_service() -> PortEntry {
+        let me = Some("amit");
+        let exe = "/opt/homebrew/Cellar/ollama/0.13.0/bin/ollama";
+        let mut e = PortEntry {
+            port: 11434,
+            process_name: "ollama".into(),
+            command: format!("{exe} serve"),
+            exe: Some(exe.into()),
+            pid: 32014,
+            protected: false,
+            category: Category::Ai,
+            framework: Some("Ollama".into()),
+            ..docker_entry(11434, Protocol::Tcp)
+        };
+        e.orphan = is_orphan(e.parent_pid, e.exe.as_deref(), e.user.as_deref(), me);
+        e.protected = is_protected(&e.process_name, e.exe.as_deref(), e.user.as_deref(), me);
+        e
+    }
+
+    fn job(restarts: Option<bool>) -> LaunchdJob {
+        LaunchdJob {
+            label: "homebrew.mxcl.ollama".into(),
+            restarts,
+            brew: Some("ollama".into()),
+            stop_command: Some("brew services stop ollama".into()),
+        }
+    }
+
+    #[test]
+    fn a_launchd_job_is_never_an_orphan_and_asks_first_unless_a_kill_is_known_to_keep_it_down() {
+        let before = brew_service();
+        assert!(before.orphan, "the finding: WP-1's rule alone calls a brew service a zombie");
+        assert!(!before.protected);
+
+        let mut restarts = brew_service();
+        apply_launchd(&mut restarts, Some(job(Some(true))));
+        assert!(!restarts.orphan);
+        assert!(restarts.protected, "launchd undoes the kill: it asks first");
+        assert_eq!(restarts.launchd, Some(job(Some(true))));
+
+        // Nobody can tell (`brew services run`, a conditional KeepAlive, a job's child): launchd may
+        // undo the kill, so it asks first too.
+        let mut unknown = brew_service();
+        apply_launchd(&mut unknown, Some(job(None)));
+        assert!(!unknown.orphan);
+        assert!(unknown.protected, "launchd may undo the kill: it asks first");
+        assert_eq!(unknown.launchd, Some(job(None)));
+
+        // Known to stay down after a kill: not an orphan, and no more protected than before.
+        let mut stays = brew_service();
+        apply_launchd(&mut stays, Some(job(Some(false))));
+        assert!(!stays.orphan);
+        assert!(!stays.protected);
+        assert_eq!(stays.launchd, Some(job(Some(false))));
+
+        // A job never lifts a protection the entry already had.
+        let mut db = PortEntry { protected: true, ..brew_service() };
+        apply_launchd(&mut db, Some(job(Some(false))));
+        assert!(db.protected);
+
+        // No job: nothing changes.
+        let mut plain = brew_service();
+        apply_launchd(&mut plain, None);
+        assert_eq!(plain, brew_service());
+    }
+
+    #[test]
+    fn a_jobs_child_carries_the_job_and_asks_first_since_nobody_knows_whether_it_comes_back() {
+        // A KeepAlive job (pid 500, launchd's child) and the server it forked (501): launchd
+        // restarts the job, and whether the server comes back is the job's business.
+        let jobs = HashMap::from([(500u32, "homebrew.mxcl.ollama".to_string())]);
+        let parents = HashMap::from([(500u32, 1u32), (501, 500)]);
+        let (label, link) =
+            crate::launchd::job_of(501, &jobs, |p| parents.get(&p).copied()).expect("its parent's job");
+        assert_eq!((label, link), ("homebrew.mxcl.ollama", crate::launchd::Link::Child));
+        let carried = crate::launchd::for_link(&job(Some(true)), link);
+        assert_eq!(carried.restarts, None);
+        assert_eq!(carried.stop_command.as_deref(), Some("brew services stop ollama"), "stopping the job stops it");
+
+        // The server as WP-1's rule sees it under its living parent: no orphan to begin with.
+        let mut child = PortEntry { pid: 501, parent_pid: Some(500), ..brew_service() };
+        child.orphan = is_orphan(Some(500), child.exe.as_deref(), child.user.as_deref(), Some("amit"));
+        assert!(!child.orphan && !child.protected, "WP-1's rule alone lets it die without asking");
+        apply_launchd(&mut child, Some(carried.clone()));
+        assert!(child.protected, "its parent may start it again, and nobody can tell: it asks first");
+        assert_eq!(child.launchd, Some(carried));
+
+        // The job's own process, from the same map, is protected as before.
+        let (_, own) = crate::launchd::job_of(500, &jobs, |p| parents.get(&p).copied()).expect("its own job");
+        let mut parent = PortEntry { pid: 500, ..brew_service() };
+        apply_launchd(&mut parent, Some(crate::launchd::for_link(&job(Some(true)), own)));
+        assert!(parent.protected);
+    }
+
+    const CONTROL_CENTER_EXE: &str = "/System/Library/CoreServices/ControlCenter.app/Contents/MacOS/ControlCenter";
+
+    /// ControlCenter as macOS runs it: launchd's child, the user's, from /System, on :5000 (AirPlay
+    /// Receiver), and a job of the user's domain (`com.apple.controlcenter`) that `launchctl list` names.
+    fn control_center() -> PortEntry {
+        let me = Some("amit");
+        let mut e = PortEntry {
+            port: 5000,
+            pid: 635,
+            process_name: "ControlCenter".into(),
+            command: CONTROL_CENTER_EXE.into(),
+            exe: Some(CONTROL_CENTER_EXE.into()),
+            category: Category::System,
+            framework: Some("AirPlay".into()),
+            ..docker_entry(5000, Protocol::Tcp)
+        };
+        e.orphan = is_orphan(e.parent_pid, e.exe.as_deref(), e.user.as_deref(), me);
+        e.protected = is_protected(&e.process_name, e.exe.as_deref(), e.user.as_deref(), me);
+        e
+    }
+
+    #[test]
+    fn a_job_run_from_the_systems_folders_or_from_an_unknown_exe_is_offered_no_stop_command() {
+        let offered = |exe: Option<&str>| {
+            let mut carried = job(Some(true));
+            withhold_stop_command(&mut carried, exe);
+            carried.stop_command
+        };
+        assert_eq!(offered(Some(CONTROL_CENTER_EXE)), None, "a piece of macOS");
+        assert_eq!(offered(Some("/usr/libexec/x")), None);
+        assert_eq!(offered(None), None, "an exe nobody knows could be a piece of macOS");
+        assert_eq!(
+            offered(Some("/opt/homebrew/Cellar/ollama/0.13.0/bin/ollama")).as_deref(),
+            Some("brew services stop ollama"),
+            "a brew service keeps its command"
+        );
+        // A path that only looks like a system folder is not one.
+        assert_eq!(offered(Some("/usr/binx/agent")).as_deref(), Some("brew services stop ollama"));
+
+        // Only the command goes: the label, what a kill does and the formula stay.
+        let mut kept = job(Some(true));
+        withhold_stop_command(&mut kept, Some(CONTROL_CENTER_EXE));
+        assert_eq!(kept, LaunchdJob { stop_command: None, ..job(Some(true)) });
+
+        // `job_for_entry` withholds it on either link, after `for_link`.
+        let own = job_for_entry(&job(Some(true)), crate::launchd::Link::Own, Some("/usr/libexec/x"));
+        assert_eq!(own, LaunchdJob { stop_command: None, ..job(Some(true)) });
+        let child = job_for_entry(&job(Some(true)), crate::launchd::Link::Child, None);
+        assert_eq!(child, LaunchdJob { restarts: None, stop_command: None, ..job(Some(true)) });
+        let brew = job_for_entry(&job(Some(true)), crate::launchd::Link::Own, Some("/opt/homebrew/bin/ollama"));
+        assert_eq!(brew, job(Some(true)));
+    }
+
+    #[test]
+    fn control_center_on_airplay_carries_its_job_and_no_command_that_would_disable_it() {
+        // What the listing does for it: its job from `launchctl list`, described, then carried.
+        let jobs = HashMap::from([(635u32, "com.apple.controlcenter".to_string())]);
+        let parents = HashMap::from([(635u32, 1u32)]);
+        let (label, link) =
+            crate::launchd::job_of(635, &jobs, |p| parents.get(&p).copied()).expect("its own job");
+        assert_eq!(link, crate::launchd::Link::Own);
+        let described = crate::launchd::describe(label, None, 501);
+        assert_eq!(described.stop_command, None, "Apple's job: no command is built for it");
+
+        let before = control_center();
+        assert!(!before.orphan, "a system path is never an orphan");
+        assert!(before.protected, "and always asks");
+        let mut entry = control_center();
+        let carried = job_for_entry(&described, link, entry.exe.as_deref());
+        apply_launchd(&mut entry, Some(carried));
+        let expected = LaunchdJob {
+            label: "com.apple.controlcenter".into(),
+            restarts: None,
+            brew: None,
+            stop_command: None,
+        };
+        assert_eq!(entry.launchd, Some(expected.clone()));
+        assert!(!entry.orphan, "still never a Zombie");
+        assert!(entry.protected);
+
+        // The system path alone withholds it too: a job of ControlCenter's that came with a command.
+        let built = LaunchdJob {
+            stop_command: Some(
+                "launchctl disable gui/501/com.apple.controlcenter && launchctl bootout gui/501/com.apple.controlcenter"
+                    .into(),
+            ),
+            ..expected.clone()
+        };
+        let mut entry = control_center();
+        let carried = job_for_entry(&built, link, entry.exe.as_deref());
+        apply_launchd(&mut entry, Some(carried));
+        assert_eq!(entry.launchd, Some(expected));
+    }
+
+    /// [`brew_service`] under `parent_pid`, with `orphan` as WP-1's rule has it there.
+    fn brew_service_under(parent_pid: Option<u32>) -> PortEntry {
+        let mut e = PortEntry { parent_pid, ..brew_service() };
+        e.orphan = is_orphan(e.parent_pid, e.exe.as_deref(), e.user.as_deref(), Some("amit"));
+        e
+    }
+
+    #[test]
+    fn with_no_answer_from_launchctl_launchds_children_keep_their_rows_but_are_no_orphans() {
+        let service = brew_service();
+        assert!(service.orphan, "WP-1's rule alone calls the brew service a zombie");
+        let unknown_parent = brew_service_under(None);
+        assert!(unknown_parent.orphan, "a parent nobody knows reads as lost too");
+        let living = brew_service_under(Some(4242));
+        assert!(!living.orphan);
+        let all = vec![service.clone(), unknown_parent.clone(), living.clone(), control_center()];
+
+        // No answer: launchd's child may be a job nobody named, so it is no orphan, and only that changes.
+        let mut held = all.clone();
+        hold_orphans_while_jobs_unknown(&mut held, None);
+        assert_eq!(held.len(), all.len(), "every row stays");
+        assert_eq!(held[0], PortEntry { orphan: false, ..service.clone() }, "no Zombie mark, no zombie reap");
+        assert_eq!(held[1], unknown_parent, "launchd parents every job: a parent nobody knows is no job's");
+        assert_eq!(held[2], living, "a living parent's child is no job's either");
+        assert_eq!(held[3], control_center(), "launchd's child that was no orphan stays as it was");
+
+        // An answer, even one that names no job, holds nothing back.
+        let mut answered = all.clone();
+        hold_orphans_while_jobs_unknown(&mut answered, Some(&HashMap::new()));
+        assert_eq!(answered, all);
+        let ollama = HashMap::from([(32014u32, "homebrew.mxcl.ollama".to_string())]);
+        let mut named = all.clone();
+        hold_orphans_while_jobs_unknown(&mut named, Some(&ollama));
+        assert_eq!(named, all, "what an answer names is `apply_launchd`'s business");
+    }
+
+    #[test]
+    fn with_no_answer_from_launchctl_no_child_of_launchds_is_listed_as_a_portless_orphan() {
+        // The portless loop's test, per candidate (parent 1 or a parent nobody knows).
+        let empty: HashMap<u32, String> = HashMap::new();
+        let ollama = HashMap::from([(32014u32, "homebrew.mxcl.ollama".to_string())]);
+        assert!(held_while_jobs_unknown(Some(1), None), "launchd's child may be a job nobody named");
+        assert!(!held_while_jobs_unknown(None, None), "a parent nobody knows: listed as before");
+        assert!(!held_while_jobs_unknown(Some(4242), None), "a living parent: as before");
+        for answer in [&empty, &ollama] {
+            assert!(!held_while_jobs_unknown(Some(1), Some(answer)), "an answer holds nothing back");
+            assert!(!held_while_jobs_unknown(None, Some(answer)));
+        }
     }
 
     #[test]

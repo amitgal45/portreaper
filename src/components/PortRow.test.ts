@@ -8,7 +8,8 @@ import { useKillFlow } from "../composables/useKillFlow";
 import { usePorts } from "../composables/usePorts";
 import { useToasts } from "../composables/useToasts";
 import { WATCHED_KEY } from "../composables/useWatch";
-import type { PortEntry } from "../types";
+import type { LaunchdJob, PortEntry } from "../types";
+import HintTooltip from "./HintTooltip.vue";
 import PortRow from "./PortRow.vue";
 
 const byPort = (port: number): PortEntry => {
@@ -29,6 +30,7 @@ function spies(): UiActions {
     openInBrowser: vi.fn(),
     copyKill: vi.fn(),
     copyCommand: vi.fn(),
+    copyStopCommand: vi.fn(),
     revealFolder: vi.fn(),
     watch: vi.fn(),
     hide: vi.fn(),
@@ -64,6 +66,10 @@ function mountRow(
 /** The status pills of a row, in order. */
 const pillsOf = (wrapper: ReturnType<typeof mountRow>) =>
   wrapper.findAll("[data-badge]").map((b) => [b.attributes("data-badge"), b.text()]);
+
+/** The hints of the pills that have one, in order (a tooltip's text is only in the DOM while it is open). */
+const hintsOf = (wrapper: ReturnType<typeof mountRow>) =>
+  wrapper.findAllComponents(HintTooltip).map((t) => t.props("text"));
 
 describe("PortRow", () => {
   it("kills an unprotected row on click, and forces on ⌥-click", async () => {
@@ -140,8 +146,14 @@ describe("PortRow", () => {
     expect(mdns.text()).toContain("udp");
     mdns.unmount();
 
+    // Ollama as a brew service launchd restarts after a kill: protected, still a model server, and
+    // the neutral launchd chip last.
     const ai = mountRow(byPort(11434), actions);
-    expect(pillsOf(ai)).toEqual([["ai", "AI · 4.9 GB"]]);
+    expect(pillsOf(ai)).toEqual([
+      ["protected", "Protected"],
+      ["ai", "AI · 4.9 GB"],
+      ["launchd", "launchd"],
+    ]);
     ai.unmount();
 
     // An orphan that is protected shows both: its terminal is gone, and Reap will leave it alone.
@@ -151,6 +163,50 @@ describe("PortRow", () => {
       ["protected", "Protected"],
     ]);
     guarded.unmount();
+  });
+
+  it("a launchd job gets the neutral launchd chip with who runs it and what a kill does, never Zombie", () => {
+    const actions = spies();
+    const job = byPort(11434).launchd as LaunchdJob;
+    const ollama = mountRow(byPort(11434), actions, {
+      reason: "a Homebrew service (ollama) that launchd starts again after a kill",
+    });
+    const chip = ollama.get("[data-badge='launchd']");
+    expect(chip.text()).toBe("launchd");
+    expect(chip.classes()).toEqual(expect.arrayContaining(["border-line", "bg-canvas", "text-ink-2"]));
+    expect(ollama.find("[data-badge='zombie']").exists()).toBe(false);
+    expect(hintsOf(ollama)).toEqual([
+      "a Homebrew service (ollama) that launchd starts again after a kill — asks before killing",
+      "a local model server; this is the memory it holds",
+      "started by launchd (homebrew.mxcl.ollama): a kill is undone within seconds",
+    ]);
+    ollama.unmount();
+
+    // A LaunchAgent that stays down after a kill: not protected, so Running first, then the chip.
+    const agent = {
+      ...byPort(9335),
+      parentPid: 1,
+      launchd: { ...job, label: "com.example.agent", restarts: false },
+    };
+    const stays = mountRow(agent, actions);
+    expect(pillsOf(stays)).toEqual([
+      ["running", "Running"],
+      ["launchd", "launchd"],
+    ]);
+    expect(hintsOf(stays)).toEqual([
+      "started by launchd (com.example.agent): a kill lasts until the next login",
+    ]);
+    stays.unmount();
+
+    const vague = mountRow({ ...agent, launchd: { ...agent.launchd, restarts: null } }, actions);
+    expect(hintsOf(vague)).toEqual(["started by launchd (com.example.agent): launchd may start it again"]);
+    vague.unmount();
+
+    // An entry from a core that did not send `launchd` yet (the Quick strip's cache): no chip, no error.
+    const older = { ...byPort(3000), launchd: undefined } as unknown as PortEntry;
+    const plain = mountRow(older, actions);
+    expect(pillsOf(plain)).toEqual([["running", "Running"]]);
+    plain.unmount();
   });
 
   it("draws the brand mark for a known stack, a text pill for an unknown one, nothing otherwise", () => {

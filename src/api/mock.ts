@@ -97,6 +97,7 @@ function entry(partial: Partial<PortEntry> & Pick<PortEntry, "port" | "pid" | "p
     project: null,
     protected: false,
     container: null,
+    launchd: null,
     ...partial,
   };
 }
@@ -243,6 +244,8 @@ export const MOCK_ENTRIES: PortEntry[] = [
     protected: true,
   }),
   // The v0.2 demo entries: a local model server, and a second lost-terminal server that Reap takes.
+  // The model server is a `brew services` job: launchd is its parent on purpose (so it is no
+  // zombie) and starts it again after a kill (KeepAlive), so the core protects it.
   entry({
     port: 11434,
     pid: 32014,
@@ -252,7 +255,14 @@ export const MOCK_ENTRIES: PortEntry[] = [
     exe: "/usr/local/bin/ollama",
     memoryBytes: Math.ceil(4.85 * 1024 * 1024 * 1024),
     startedAt: now - 12 * 24 * 3600,
-    protected: false,
+    parentPid: 1,
+    protected: true,
+    launchd: {
+      label: "homebrew.mxcl.ollama",
+      restarts: true,
+      brew: "ollama",
+      stopCommand: "brew services stop ollama",
+    },
   }),
   entry({
     port: 4000,

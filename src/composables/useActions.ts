@@ -20,6 +20,11 @@ export interface UiActions {
   openInBrowser(entry: PortEntry): void;
   copyKill(entry: PortEntry): void;
   copyCommand(entry: PortEntry): void;
+  /**
+   * Copies `entry.launchd.stopCommand`, the command that stops a launchd job for good, exactly as
+   * the core built it. PortReaper never runs it. A no-op when the entry has none.
+   */
+  copyStopCommand(entry: PortEntry): void;
   revealFolder(entry: PortEntry): void;
   /** Watch the port, or stop watching it (the row menu, the inspector's eye, a free row's Stop watching). */
   watch(target: WatchTarget): void;

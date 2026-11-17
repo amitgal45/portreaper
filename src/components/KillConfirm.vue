@@ -1,6 +1,8 @@
 <script setup lang="ts">
 // The second confirmation for a protected process, a group with one, or a big reap. Cancel takes
-// focus, so Enter twice never kills.
+// focus, so Enter twice never kills. A launchd job that comes back after a kill, or may, says so (its
+// reason line), names the command that stops it for good and offers to copy it when the core built
+// one (never for a piece of macOS); PortReaper never runs it.
 import {
   AlertDialogCancel,
   AlertDialogContent,
@@ -11,6 +13,7 @@ import {
   AlertDialogTitle,
 } from "reka-ui";
 import { computed } from "vue";
+import { useActions } from "../composables/useActions";
 import type { KillTarget } from "../composables/useKillFlow";
 import { formatBytes, formatPorts } from "../lib/format";
 import type { PortEntry } from "../types";
@@ -23,7 +26,27 @@ const props = defineProps<{
 
 const emit = defineEmits<{ confirm: []; cancel: [] }>();
 
+const actions = useActions();
+
 const who = (e: PortEntry) => `${e.processName} (${e.pid})`;
+
+/**
+ * The entry's launchd job when launchd starts it again after a kill, or may (`restarts` null: nobody
+ * can tell, and the core asks first then too). `?.`: an older core sends no `launchd`.
+ */
+const restarting = computed(() => {
+  const t = props.target;
+  if (t?.kind !== "entry" || t.entry.container) return null;
+  const job = t.entry.launchd;
+  const restarts = job?.restarts;
+  return job && restarts !== false ? job : null;
+});
+
+/** "Copy command" copies what the core built, and leaves the dialog open: the user still decides. */
+function copyStopCommand() {
+  const t = props.target;
+  if (t?.kind === "entry") actions.copyStopCommand(t.entry);
+}
 
 const title = computed(() => {
   const t = props.target;
@@ -58,6 +81,9 @@ const description = computed(() => {
     const held = props.portsOf(t.entry.pid);
     lines.push(`${t.entry.processName} is ${props.reasonFor(t.entry)}.`);
     if (held.length > 0) lines.push(`It holds ${formatPorts(held).toLowerCase()}.`);
+    // The reason line already says launchd starts it again, or may; this names what stops it for good.
+    const job = restarting.value;
+    if (job?.stopCommand) lines.push(`To stop it for good, run ${job.stopCommand}.`);
   } else if (t.kind === "group") {
     const n = t.group.pids.length;
     lines.push(
@@ -109,6 +135,17 @@ function onOpenChange(open: boolean) {
           {{ description }}
         </AlertDialogDescription>
         <div class="mt-4 flex justify-end gap-2">
+          <!-- A plain button: it copies and the dialog stays; Cancel still takes the focus on open. -->
+          <button
+            v-if="restarting?.stopCommand"
+            type="button"
+            data-action="copy-stop-command"
+            class="h-7 rounded-md border border-line-strong bg-surface px-3 outline-none hover:bg-hover focus-visible:ring-2 focus-visible:ring-brand/40"
+            :title="`Copy ${restarting.stopCommand}`"
+            @click="copyStopCommand()"
+          >
+            Copy command
+          </button>
           <AlertDialogCancel
             class="h-7 rounded-md border border-line-strong bg-surface px-3 outline-none hover:bg-hover focus-visible:ring-2 focus-visible:ring-brand/40"
           >

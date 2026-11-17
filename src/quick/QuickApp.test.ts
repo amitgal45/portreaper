@@ -1,7 +1,8 @@
 import { flushPromises, mount, type VueWrapper } from "@vue/test-utils";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { API_KEY } from "../api";
-import { createMockApi } from "../api/mock";
+import { createMockApi, MOCK_ENTRIES } from "../api/mock";
+import type { LaunchdJob, PortEntry } from "../types";
 import QuickApp from "./QuickApp.vue";
 
 vi.mock("../api/window", () => ({ hideCurrentWindow: vi.fn(async () => false) }));
@@ -36,8 +37,8 @@ describe("QuickApp", () => {
   it("shows the pre-selection with the zombies first, the newer selected, the hint, the header and the footer", async () => {
     const { wrapper } = await mountQuick();
     const options = wrapper.findAll("[role='option']");
-    // Two lost-terminal servers newest first, then the dev servers newest first; six rows at most,
-    // so the 12-day-old Ollama is left out until a query asks for it.
+    // Two lost-terminal servers newest first, then the dev servers newest first; six rows at most.
+    // Ollama, a protected brew service, is left out until a query asks for it.
     expect(options.map((o) => o.attributes("data-port"))).toEqual([
       "5174",
       "4000",
@@ -103,8 +104,55 @@ describe("QuickApp", () => {
     expect(option(7000).find("[data-framework]").classes()).toContain("bg-canvas");
   });
 
+  it("a brew service launchd restarts: Restarts in the protected tint, and the armed row names what stops it", async () => {
+    const { wrapper, freePort } = await mountQuick();
+    await wrapper.find("input").setValue("ollama");
+    const ollama = () => wrapper.find("[role='option'][data-port='11434']");
+    const pill = ollama().find("[data-status]");
+    expect(pill.text()).toBe("Restarts");
+    expect(pill.attributes("data-status")).toBe("restarts");
+    expect(pill.attributes("title")).toBe("launchd starts it again after a kill — asks twice");
+    expect(pill.classes()).toEqual(expect.arrayContaining(["bg-blue-tint", "text-blue-ink"]));
+    expect(ollama().find("[aria-label='lost terminal']").exists()).toBe(false);
+
+    key("Enter");
+    await flushPromises();
+    expect(freePort).not.toHaveBeenCalled();
+    expect(ollama().text().replace(/\s+/g, " ")).toContain(
+      "ollama restarts after a kill (launchd). Enter again to kill it anyway; brew services stop ollama stops it.",
+    );
+    expect(ollama().classes()).toContain("bg-orange-tint");
+    key("Escape");
+    await flushPromises();
+    expect(ollama().text()).not.toContain("restarts after a kill");
+    expect(freePort).not.toHaveBeenCalled();
+  });
+
+  it("a job nobody can tell about: the Protected pill, not Restarts, and the armed row says it may restart", async () => {
+    const ollama = MOCK_ENTRIES.find((e) => e.port === 11434) as PortEntry;
+    const job = ollama.launchd as LaunchdJob;
+    const vague: PortEntry = { ...ollama, launchd: { ...job, restarts: null } };
+    const seed = MOCK_ENTRIES.map((e) => (e.port === 11434 ? vague : e));
+    const { wrapper, freePort } = await mountQuick(createMockApi(seed));
+    await wrapper.find("input").setValue("ollama");
+    const row = () => wrapper.find("[role='option'][data-port='11434']");
+    const pill = row().find("[data-status]");
+    expect(pill.text()).toBe("Protected");
+    expect(pill.attributes("data-status")).toBe("protected");
+
+    key("Enter");
+    await flushPromises();
+    expect(freePort).not.toHaveBeenCalled();
+    expect(row().text().replace(/\s+/g, " ")).toContain(
+      "ollama may restart after a kill (launchd). Enter again to kill it anyway; brew services stop ollama stops it.",
+    );
+  });
+
   it("an ai row's pill carries its memory", async () => {
-    const { wrapper } = await mountQuick();
+    // A model server nothing protects (not a launchd job): the one pill is the memory it holds.
+    const unprotected = { protected: false, parentPid: 900, launchd: null };
+    const seed = MOCK_ENTRIES.map((e) => (e.port === 11434 ? { ...e, ...unprotected } : e));
+    const { wrapper } = await mountQuick(createMockApi(seed));
     await wrapper.find("input").setValue("ollama");
     const ollama = wrapper.find("[role='option'][data-port='11434']");
     expect(ollama.attributes("data-category")).toBe("ai");
@@ -164,14 +212,13 @@ describe("QuickApp", () => {
       expect(wrapper.find("[role='option']").text()).toContain("Freed :3000");
       await vi.advanceTimersByTimeAsync(1);
       expect((input.element as HTMLInputElement).value).toBe("");
-      // With :3000 gone the six remaining unprotected rows fit the strip, Ollama last.
+      // With :3000 gone the five remaining unprotected rows fit the strip; Ollama, protected, stays out.
       expect(wrapper.findAll("[role='option']").map((o) => o.attributes("data-port"))).toEqual([
         "5174",
         "4000",
         "5173",
         "8080",
         "9335",
-        "11434",
       ]);
     } finally {
       vi.useRealTimers();

@@ -528,6 +528,7 @@ mod tests {
             category: Category::Web,
             framework: Some("Next.js".into()),
             container: None,
+            launchd: None,
         }
     }
 
