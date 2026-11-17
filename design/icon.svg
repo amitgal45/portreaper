@@ -1,35 +1,84 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
   <!--
-    PortReaper app icon, v0.2 "Cyber Scythe". Source of truth: `pnpm icons` renders this to
-    src-tauri/icons/.
+    PortReaper app icon, v0.5 "Prismatic Cut Socket" (3B), default appearance. Source of truth:
+    `pnpm icons` renders this to src-tauri/icons/. design/README.md says what each part means.
 
-    Two colours: Signal Coral (#FF4528) on Tactical Obsidian (#121316), the tokens in
-    src/style.css (see design/README.md). The plate sits on Apple's icon grid (824 px square,
-    100 px margin, 185 px corner radius). On it, one glyph: the face of an Ethernet socket drawn
-    as a bold ring (96 px wall), cut in two by one sweep of a scythe. The cut is the whole story:
-    a port, and the act of freeing it. No blade drawn, no skull, no gradient, no text.
+    The plate sits on Apple's icon grid (824 px square, 100 px margin, 185 px corner radius):
+    Tactical Obsidian (#121316), a touch lighter at the top, with a 2 px hairline.
 
-    The ring is a filled path (outer boundary clockwise, hollow counter-clockwise, even-odd).
-    v0.1 stroked the centreline with round joins, which rounded every outer corner to 48 px and
-    made the socket read as a speech bubble; here the outer corners are 24 px and the hollow is
-    sharp. Centreline for reference: M232 282 H792 V622 H682 V742 H342 V622 H232 Z, wall 96.
-
-    The cut is a quadratic arc from (388,892) to (636,132): v0.1's diagonal (72 degrees from
-    horizontal) bowed 60 px toward the upper-left at its middle, so the heavier left piece is the
-    one that was swept. 88 px wide, square ends. The mask region is set in user space on purpose:
-    the default (-10 %..120 % of the glyph's box) would clip the ring.
+    The glyph is v0.2's, unchanged: the face of an Ethernet socket as a bold ring (96 px wall,
+    24 px outer corners, sharp hollow) with the latch tab below, cut in two by one 88 px arc
+    (quadratic, (388,892) to (636,132)). What is new is that the cut now separates two colours:
+    the swept left piece runs Neon Amber to Signal Coral, the right piece Azure to Violet, the
+    same hexes as the app's tokens. The socket's opening is a faint glass panel, and the glyph
+    blooms a little onto the plate. The two pieces are the one glyph clipped either side of the
+    arc's centreline; the 88 px cut mask then opens the gap. The mask, the clips, the gradients
+    and the blur all work in user space on purpose: the defaults (relative to each element's box)
+    would clip the ring or shift the colours.
   -->
   <defs>
+    <path id="socket" fill-rule="evenodd"
+          d="M184 258 A24 24 0 0 1 208 234 H816 A24 24 0 0 1 840 258 V646 A24 24 0 0 1 816 670 H730 V766 A24 24 0 0 1 706 790 H318 A24 24 0 0 1 294 766 V670 H208 A24 24 0 0 1 184 646 Z M280 330 V574 H390 V694 H634 V574 H744 V330 Z"/>
     <mask id="cut" maskUnits="userSpaceOnUse" x="0" y="0" width="1024" height="1024">
       <rect width="1024" height="1024" fill="#fff"/>
       <path d="M388 892 Q398 475 636 132" fill="none" stroke="#000" stroke-width="88"/>
     </mask>
+    <!-- Either side of the cut's centreline; the straight runs beyond its ends lie off the glyph. -->
+    <clipPath id="left" clipPathUnits="userSpaceOnUse">
+      <path d="M0 0 H680 L636 132 Q398 475 388 892 L380 1024 H0 Z"/>
+    </clipPath>
+    <clipPath id="right" clipPathUnits="userSpaceOnUse">
+      <path d="M1024 0 H680 L636 132 Q398 475 388 892 L380 1024 H1024 Z"/>
+    </clipPath>
+    <clipPath id="plate" clipPathUnits="userSpaceOnUse">
+      <rect x="100" y="100" width="824" height="824" rx="185"/>
+    </clipPath>
+    <linearGradient id="plate-fill" gradientUnits="userSpaceOnUse" x1="0" y1="100" x2="0" y2="924">
+      <stop offset="0" stop-color="#1A1C21"/>
+      <stop offset="1" stop-color="#0E0F12"/>
+    </linearGradient>
+    <linearGradient id="warm" gradientUnits="userSpaceOnUse" x1="184" y1="234" x2="430" y2="790">
+      <stop offset="0" stop-color="#FF9A3C"/>
+      <stop offset="1" stop-color="#FF4528"/>
+    </linearGradient>
+    <linearGradient id="cool" gradientUnits="userSpaceOnUse" x1="840" y1="234" x2="560" y2="790">
+      <stop offset="0" stop-color="#4EA1FF"/>
+      <stop offset="1" stop-color="#A78BFA"/>
+    </linearGradient>
+    <radialGradient id="glow" gradientUnits="userSpaceOnUse" cx="512" cy="500" r="400">
+      <stop offset="0" stop-color="#FF6A3D" stop-opacity="0.20"/>
+      <stop offset="0.55" stop-color="#8B7CF6" stop-opacity="0.08"/>
+      <stop offset="1" stop-color="#8B7CF6" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="bloom" filterUnits="userSpaceOnUse" x="0" y="0" width="1024" height="1024">
+      <feGaussianBlur stdDeviation="28"/>
+    </filter>
   </defs>
 
   <!-- the plate -->
-  <rect x="100" y="100" width="824" height="824" rx="185" fill="#121316"/>
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#plate-fill)"/>
 
-  <!-- the socket: a wide body with the narrower latch tab below, cut by the sweep -->
-  <path d="M184 258 A24 24 0 0 1 208 234 H816 A24 24 0 0 1 840 258 V646 A24 24 0 0 1 816 670 H730 V766 A24 24 0 0 1 706 790 H318 A24 24 0 0 1 294 766 V670 H208 A24 24 0 0 1 184 646 Z M280 330 V574 H390 V694 H634 V574 H744 V330 Z"
-        fill="#FF4528" fill-rule="evenodd" mask="url(#cut)"/>
+  <g clip-path="url(#plate)">
+    <!-- the glow behind the socket, and the glyph's own bloom -->
+    <rect x="100" y="100" width="824" height="824" fill="url(#glow)"/>
+    <g filter="url(#bloom)" opacity="0.55">
+      <g mask="url(#cut)">
+        <use href="#socket" fill="url(#warm)" clip-path="url(#left)"/>
+        <use href="#socket" fill="url(#cool)" clip-path="url(#right)"/>
+      </g>
+    </g>
+
+    <!-- the socket's opening: a glass panel -->
+    <path d="M280 330 V574 H390 V694 H634 V574 H744 V330 Z"
+          fill="#FFFFFF" fill-opacity="0.045" stroke="#FFFFFF" stroke-opacity="0.09" stroke-width="2"/>
+
+    <!-- the socket, cut in two -->
+    <g mask="url(#cut)">
+      <use href="#socket" fill="url(#warm)" clip-path="url(#left)"/>
+      <use href="#socket" fill="url(#cool)" clip-path="url(#right)"/>
+    </g>
+  </g>
+
+  <!-- the plate's hairline -->
+  <rect x="101" y="101" width="822" height="822" rx="184" fill="none" stroke="#FFFFFF" stroke-opacity="0.07" stroke-width="2"/>
 </svg>

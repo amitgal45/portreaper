@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!--
+    PortReaper app icon, "Prismatic Cut Socket" (3B), dark appearance (macOS 26). The same glyph,
+    cut and gradients as icon.svg (read it first) on a Void Black plate (#0A0B0E), with a deeper
+    bloom and glow and a brighter hairline so the plate still reads against a dark Dock. Not
+    rendered by `pnpm icons`: Tauri bundles one appearance. It is an input for an Icon Composer
+    `.icon` file (design/README.md, "Appearances").
+  -->
+  <defs>
+    <path id="socket" fill-rule="evenodd"
+          d="M184 258 A24 24 0 0 1 208 234 H816 A24 24 0 0 1 840 258 V646 A24 24 0 0 1 816 670 H730 V766 A24 24 0 0 1 706 790 H318 A24 24 0 0 1 294 766 V670 H208 A24 24 0 0 1 184 646 Z M280 330 V574 H390 V694 H634 V574 H744 V330 Z"/>
+    <mask id="cut" maskUnits="userSpaceOnUse" x="0" y="0" width="1024" height="1024">
+      <rect width="1024" height="1024" fill="#fff"/>
+      <path d="M388 892 Q398 475 636 132" fill="none" stroke="#000" stroke-width="88"/>
+    </mask>
+    <clipPath id="left" clipPathUnits="userSpaceOnUse">
+      <path d="M0 0 H680 L636 132 Q398 475 388 892 L380 1024 H0 Z"/>
+    </clipPath>
+    <clipPath id="right" clipPathUnits="userSpaceOnUse">
+      <path d="M1024 0 H680 L636 132 Q398 475 388 892 L380 1024 H1024 Z"/>
+    </clipPath>
+    <clipPath id="plate" clipPathUnits="userSpaceOnUse">
+      <rect x="100" y="100" width="824" height="824" rx="185"/>
+    </clipPath>
+    <linearGradient id="plate-fill" gradientUnits="userSpaceOnUse" x1="0" y1="100" x2="0" y2="924">
+      <stop offset="0" stop-color="#101116"/>
+      <stop offset="1" stop-color="#07080A"/>
+    </linearGradient>
+    <linearGradient id="warm" gradientUnits="userSpaceOnUse" x1="184" y1="234" x2="430" y2="790">
+      <stop offset="0" stop-color="#FF9A3C"/>
+      <stop offset="1" stop-color="#FF4528"/>
+    </linearGradient>
+    <linearGradient id="cool" gradientUnits="userSpaceOnUse" x1="840" y1="234" x2="560" y2="790">
+      <stop offset="0" stop-color="#4EA1FF"/>
+      <stop offset="1" stop-color="#A78BFA"/>
+    </linearGradient>
+    <radialGradient id="glow" gradientUnits="userSpaceOnUse" cx="512" cy="500" r="420">
+      <stop offset="0" stop-color="#FF6A3D" stop-opacity="0.30"/>
+      <stop offset="0.55" stop-color="#8B7CF6" stop-opacity="0.12"/>
+      <stop offset="1" stop-color="#8B7CF6" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="bloom" filterUnits="userSpaceOnUse" x="0" y="0" width="1024" height="1024">
+      <feGaussianBlur stdDeviation="36"/>
+    </filter>
+  </defs>
+
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#plate-fill)"/>
+
+  <g clip-path="url(#plate)">
+    <rect x="100" y="100" width="824" height="824" fill="url(#glow)"/>
+    <g filter="url(#bloom)" opacity="0.8">
+      <g mask="url(#cut)">
+        <use href="#socket" fill="url(#warm)" clip-path="url(#left)"/>
+        <use href="#socket" fill="url(#cool)" clip-path="url(#right)"/>
+      </g>
+    </g>
+    <path d="M280 330 V574 H390 V694 H634 V574 H744 V330 Z"
+          fill="#FFFFFF" fill-opacity="0.05" stroke="#FFFFFF" stroke-opacity="0.10" stroke-width="2"/>
+    <g mask="url(#cut)">
+      <use href="#socket" fill="url(#warm)" clip-path="url(#left)"/>
+      <use href="#socket" fill="url(#cool)" clip-path="url(#right)"/>
+    </g>
+  </g>
+
+  <rect x="101" y="101" width="822" height="822" rx="184" fill="none" stroke="#FFFFFF" stroke-opacity="0.12" stroke-width="2"/>
+</svg>

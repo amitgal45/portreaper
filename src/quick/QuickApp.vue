@@ -4,9 +4,10 @@
 // the system. Keyboard only; the Rust side (WP-8a) shows and positions the 480×320 window and
 // hides it on blur; after a kill the page hides it itself.
 // Heights add up to the window: 24 + 44 + 6 + (2 + 6 × 36) + 4 + 24 = 320.
-import { Check, LoaderCircle, Lock, Search, Zap } from "lucide-vue-next";
+import { Check, LoaderCircle, Lock, Search } from "lucide-vue-next";
 import { computed, nextTick, onMounted, onUnmounted, ref } from "vue";
 import { provideApi } from "../api";
+import BrandMark from "../components/BrandMark.vue";
 import FrameworkIcon from "../components/FrameworkIcon.vue";
 import { formatBytes } from "../lib/format";
 import type { PortEntry } from "../types";
@@ -116,12 +117,9 @@ onUnmounted(() => quick.stop());
       data-tauri-drag-region
       class="flex h-6 shrink-0 items-center gap-1.5 px-3 text-[11px] text-ink-3"
     >
-      <span
-        data-tauri-drag-region
-        class="flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-[4px] bg-brand text-white"
-        aria-hidden="true"
-      >
-        <Zap :size="9" :stroke-width="3" />
+      <!-- The mark ignores the pointer, so a press on it lands on the drag region around it. -->
+      <span data-tauri-drag-region class="flex h-3.5 w-3.5 shrink-0" aria-hidden="true">
+        <BrandMark class="pointer-events-none h-3.5 w-3.5" />
       </span>
       <span data-tauri-drag-region class="truncate"><span class="font-semibold">PortReaper</span> · {{ portCount }} · ⌘⇧K</span>
     </header>
