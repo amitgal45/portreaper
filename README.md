@@ -4,11 +4,9 @@
 
 [![Release](https://img.shields.io/github/v/release/amitgal45/portreaper)](https://github.com/amitgal45/portreaper/releases/latest) ![Notarized by Apple](https://img.shields.io/badge/Apple-Notarized-000000?logo=apple) [![MIT](https://img.shields.io/github/license/amitgal45/portreaper)](LICENSE) [![Homebrew](https://img.shields.io/badge/homebrew-amitgal45%2Ftap-orange?logo=homebrew)](#homebrew)
 
-![⌘⇧K from any app: the port in your way is already selected; ↵ frees it](docs/quick-kill.gif)
+![PortReaper's ⌘⇧K strip: type 3000, press Return, and the port is freed; npm run dev then starts on 3000](docs/quick-kill.gif)
 
-*⌘⇧K from any app, then ↵.*
-
-<!-- docs/quick-kill.gif: Amit records it; commit it before this merges. -->
+*EADDRINUSE, ⌘⇧K, type 3000, Enter. The dev server starts.*
 
 PortReaper is a small macOS app that lists every listening port on your machine, names the
 project and git branch behind each one, and kills the process in one click. It lives in the Dock
