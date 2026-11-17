@@ -43,6 +43,10 @@ describe("the cask template", () => {
       "https://github.com/amitgal45/portreaper/releases/download/v#{version}/PortReaper_#{version}_universal.dmg";
     expect(lines(template, "url").map((line) => line.trim())).toContain(`url "${url}"`);
   });
+
+  it("names the minimum macOS as a symbol, the form Homebrew 7 reads without a deprecation warning", () => {
+    expect(lines(template, "depends_on").map((line) => line.trim())).toEqual(["depends_on macos: :monterey"]);
+  });
 });
 
 describe("bumpCask", () => {

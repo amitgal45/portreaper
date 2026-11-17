@@ -19,7 +19,9 @@ cask "portreaper" do
   end
 
   auto_updates true
-  depends_on macos: ">= :monterey"
+  # The minimum, as a symbol: Homebrew 7 deprecates the `">= :monterey"` string form and warns
+  # on every command that reads the cask.
+  depends_on macos: :monterey
 
   app "PortReaper.app"
 

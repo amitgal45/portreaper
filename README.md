@@ -137,8 +137,6 @@ Compared on 2026-11-17 with LeftOpen v0.5.8, from its README and source. Correct
 
 ### Homebrew
 
-<!-- Keep this line only if github.com/amitgal45/homebrew-tap has Casks/portreaper.rb before this merges. -->
-
 ```bash
 brew install --cask amitgal45/tap/portreaper
 ```
@@ -216,11 +214,16 @@ opens normally on your own Mac. A 0.2.x download is refused on first launch: ope
 Settings → Privacy & Security and click "Open Anyway", or run
 `xattr -dr com.apple.quarantine PortReaper.app`.
 
+**`brew info` or `brew fetch` refuses the tap?**
+`brew install --cask amitgal45/tap/portreaper` works as is. Homebrew 7 asks you to trust a new
+tap before `brew info` or `brew fetch` reads it: run `brew trust amitgal45/tap` once.
+
 **What does it read, and where does it go?**
 The list of listening sockets, and for each process behind one: pid, name, command line, working
 directory, executable path, user, memory, start time and parent pid. To tell a launchd job from
-an orphan it also runs `/bin/launchctl list` (your own jobs: pid and label) and reads a job's
-plist in `~/Library/LaunchAgents` for its KeepAlive. It reads them to show them and to find the
+an orphan it also runs `/bin/launchctl list` (your own jobs: pid and label), reads a job's plist
+in `~/Library/LaunchAgents` for its KeepAlive, and checks whether `/System/Library/LaunchAgents`
+has a plist by the job's name (only that it exists). It reads them to show them and to find the
 project. None of it is sent anywhere: the only network request the core makes is the update
 check, a GET of the latest release's `latest.json` on GitHub (see Updates); the UI is bundled
 with the app and loads nothing remote, and there is no analytics SDK.
