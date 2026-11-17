@@ -21,8 +21,8 @@ notarized, and auto-updating.
 
 Coding agents leave things running. When a Claude Code or Cursor session ends, its dev servers,
 MCP servers, Playwright browsers and test workers are often still there. Every time a port was
-taken I ran `lsof -i :3000`, then `kill`, and the ones that hold no port never showed up in
-`lsof -i` at all. I wanted to see which project and branch each process belongs to, and free it
+taken I ran `lsof -i :3000`, then `kill`. The ones that hold no port never showed up in `lsof -i`
+at all. I wanted to see which project and branch each process belongs to, and free it
 in one keystroke. So I built PortReaper.
 
 <!-- Draft by Shimi from Amit's notes: Amit rewrites this in his own words. -->
@@ -65,8 +65,10 @@ query, hides the strip.
   LaunchAgent) is never called a Zombie and never reaped. The drawer shows the job's label and the
   command that stops it for good, to copy: `brew services stop <formula>`, or
   `launchctl disable gui/<uid>/<label> && launchctl bootout gui/<uid>/<label>` for any other job.
-  A job launchd starts again after a kill (KeepAlive) would be back within seconds, so killing it
-  asks first, says why, and offers the same command. PortReaper never runs it.
+  When the job's plist in `~/Library/LaunchAgents` says launchd starts it again after a kill
+  (KeepAlive), it would be back within seconds, so killing it asks first, says why, and offers
+  the same command; for any other job the drawer says launchd may start it again. PortReaper
+  never runs the command.
 - **The project behind the port.** Name from `package.json`, `Cargo.toml`, `pyproject.toml` or
   `go.mod` (else the folder), the git branch read from `.git/HEAD` (worktrees included), and the
   tool from the command line: `vite`, `next`, `node`, `docker`, `postgres`... When it is not sure
@@ -84,7 +86,7 @@ query, hides the strip.
   launchd jobs that would start again and other users' processes are protected and ask a second
   time before dying, in the window and in the strip alike.
 - **Hidden ports.** Some ports are always there and never the one you want to free: macOS's
-  AirPlay Receiver listens on 5000 and 7000. Add a port in Preferences → Hidden ports, or choose
+  AirPlay Receiver listens on 5000 and 7000. Add a port in Preferences → General → Hidden ports, or choose
   "Hide :5000" in a row's menu. A hidden port is left out of the list, the search, ⌘⇧K, the menu
   bar's count and every bulk kill; the status line says how many are hidden.
 - **One window, one search box.** Light and dark, following macOS. Grouped by project, filtered
@@ -113,14 +115,15 @@ by project), `lsof -i` and `kill` in a terminal, the `kill-port` npm package, an
 | Docker | Names the container and stops it instead of killing Docker Desktop | Labels Docker's listeners only | No | No | No |
 | UDP | Yes | No (TCP only) | Yes | Yes | n/a |
 | A CLI | No (planned) | Yes (`leftopen`) | Yes | Yes | No |
-| History of what was killed, and relaunch | Yes | No | No | No | No |
+| History of what was killed, and relaunch | Yes (this session) | No | No | No | No |
+| Start a project that is not running | No (Relaunch brings back what it killed) | Yes, including `.claude/launch.json` | No | No | No |
 | Updates | Installs signed updates itself | Checks daily and shows the `brew upgrade` command | Ships with macOS | Through npm | Ships with macOS |
 | Needs | macOS 12 or later | macOS 14 or later | Built in | Node.js | Built in |
 | License and price | MIT, free | MIT, free | Built in | MIT | Built in |
 
-LeftOpen does things PortReaper does not: fixed `*.localhost` URLs through Portless, Start for
-stopped projects (including those in `.claude/launch.json`), a "Copy Setup Prompt for AI",
-sounds, and a Chinese translation. `lsof` sees other users' processes only with `sudo`.
+LeftOpen also does things PortReaper does not: fixed `*.localhost` URLs through Portless, a
+"Copy Setup Prompt for AI", sounds, and a Chinese translation. With `sudo`, `lsof` also sees other users' processes in full;
+PortReaper never asks for `sudo` and shows them as far as the kernel lets a normal user see.
 
 Compared on 2026-11-17 with LeftOpen v0.5.8, from its README and source. Corrections welcome:
 [open an issue](https://github.com/amitgal45/portreaper/issues).
@@ -224,15 +227,16 @@ to a normal user and cannot be killed; the app says so instead of asking for a p
 no privileged helper.
 
 **Why did a process come back after I killed it?**
-launchd started it again. A `brew services` job such as ollama, or any LaunchAgent with
-KeepAlive, is back within seconds of a kill. PortReaper marks such a process as a launchd job,
-asks before killing it, and offers the command that stops it for good:
+launchd started it again. A `brew services` job such as ollama, or a LaunchAgent with KeepAlive,
+is back within seconds of a kill. PortReaper marks such a process as a launchd job and offers the
+command that stops it for good; when the job's plist in `~/Library/LaunchAgents` says it restarts,
+killing it asks first:
 `brew services stop <formula>`, or
 `launchctl disable gui/<uid>/<label> && launchctl bootout gui/<uid>/<label>` for any other job.
 Copy it and run it in a terminal; PortReaper never runs it.
 
 **How do I get AirPlay's 5000 and 7000 out of the list?**
-Hide them: Preferences (⌘,) → Hidden ports, add 5000 and 7000, or choose "Hide :5000" in the
+Hide them: Preferences (⌘,) → General → Hidden ports, add 5000 and 7000, or choose "Hide :5000" in the
 row's menu. A hidden port stays out of the list, the search, ⌘⇧K, the menu bar's count and every
 bulk kill until you remove it; the status line says how many are hidden.
 

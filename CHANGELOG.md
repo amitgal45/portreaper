@@ -11,16 +11,17 @@ app shows it in its update dialog. Add a section for every release before taggin
   AirPlay Receiver's 5000 and 7000. Add them in Preferences → Hidden ports, or choose "Hide :5000" in a
   row's menu. A hidden port is left out of the list, the search, the ⌘⇧K strip, the menu bar's
   count and every bulk kill; the status line says how many are hidden.
-- **launchd jobs are not zombies:** a `brew services` job such as ollama read as a Zombie, came
-  first in ⌘⇧K and was reaped, then launchd started it again. Now a process launchd runs as a job
-  (`brew services`, any LaunchAgent) is never a Zombie and never reaped. One that launchd starts
-  again after a kill (KeepAlive) asks first, says the kill would be undone within seconds, and
-  offers the command that stops it for good to copy: `brew services stop <formula>`, or
+- **launchd jobs are not zombies:** a process launchd runs as a job (`brew services`, any
+  LaunchAgent) is never a Zombie and never reaped. Before, a `brew services` job such as ollama
+  read as a Zombie, came first in ⌘⇧K and was reaped, then launchd started it again. One whose
+  plist says launchd starts it again after a kill (KeepAlive) asks first, says the kill would be
+  undone within seconds, and offers the command that stops it for good to copy: `brew services stop <formula>`, or
   `launchctl disable gui/<uid>/<label> && launchctl bootout gui/<uid>/<label>`. PortReaper never
   runs it.
 - **Homebrew:** `brew install --cask amitgal45/tap/portreaper`. Every release updates the cask,
   and the cask pins the DMG's SHA-256.
-- **Keys:** nothing typed outside the port list can kill: Enter and ⌘⌫ act only in the list.
+- **Keys:** in the window, Enter and ⌘⌫ kill only in the port list; typed in Preferences, the
+  Taskline or a text field, they never kill a row.
 
 ## 0.4.0
 
