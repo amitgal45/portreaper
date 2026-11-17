@@ -7,8 +7,8 @@ app shows it in its update dialog. Add a section for every release before taggin
 
 ## 0.5.0
 
-- **Hidden ports:** Preferences → General → Hidden ports, or "Hide :5000" in a row's menu. A
-  hidden port leaves the list, ⌘⇧K, the menu bar and every bulk kill.
+- **New look:** the Prismatic Cut Socket icon in the Dock, Finder, menu bar, app and ⌘⇧K.
+- **Hidden ports:** Preferences → General → Hidden ports, or "Hide :5000" in a row's menu.
 - **launchd and brew services:** a launchd job is never a Zombie or reaped. A kill asks first
   unless it stays down, and offers the command that stops it for good; macOS's own always ask
   and get none.
