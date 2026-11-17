@@ -27,11 +27,11 @@
 //! parents, cached there, and asked again at once when one of those that would read as lost
 //! ([`is_refetch_trigger`]) started since the cached answer (a job launchd just restarted, with a
 //! new pid). Such a process is never an orphan, so a portless one is never listed, and it asks
-//! first unless its own job's plist says a kill keeps it down ([`apply_launchd`]). One of Apple's
-//! jobs, or one that runs from the system's folders, is a system job ([`is_system_job`]): the UI
-//! calls it a system process. A system job, or one whose exe nobody knows, is offered no stop
-//! command ([`withhold_stop_command`]; Apple's jobs get none in the first place:
-//! `launchd::stop_command`).
+//! first unless its own job's plist says a kill keeps it down ([`apply_launchd`]). A system job
+//! (`launchd::is_system_label`: Apple's label, or a plist under /System/Library/LaunchAgents; the
+//! job alone decides, not where its process runs from) always asks first, and the UI calls it a
+//! system process. A system job, or one whose exe nobody knows, is offered no stop command
+//! ([`withhold_stop_command`]; `launchd::describe` builds none for a system job).
 //! When `launchctl` gives no answer (not macOS, a timeout, a failure), the jobs are unknown, not
 //! none: then no process launchd parents is an orphan in that listing, and none is listed
 //! portless ([`hold_orphans_while_jobs_unknown`]), so no zombie reap reaches a job nobody named.
@@ -210,8 +210,8 @@ pub(crate) fn listing() -> Result<Listing, PortsError> {
     let home = std::env::var_os("HOME");
     let home = home.as_deref().map(Path::new);
     // One description per job and listing: its plist is read once however many sockets it has.
-    // What an entry carries of it also depends on the process: its link to the job and where it
-    // runs from (`job_for_entry`); `exe` is the one the entry shows.
+    // What an entry carries of it also depends on the process: its link to the job and whether its
+    // exe is known (`job_for_entry`); `exe` is the one the entry shows.
     let mut described: HashMap<String, LaunchdJob> = HashMap::new();
     let mut launchd_of = |pid: u32, exe: Option<&str>| -> Option<LaunchdJob> {
         let (label, link) = crate::launchd::job_of(pid, jobs, |p| parent_of(&system, p))?;
@@ -375,18 +375,19 @@ pub(crate) fn protect_whole_pids(entries: &mut [PortEntry]) {
 }
 
 /// What launchd running a process as a job, or as a job's child, changes about its entry: it is
-/// never an orphan (it is where it is on purpose), and it is protected unless PortReaper knows a
-/// kill keeps it down (`restarts == Some(false)`): launchd starts it again (`Some(true)`), or
-/// nobody can tell (`None`: no readable plist, as with `brew services run` or an agent outside
-/// `~/Library/LaunchAgents`; a conditional KeepAlive; a job's child, `launchd::for_link`). So no
-/// bulk kill reaches it, and every single one asks. A job never lifts a protection the entry
-/// already had. `None` leaves the entry as it was.
+/// never an orphan (it is where it is on purpose), and it is protected when it is a system job (a
+/// piece of macOS asks first whatever its plist says, and wherever its exe lives) or unless
+/// PortReaper knows a kill keeps it down (`restarts == Some(false)`): launchd starts it again
+/// (`Some(true)`), or nobody can tell (`None`: no readable plist, as with `brew services run` or an
+/// agent outside `~/Library/LaunchAgents`; a conditional KeepAlive; a job's child,
+/// `launchd::for_link`). So no bulk kill reaches it, and every single one asks. A job never lifts
+/// a protection the entry already had. `None` leaves the entry as it was.
 fn apply_launchd(entry: &mut PortEntry, job: Option<LaunchdJob>) {
     let Some(job) = job else {
         return;
     };
     entry.orphan = false;
-    if job.restarts != Some(false) {
+    if job.system || job.restarts != Some(false) {
         entry.protected = true;
     }
     entry.launchd = Some(job);
@@ -412,34 +413,25 @@ fn hold_orphans_while_jobs_unknown(entries: &mut [PortEntry], jobs: Option<&Hash
 }
 
 /// The job as the entry of a process carries it: as `launchd::for_link` has it for the
-/// process's `link` to the job, `system` as [`is_system_job`] decides it for the job's label and
-/// the process's exe, and without a stop command for a system job or an exe nobody knows
+/// process's `link` to the job, a system job when `launchd::describe` said so or its label is
+/// Apple's, and without a stop command for a system job or an exe nobody knows
 /// ([`withhold_stop_command`]). Per entry, not per job: the description is shared by every process
-/// of the job, the exe is the process's own.
+/// of the job, the exe is the process's own. Where the exe lives decides nothing.
 fn job_for_entry(job: &LaunchdJob, link: crate::launchd::Link, exe: Option<&str>) -> LaunchdJob {
     let mut job = crate::launchd::for_link(job, link);
-    job.system = is_system_job(&job.label, exe);
+    job.system = job.system || crate::launchd::is_apple_label(&job.label);
     withhold_stop_command(&mut job, exe);
     job
 }
 
-/// Whether a job is a piece of macOS: one of Apple's (`launchd::is_apple_label`: `com.apple.*`, in
-/// any case), or one whose process runs from the system's folders ([`SYSTEM_PREFIXES`]). Control
-/// Center (`com.apple.controlcenter`, `/System/Library/CoreServices/ControlCenter.app`) holds :5000
-/// for AirPlay Receiver. The UI calls such a job a system process, and it is offered no stop
-/// command. An exe nobody knows says nothing either way: it withholds the stop command
-/// ([`withhold_stop_command`]), and does not make the job a system one.
-pub(crate) fn is_system_job(label: &str, exe: Option<&str>) -> bool {
-    crate::launchd::is_apple_label(label) || exe.is_some_and(is_system_path)
-}
-
-/// Drops the job's stop command when the job is a system one (`system`, or [`is_system_job`] on its
-/// label and `exe`, so the rule holds even for a job whose flag was not set yet), or when nobody
-/// knows its process's exe. Disabling a piece of macOS could keep it from loading at the next
-/// login, and an exe nobody knows could be one of them. The rest of the job stays: the process is
-/// still no orphan, and what a kill does to it is still worth saying.
+/// Drops the job's stop command when the job is a system one (`system`, or an Apple label, so the
+/// rule holds even for a job whose flag was not set), or when nobody knows its process's exe.
+/// Disabling a piece of macOS could keep it from loading at the next login, and an exe nobody
+/// knows could be one of them. Where a known exe lives withholds nothing: the user's own agent
+/// that runs `/usr/bin/ssh` keeps its command. The rest of the job stays: the process is still no
+/// orphan, and what a kill does to it is still worth saying.
 fn withhold_stop_command(job: &mut LaunchdJob, exe: Option<&str>) {
-    if job.system || exe.is_none() || is_system_job(&job.label, exe) {
+    if job.system || exe.is_none() || crate::launchd::is_apple_label(&job.label) {
         job.stop_command = None;
     }
 }
@@ -1236,62 +1228,111 @@ mod tests {
     }
 
     #[test]
-    fn an_apple_job_or_one_run_from_the_systems_folders_is_a_system_job() {
-        assert!(is_system_job("com.apple.controlcenter", Some(CONTROL_CENTER_EXE)), "ControlCenter on :5000");
-        assert!(is_system_job("COM.APPLE.x", Some("/opt/homebrew/bin/x")), "Apple's label, in any case, wherever it runs");
-        assert!(is_system_job("com.apple.x", None), "Apple's label with an exe nobody knows");
-        assert!(is_system_job("com.example.agent", Some("/usr/libexec/x")), "the system's folders, whatever the label");
-        assert!(!is_system_job("homebrew.mxcl.ollama", Some("/opt/homebrew/Cellar/ollama/0.13.0/bin/ollama")));
-        assert!(!is_system_job("com.example.agent", None), "an exe nobody knows makes no job a system one");
-        // A path that only looks like a system folder is not one; a label that only looks like Apple's is not.
-        assert!(!is_system_job("homebrew.mxcl.ollama", Some("/usr/binx/agent")));
-        assert!(!is_system_job("com.apples.agent", Some("/opt/homebrew/bin/agent")));
+    fn a_system_job_asks_first_even_when_its_plist_says_a_kill_keeps_it_down() {
+        // A `com.apple.*` agent in the home folder (a masquerading one), without KeepAlive, run from
+        // the home folder and under no protected name: WP-1's rule alone lets it die without asking.
+        let mut entry = PortEntry {
+            process_name: "updater".into(),
+            command: "/Users/amit/Library/Updater/updater".into(),
+            exe: Some("/Users/amit/Library/Updater/updater".into()),
+            ..brew_service()
+        };
+        entry.protected = is_protected(&entry.process_name, entry.exe.as_deref(), entry.user.as_deref(), Some("amit"));
+        assert!(!entry.protected, "nothing but the job protects it");
+        let apple = LaunchdJob {
+            label: "com.apple.updater".into(),
+            restarts: Some(false),
+            brew: None,
+            stop_command: None,
+            system: true,
+        };
+        apply_launchd(&mut entry, Some(job_for_entry(&apple, crate::launchd::Link::Own, entry.exe.as_deref())));
+        assert!(entry.protected, "a system job asks first, whatever its plist says");
+        assert!(!entry.orphan);
+        assert_eq!(entry.launchd, Some(apple));
+
+        // The same job not known to be a system one, and known to stay down: no more protected.
+        let mut plain = brew_service();
+        apply_launchd(&mut plain, Some(job(Some(false))));
+        assert!(!plain.protected);
+    }
+
+    #[test]
+    fn the_users_own_agent_running_a_system_binary_is_no_system_job_and_keeps_its_stop_command() {
+        // An ssh tunnel the user runs as a LaunchAgent with KeepAlive: `/usr/bin/ssh`, a system path.
+        let tunnel = LaunchdJob {
+            label: "com.me.tunnel".into(),
+            restarts: Some(true),
+            brew: None,
+            stop_command: Some("launchctl disable gui/501/com.me.tunnel && launchctl bootout gui/501/com.me.tunnel".into()),
+            system: false,
+        };
+        let me = Some("amit");
+        let mut entry = PortEntry {
+            port: 5432,
+            pid: 7100,
+            process_name: "ssh".into(),
+            command: "/usr/bin/ssh -N -L 5432:db:5432 db".into(),
+            exe: Some("/usr/bin/ssh".into()),
+            ..brew_service()
+        };
+        entry.orphan = is_orphan(entry.parent_pid, entry.exe.as_deref(), entry.user.as_deref(), me);
+        entry.protected = is_protected(&entry.process_name, entry.exe.as_deref(), entry.user.as_deref(), me);
+        let carried = job_for_entry(&tunnel, crate::launchd::Link::Own, entry.exe.as_deref());
+        assert_eq!(carried, tunnel, "no system job, and the command that stops it for good stays");
+        apply_launchd(&mut entry, Some(carried));
+        assert!(entry.protected, "launchd starts it again: it asks first");
+        assert!(!entry.orphan);
+        assert_eq!(entry.launchd, Some(tunnel));
     }
 
     #[test]
     fn a_system_job_or_one_run_from_an_unknown_exe_is_offered_no_stop_command() {
-        // `withhold_stop_command` reads `system` as `job_for_entry` set it, and the exe.
+        // `withhold_stop_command` reads the job's `system` (`launchd::describe`: its label, or its
+        // plist under /System) and whether the exe is known. Where a known exe lives decides nothing.
         let offered = |system: bool, exe: Option<&str>| {
             let mut carried = LaunchdJob { system, ..job(Some(true)) };
             withhold_stop_command(&mut carried, exe);
             carried.stop_command
         };
+        let stop = Some("brew services stop ollama");
         assert_eq!(offered(true, Some(CONTROL_CENTER_EXE)), None, "a piece of macOS");
         assert_eq!(offered(true, Some("/opt/homebrew/bin/x")), None, "a system job, wherever it runs");
         assert_eq!(offered(false, None), None, "an exe nobody knows could be a piece of macOS");
-        // On its own too: a job whose flag was never set, run from the system's folders, loses it.
-        assert_eq!(offered(false, Some(CONTROL_CENTER_EXE)), None, "the system rule, flag or not");
-        assert_eq!(offered(false, Some("/usr/libexec/x")), None, "the system rule, flag or not");
         assert_eq!(
             offered(false, Some("/opt/homebrew/Cellar/ollama/0.13.0/bin/ollama")).as_deref(),
-            Some("brew services stop ollama"),
+            stop,
             "a brew service keeps its command"
         );
+        // A job that is no system one keeps its command wherever its exe lives.
+        assert_eq!(offered(false, Some("/usr/bin/ssh")).as_deref(), stop, "the system's folders decide nothing");
+        assert_eq!(offered(false, Some(CONTROL_CENTER_EXE)).as_deref(), stop, "the system's folders decide nothing");
+        // On its own, an Apple label loses it, flag or not.
+        let mut apple = LaunchdJob { label: "COM.APPLE.x".into(), ..job(Some(true)) };
+        withhold_stop_command(&mut apple, Some("/opt/homebrew/bin/x"));
+        assert_eq!(apple.stop_command, None, "an Apple label, even with the flag unset");
 
         // Only the command goes: the label, what a kill does, the formula and `system` stay.
         let mut kept = LaunchdJob { system: true, ..job(Some(true)) };
         withhold_stop_command(&mut kept, Some(CONTROL_CENTER_EXE));
         assert_eq!(kept, LaunchdJob { stop_command: None, system: true, ..job(Some(true)) });
 
-        // `job_for_entry` decides `system` per entry and withholds the command on either link,
-        // after `for_link`.
+        // `job_for_entry` keeps `system` as described (or an Apple label's) and withholds the
+        // command on either link, after `for_link`. The exe's folder makes no job a system one.
         let own = job_for_entry(&job(Some(true)), crate::launchd::Link::Own, Some("/usr/libexec/x"));
-        assert_eq!(own, LaunchdJob { stop_command: None, system: true, ..job(Some(true)) });
+        assert_eq!(own, job(Some(true)), "a system folder makes no job a system one");
         let child = job_for_entry(&job(Some(true)), crate::launchd::Link::Child, None);
-        assert_eq!(child, LaunchdJob { restarts: None, stop_command: None, ..job(Some(true)) }, "unknown exe: no system job");
+        assert_eq!(child, LaunchdJob { restarts: None, stop_command: None, ..job(Some(true)) }, "unknown exe: no command");
         let brew = job_for_entry(&job(Some(true)), crate::launchd::Link::Own, Some("/opt/homebrew/bin/ollama"));
         assert_eq!(brew, job(Some(true)));
-        // A path that only looks like a system folder keeps the command, and is no system job.
-        let lookalike = job_for_entry(&job(Some(true)), crate::launchd::Link::Own, Some("/usr/binx/agent"));
-        assert_eq!(lookalike, job(Some(true)));
         // Apple's label from a Homebrew exe, with a command a caller built anyway: a system job, no command.
         let apple = LaunchdJob { label: "COM.APPLE.x".into(), ..job(Some(true)) };
         let carried = job_for_entry(&apple, crate::launchd::Link::Own, Some("/opt/homebrew/bin/x"));
         assert_eq!(carried, LaunchdJob { stop_command: None, system: true, ..apple });
-        // A system flag `describe` set from the label is decided again from the label and the exe.
-        let stale = LaunchdJob { system: true, ..job(Some(true)) };
-        let carried = job_for_entry(&stale, crate::launchd::Link::Own, Some("/opt/homebrew/bin/ollama"));
-        assert_eq!(carried, job(Some(true)), "a brew label from a Homebrew exe is no system job");
+        // A job `describe` called a system one (its plist under /System) stays one, from any exe.
+        let described = LaunchdJob { system: true, ..job(Some(true)) };
+        let carried = job_for_entry(&described, crate::launchd::Link::Own, Some("/opt/homebrew/bin/ollama"));
+        assert_eq!(carried, LaunchdJob { stop_command: None, ..described });
     }
 
     #[test]
@@ -1325,7 +1366,7 @@ mod tests {
         assert!(!entry.orphan, "still never a Zombie");
         assert!(entry.protected, "it asks first");
 
-        // The rule withholds it too: a job of ControlCenter's that came with a command and no
+        // Its label alone makes it one: a job of ControlCenter's that came with a command and no
         // system flag ends a system job without one.
         let built = LaunchdJob {
             stop_command: Some(
@@ -1340,19 +1381,22 @@ mod tests {
         apply_launchd(&mut entry, Some(carried));
         assert_eq!(entry.launchd, Some(expected.clone()));
 
-        // The system path alone, under a label that is not Apple's: a system job, no command.
+        // ControlCenter's exe under a label that is neither Apple's nor under /System: the exe's
+        // folder decides nothing, so no system job, and its command stays. It still asks first
+        // (WP-1's rule protects a system path, and nobody knows whether it restarts).
         let agent = LaunchdJob {
             label: "com.example.agent".into(),
             stop_command: Some(
                 "launchctl disable gui/501/com.example.agent && launchctl bootout gui/501/com.example.agent".into(),
             ),
             system: false,
-            ..expected.clone()
+            ..expected
         };
         let mut entry = control_center();
         let carried = job_for_entry(&agent, link, entry.exe.as_deref());
         apply_launchd(&mut entry, Some(carried));
-        assert_eq!(entry.launchd, Some(LaunchdJob { label: "com.example.agent".into(), ..expected }));
+        assert_eq!(entry.launchd, Some(agent));
+        assert!(entry.protected);
     }
 
     /// [`brew_service`] under `parent_pid`, with `orphan` as WP-1's rule has it there.

@@ -54,19 +54,21 @@ pub struct LaunchdJob {
     /// it stays down until the job is loaded again (the next login). `None`: unknown (no readable
     /// plist, a conditional KeepAlive, a job launchd also starts on demand, or a job's child).
     /// Anything but `Some(false)` makes the entry `protected`: a kill launchd may undo asks first.
+    /// So does `system`, whatever this says.
     pub restarts: Option<bool>,
     /// The Homebrew formula, when `brew services` started it.
     pub brew: Option<String>,
     /// What stops it for good, for the user to copy: `brew services stop <formula>`, else
     /// `launchctl disable gui/<uid>/<label> && launchctl bootout gui/<uid>/<label>` (disabled, so
     /// the next login does not load it again). `None` when the label is not safe to put in a shell,
-    /// for one of Apple's jobs (`com.apple.*`), and for a process that runs from the system's
-    /// folders or from an exe nobody knows: a piece of macOS is not the user's to disable.
+    /// for a system job (`system`), and for a process whose exe nobody knows: a piece of macOS is
+    /// not the user's to disable. Where the exe lives does not withhold it.
     pub stop_command: Option<String>,
-    /// An Apple job, or one run from the system's folders: no stop command, and the UI calls it a
-    /// system process. Apple's: its label starts with `com.apple.`, in any case. The system's
-    /// folders: the process's exe is under `ports::SYSTEM_PREFIXES`. An exe nobody knows withholds
-    /// the stop command, but does not make a job a system one.
+    /// A piece of macOS, decided from the job alone (`launchd::is_system_label`): its label starts
+    /// with `com.apple.`, in any case, or `/System/Library/LaunchAgents/<label>.plist` exists (only
+    /// that it exists; it is not read). No stop command, the entry is `protected`, and the UI
+    /// calls it a system process. Where the process's exe lives decides nothing: the user's own
+    /// agent that runs `/usr/bin/ssh` is no system job.
     pub system: bool,
 }
 

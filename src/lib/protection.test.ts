@@ -105,6 +105,32 @@ describe("protectionReason", () => {
     expect(protectionReason(older, "amit")).toBe("a launchd job that launchd starts again after a kill");
   });
 
+  it("names the user's own agent that runs a system binary by what launchd does, not as a system process", () => {
+    // An ssh tunnel run as a LaunchAgent with KeepAlive: `/usr/bin/ssh` is a system path, but the
+    // core decides `system` from the job alone, so this one is the user's, with its stop command.
+    const tunnel: PortEntry = {
+      ...byPort(9335),
+      processName: "ssh",
+      command: "/usr/bin/ssh -N -L 5432:db:5432 db",
+      exe: "/usr/bin/ssh",
+      parentPid: 1,
+      protected: true,
+      launchd: {
+        label: "com.me.tunnel",
+        restarts: true,
+        brew: null,
+        stopCommand: "launchctl disable gui/501/com.me.tunnel && launchctl bootout gui/501/com.me.tunnel",
+        system: false,
+      },
+    };
+    const job = tunnel.launchd as LaunchdJob;
+    expect(protectionReason(tunnel, "amit")).toBe("a launchd job that launchd starts again after a kill");
+    expect(jobText(job)).toBe("a kill is undone within seconds");
+    expect(offeredStopCommand(job)).toBe(
+      "launchctl disable gui/501/com.me.tunnel && launchctl bootout gui/501/com.me.tunnel",
+    );
+  });
+
   it("falls back to the other rules for a job that stays down, or an entry without the field", () => {
     const job = byPort(11434).launchd as LaunchdJob;
     expect(protectionReason({ ...byPort(11434), launchd: { ...job, restarts: false } }, "amit")).toBe(

@@ -73,7 +73,7 @@ export interface LaunchdJob {
    * `true`: launchd starts it again within seconds of a kill (KeepAlive). `false`: it stays down until
    * the job is loaded again (the next login). `null`: unknown (no readable plist, a conditional
    * KeepAlive, a job launchd also starts on demand, or a job's child). Anything but `false` makes the
-   * entry `protected`: a kill launchd may undo asks first.
+   * entry `protected`: a kill launchd may undo asks first. So does `system`, whatever this says.
    */
   restarts: boolean | null;
   /** The Homebrew formula, when `brew services` started it. */
@@ -81,17 +81,17 @@ export interface LaunchdJob {
   /**
    * What stops it for good, for the user to copy: `brew services stop <formula>`, else
    * `launchctl disable gui/<uid>/<label> && launchctl bootout gui/<uid>/<label>` (disabled, so the
-   * next login does not load it again). null when the label is not safe to put in a shell, for one of
-   * Apple's jobs (`com.apple.*`), and for a process that runs from the system's folders or from an exe
-   * nobody knows: a piece of macOS is not the user's to disable.
+   * next login does not load it again). null when the label is not safe to put in a shell, for a
+   * system job (`system`), and for a process whose exe nobody knows: a piece of macOS is not the user's
+   * to disable. Where the exe lives does not withhold it.
    */
   stopCommand: string | null;
   /**
-   * An Apple job, or one run from the system's folders: no stop command, and the UI calls it a system
-   * process. Apple's: its label starts with `com.apple.`, in any case. The system's folders: the
-   * process's exe is under the core's `SYSTEM_PREFIXES`. An exe nobody knows withholds the stop command,
-   * but does not make a job a system one. Read it as `entry.launchd?.system`: a cached entry from an
-   * older core has no such field.
+   * A piece of macOS, decided from the job alone: its label starts with `com.apple.`, in any case, or
+   * `/System/Library/LaunchAgents/<label>.plist` exists. No stop command, the entry is protected, and
+   * the UI calls it a system process. Where the process's exe lives decides nothing: the user's own
+   * agent that runs `/usr/bin/ssh` is no system job. Read it as `entry.launchd?.system`: a cached
+   * entry from an older core has no such field.
    */
   system: boolean;
 }

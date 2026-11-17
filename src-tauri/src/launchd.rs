@@ -29,11 +29,12 @@
 //! Nothing is ever run but `/bin/launchctl list`: an absolute path, a fixed argument, no shell.
 //! Nothing from a label or a plist reaches a command line PortReaper runs. The stop command
 //! ([`stop_command`]) is text for the user to copy, built here once from a validated label, and
-//! never for one of Apple's jobs ([`is_apple_label`]): `launchctl list` names pieces of macOS
-//! (Control Center, which holds :5000 for AirPlay Receiver) as jobs of the user's domain too.
-//! Such a job, and one whose process runs from the system's folders, is a system one
-//! (`LaunchdJob::system`, decided per entry by `ports::is_system_job`): the UI calls it a system
-//! process, not a job launchd may start again.
+//! never for a system job: `launchctl list` names pieces of macOS (Control Center, which holds
+//! :5000 for AirPlay Receiver) as jobs of the user's domain too. A job is a system one
+//! (`LaunchdJob::system`, [`is_system_label`]) from the job alone: one of Apple's labels
+//! ([`is_apple_label`]), or a plist under [`SYSTEM_AGENTS`], whose existence is checked and which
+//! is never read. Where the process's exe lives decides nothing. The UI calls a system job a
+//! system process, not a job launchd may start again, and a kill of one asks first.
 
 use std::collections::HashMap;
 use std::ffi::OsString;
@@ -67,6 +68,8 @@ const BREW_PREFIXES: &[&str] = &["sh.brew.", "homebrew.mxcl."];
 const APPLE_PREFIX: &str = "com.apple.";
 /// Where a user's LaunchAgents live, under their home.
 const LAUNCH_AGENTS: &str = "Library/LaunchAgents";
+/// Where macOS keeps its own LaunchAgents: a job with a plist here is a piece of macOS.
+const SYSTEM_AGENTS: &str = "/System/Library/LaunchAgents";
 /// The plist keys with which launchd starts a job on demand (a timer, a socket, a watched path,
 /// a queue, a mounted volume, a Mach lookup, an event): such a job can come back after a kill
 /// whatever its `KeepAlive` says.
@@ -202,10 +205,19 @@ pub fn is_safe_label(label: &str) -> bool {
 /// Whether `label` names one of Apple's jobs: it starts with `com.apple.`, in any case. Such a job
 /// is a piece of macOS that `launchctl list` names in the user's domain like any LaunchAgent
 /// (`com.apple.controlcenter`, which holds :5000 for AirPlay Receiver), and not the user's to
-/// disable: [`stop_command`] builds nothing for it, and `ports::is_system_job` makes it a system job.
+/// disable: [`stop_command`] builds nothing for it, and [`is_system_label`] makes it a system job.
 pub(crate) fn is_apple_label(label: &str) -> bool {
     // `get`: a label whose first bytes end inside a character is no `com.apple.` one, not a panic.
     label.get(..APPLE_PREFIX.len()).is_some_and(|head| head.eq_ignore_ascii_case(APPLE_PREFIX))
+}
+
+/// Whether the job `label` is a piece of macOS, from the job alone: one of Apple's labels
+/// ([`is_apple_label`]), or a label safe in a path ([`is_safe_label`]) whose plist exists under
+/// `system_agents` ([`SYSTEM_AGENTS`] outside the tests). Only that the file exists: it is not
+/// opened. Where the job's process runs from says nothing here: the user's own agent that runs
+/// `/usr/bin/ssh` is no system job.
+pub(crate) fn is_system_label(label: &str, system_agents: &Path) -> bool {
+    is_apple_label(label) || (is_safe_label(label) && system_agents.join(format!("{label}.plist")).exists())
 }
 
 /// Whether `formula` reads as a Homebrew formula name: 1–100 characters of `[a-z0-9@._+-]`, not
@@ -229,8 +241,8 @@ pub fn brew_formula(label: &str) -> Option<String> {
 /// `launchctl disable gui/<uid>/<label> && launchctl bootout gui/<uid>/<label>` (`bootout` alone
 /// stops it only until the next login loads the plist again; `disable` keeps it from loading);
 /// else `None`. Never for one of Apple's jobs ([`is_apple_label`]): disabled, that piece of macOS
-/// would most likely not load at the next login. `ports` also withholds it from a process that
-/// runs from the system's folders.
+/// would most likely not load at the next login. [`describe`] also withholds it from any system
+/// job, and `ports` from a process whose exe nobody knows.
 pub fn stop_command(label: &str, brew: Option<&str>, uid: u32) -> Option<String> {
     if is_apple_label(label) {
         return None;
@@ -338,10 +350,14 @@ fn read_plist(path: &Path) -> Option<plist::Value> {
 /// Everything the UI shows about the job `label`: the formula when `brew services` started it,
 /// whether it restarts after a kill (from `<home>/Library/LaunchAgents/<label>.plist`, read only
 /// for a label that is safe in a path: [`is_safe_label`], or a `brew services` label, whose
-/// formula is), the command that stops it for good, and whether it is one of Apple's jobs
-/// (`system`, from the label alone: `ports::job_for_entry` decides it again per entry, with the
-/// process's exe).
+/// formula is), the command that stops it for good, and whether it is a piece of macOS (`system`,
+/// [`is_system_label`] with [`SYSTEM_AGENTS`]; a system job gets no stop command).
 pub fn describe(label: &str, home: Option<&Path>, uid: u32) -> LaunchdJob {
+    describe_in(label, home, Path::new(SYSTEM_AGENTS), uid)
+}
+
+/// [`describe`], with macOS's own LaunchAgents looked for under `system_agents`.
+pub(crate) fn describe_in(label: &str, home: Option<&Path>, system_agents: &Path, uid: u32) -> LaunchdJob {
     let brew = brew_formula(label);
     let restarts = match home {
         Some(home) if is_safe_label(label) || brew.is_some() => {
@@ -349,8 +365,9 @@ pub fn describe(label: &str, home: Option<&Path>, uid: u32) -> LaunchdJob {
         }
         _ => None,
     };
-    let stop = stop_command(label, brew.as_deref(), uid);
-    LaunchdJob { label: label.to_string(), restarts, brew, stop_command: stop, system: is_apple_label(label) }
+    let system = is_system_label(label, system_agents);
+    let stop = if system { None } else { stop_command(label, brew.as_deref(), uid) };
+    LaunchdJob { label: label.to_string(), restarts, brew, stop_command: stop, system }
 }
 
 /// How many parents [`job_of`] looks through: one, so a job's direct child counts (a job whose
@@ -870,6 +887,58 @@ mod tests {
         assert!(describe("COM.APPLE.x", Some(home.path()), 501).system, "Apple's in any case");
         assert!(!plain.system, "the user's own agent is no system job");
         assert!(!gone.system);
+    }
+
+    #[test]
+    fn a_job_is_a_system_one_by_its_apple_label_or_a_plist_under_the_systems_launch_agents_only() {
+        let system = TempDir::new().unwrap();
+        // Only that it exists: not a plist at all still counts, and it is never read.
+        std::fs::write(system.path().join("com.example.sysagent.plist"), "not a plist\n").unwrap();
+        assert!(is_system_label("com.example.sysagent", system.path()), "a plist under /System's LaunchAgents");
+        assert!(is_system_label("com.apple.controlcenter", system.path()), "Apple's label, with no plist there");
+        assert!(is_system_label("COM.APPLE.x", system.path()), "Apple's label in any case");
+        assert!(!is_system_label("com.example.agent", system.path()), "nothing there, not Apple's");
+        assert!(!is_system_label("homebrew.mxcl.ollama", system.path()));
+        // A label unsafe in a path is never joined to one, whatever is there.
+        std::fs::create_dir(system.path().join("sub")).unwrap();
+        std::fs::write(system.path().join("sub").join("x.plist"), "").unwrap();
+        assert!(!is_system_label("sub/x", system.path()));
+        assert!(!is_system_label("../sysagent", system.path()));
+
+        // `describe_in`: a system job gets no stop command; its KeepAlive is still read from home.
+        let home = TempDir::new().unwrap();
+        let agents = home.path().join(LAUNCH_AGENTS);
+        std::fs::create_dir_all(&agents).unwrap();
+        let install = |label: &str, keep_alive: &str| {
+            std::fs::write(agents.join(format!("{label}.plist")), agent_for(Some(label), keep_alive, 0)).unwrap();
+        };
+        install("com.example.sysagent", "<true/>");
+        assert_eq!(
+            describe_in("com.example.sysagent", Some(home.path()), system.path(), 501),
+            LaunchdJob {
+                label: "com.example.sysagent".into(),
+                restarts: Some(true),
+                brew: None,
+                stop_command: None,
+                system: true,
+            }
+        );
+
+        // The user's own ssh tunnel (KeepAlive, run as /usr/bin/ssh): no system job, and the
+        // command that stops it for good. Where it runs from is not the job's to say.
+        install("com.me.tunnel", "<true/>");
+        assert_eq!(
+            describe_in("com.me.tunnel", Some(home.path()), system.path(), 501),
+            LaunchdJob {
+                label: "com.me.tunnel".into(),
+                restarts: Some(true),
+                brew: None,
+                stop_command: Some(
+                    "launchctl disable gui/501/com.me.tunnel && launchctl bootout gui/501/com.me.tunnel".into()
+                ),
+                system: false,
+            }
+        );
     }
 
     #[test]
