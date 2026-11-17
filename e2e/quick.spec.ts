@@ -7,11 +7,12 @@ import { contrast, paintedColor } from "./helpers";
  * and is not here: in a browser `hideCurrentWindow()` is a no-op, so after a kill or Esc the
  * strip simply stays on screen.
  *
- * The fixture is `MOCK_ENTRIES` in `src/api/mock.ts`: 11 entries, 7 of them unprotected; the strip
+ * The fixture is `MOCK_ENTRIES` in `src/api/mock.ts`: 12 entries, 6 of them unprotected; the strip
  * shows six. Relied on: :3000 (a dev server), :5432 (protected, Docker, which also holds :6379),
  * :5174 and :4000 (the lost-terminal zombies, newest first, so :5174 heads an empty query) and
- * :11434 (Ollama, the `ai` row, 12 days old so a query has to ask for it). When the mock
- * changes, the numbers here change with it, in the same commit.
+ * :11434 (Ollama, the `ai` row, a brew service launchd restarts after a kill: protected, so a
+ * query has to ask for it). When the mock changes, the numbers here change with it, in the same
+ * commit.
  */
 test.use({ viewport: { width: 480, height: 320 } });
 test.describe.configure({ mode: "parallel" });
@@ -247,9 +248,9 @@ test("Esc clears a query; on an empty query it is a no-op in the browser and the
   expect(thrown).toEqual([]);
 });
 
-test("an ai row's pill carries its memory", async ({ page }) => {
+test("a brew service is one word away, protected, and never a lost terminal", async ({ page }) => {
   await openQuick(page);
-  // Seventh of seven unprotected entries: not in the pre-selection, one word away.
+  // Protected (launchd starts it again after a kill): not in the pre-selection, one word away.
   await expect(option(page, 11434)).toHaveCount(0);
   await page.keyboard.type("ollama");
   await expect.poll(() => shownPorts(page)).toEqual([11434]);
@@ -259,8 +260,9 @@ test("an ai row's pill carries its memory", async ({ page }) => {
   await expect(ollama).toHaveAttribute("aria-selected", "true");
   await expect(ollama).toContainText("ollama");
   await expect(ollama).toContainText("32014");
-  await expect(status(ollama)).toHaveText("AI · 4.9 GB");
-  await expect(status(ollama)).toHaveAttribute("data-status", "ai");
+  // One pill per row, protection first: the memory pill is for a model server nothing protects.
+  await expect(status(ollama)).toHaveText("Protected");
+  await expect(status(ollama)).toHaveAttribute("data-status", "protected");
   await expect(brand(ollama)).toHaveAttribute("data-brand", "Ollama");
   await expect(ollama.getByLabel("lost terminal")).toHaveCount(0);
 });

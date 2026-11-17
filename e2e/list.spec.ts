@@ -42,7 +42,8 @@ test("loads the mock and groups it by project, dev servers first", async ({ page
   await expect(page).toHaveTitle("PortReaper");
 
   // Projects with dev servers first (by port), then processes without a project, then the
-  // protected groups: see `groupEntries()` in src/composables/usePorts.ts.
+  // protected groups: see `groupEntries()` in src/composables/usePorts.ts. Ollama is a brew
+  // service launchd starts again after a kill, so it is protected and last.
   await expect
     .poll(() =>
       page
@@ -56,11 +57,11 @@ test("loads the mock and groups it by project, dev servers first", async ({ page
       "p:tinyrecipe-lp",
       "p:@specmate/api",
       "n:chrome-helper",
-      "n:ollama",
       "n:mDNSResponder",
       "p:postgres:16",
       "p:redis:7",
       "n:ControlCenter",
+      "n:ollama",
     ]);
 });
 
@@ -104,6 +105,9 @@ test("status pills: Running, Zombie, Public, Protected, AI with its memory; bran
   await expect(row(page, 5432).locator("[data-badge='public']")).toHaveText("Public");
   await expect(row(page, 5432).locator("[data-badge='protected']")).toHaveText("Protected");
   await expect(row(page, 11434).locator("[data-badge='ai']")).toHaveText("AI · 4.9 GB");
+  // The brew service launchd restarts: protected, and never a zombie however launchd parents it.
+  await expect(row(page, 11434).locator("[data-badge='protected']")).toHaveText("Protected");
+  await expect(row(page, 11434).locator("[data-badge='zombie']")).toHaveCount(0);
   // A system daemon on every interface is protected, not "public" (the filter agrees).
   await expect(row(page, 53).locator("[data-badge='protected']")).toHaveText("Protected");
   await expect(row(page, 53).locator("[data-badge='public']")).toHaveCount(0);

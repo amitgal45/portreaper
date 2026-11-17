@@ -1,7 +1,7 @@
 import { flushPromises, mount, type VueWrapper } from "@vue/test-utils";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { API_KEY } from "../api";
-import { createMockApi } from "../api/mock";
+import { createMockApi, MOCK_ENTRIES } from "../api/mock";
 import QuickApp from "./QuickApp.vue";
 
 vi.mock("../api/window", () => ({ hideCurrentWindow: vi.fn(async () => false) }));
@@ -36,8 +36,8 @@ describe("QuickApp", () => {
   it("shows the pre-selection with the zombies first, the newer selected, the hint, the header and the footer", async () => {
     const { wrapper } = await mountQuick();
     const options = wrapper.findAll("[role='option']");
-    // Two lost-terminal servers newest first, then the dev servers newest first; six rows at most,
-    // so the 12-day-old Ollama is left out until a query asks for it.
+    // Two lost-terminal servers newest first, then the dev servers newest first; six rows at most.
+    // Ollama, a protected brew service, is left out until a query asks for it.
     expect(options.map((o) => o.attributes("data-port"))).toEqual([
       "5174",
       "4000",
@@ -104,7 +104,10 @@ describe("QuickApp", () => {
   });
 
   it("an ai row's pill carries its memory", async () => {
-    const { wrapper } = await mountQuick();
+    // A model server nothing protects (not a launchd job): the one pill is the memory it holds.
+    const unprotected = { protected: false, parentPid: 900, launchd: null };
+    const seed = MOCK_ENTRIES.map((e) => (e.port === 11434 ? { ...e, ...unprotected } : e));
+    const { wrapper } = await mountQuick(createMockApi(seed));
     await wrapper.find("input").setValue("ollama");
     const ollama = wrapper.find("[role='option'][data-port='11434']");
     expect(ollama.attributes("data-category")).toBe("ai");
@@ -164,14 +167,13 @@ describe("QuickApp", () => {
       expect(wrapper.find("[role='option']").text()).toContain("Freed :3000");
       await vi.advanceTimersByTimeAsync(1);
       expect((input.element as HTMLInputElement).value).toBe("");
-      // With :3000 gone the six remaining unprotected rows fit the strip, Ollama last.
+      // With :3000 gone the five remaining unprotected rows fit the strip; Ollama, protected, stays out.
       expect(wrapper.findAll("[role='option']").map((o) => o.attributes("data-port"))).toEqual([
         "5174",
         "4000",
         "5173",
         "8080",
         "9335",
-        "11434",
       ]);
     } finally {
       vi.useRealTimers();

@@ -139,8 +139,12 @@ describe("PortRow", () => {
     expect(mdns.text()).toContain("udp");
     mdns.unmount();
 
+    // Ollama as a brew service launchd restarts after a kill: protected, and still a model server.
     const ai = mountRow(byPort(11434), actions);
-    expect(pillsOf(ai)).toEqual([["ai", "AI · 4.9 GB"]]);
+    expect(pillsOf(ai)).toEqual([
+      ["protected", "Protected"],
+      ["ai", "AI · 4.9 GB"],
+    ]);
     ai.unmount();
 
     // An orphan that is protected shows both: its terminal is gone, and Reap will leave it alone.

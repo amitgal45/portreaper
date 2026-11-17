@@ -6,6 +6,7 @@
 //! - `kill`      graceful then forceful termination                  (WP-1)
 //! - `project`   cwd -> project name, kind, branch, tool             (WP-2)
 //! - `classify`  the port taxonomy: category and framework           (WP-10)
+//! - `launchd`   the launchd job behind a process, and its KeepAlive
 //! - `taskline`  the session log every kill lands in                 (WP-10)
 //! - `relaunch`  a killed process started again from its record      (WP-10)
 //! - `tray`      menu-bar icon, menu, close-to-hide                  (WP-4, WP-8a)
@@ -22,6 +23,7 @@ mod classify;
 mod commands;
 mod docker;
 mod kill;
+mod launchd;
 mod model;
 mod ports;
 mod project;

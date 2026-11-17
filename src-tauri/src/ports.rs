@@ -17,6 +17,12 @@
 //!
 //! WP-20 names the container behind a port Docker's backend holds ([`attach_containers`], from
 //! one `crate::docker::containers()` per listing that has a Docker process, cached there).
+//!
+//! A process launchd runs as a job in the user's domain (`brew services`, any LaunchAgent), or a
+//! direct child of one (`launchd::MAX_JOB_HOPS`), carries that job (`launchd`, from one `crate::launchd::running_jobs()` per
+//! listing that has a process launchd parents, cached there). Such a process is never an orphan,
+//! so a portless one is never listed, and one whose job launchd starts again after a kill
+//! (KeepAlive) is protected ([`apply_launchd`]).
 
 use std::collections::HashMap;
 use std::net::IpAddr;
@@ -28,7 +34,9 @@ use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System, Uid, UpdateKin
 use thiserror::Error;
 
 use crate::docker::Container;
-use crate::model::{BindScope, Category, PortEntry, ProcessNode, ProjectInfo, ProjectKind, Protocol};
+use crate::model::{
+    BindScope, Category, LaunchdJob, PortEntry, ProcessNode, ProjectInfo, ProjectKind, Protocol,
+};
 
 /// Executables under these roots belong to macOS, not to the user: never an orphan, always protected.
 pub const SYSTEM_PREFIXES: &[&str] =
@@ -157,6 +165,25 @@ pub(crate) fn listing() -> Result<Listing, PortsError> {
     let users = users();
     let current_user = user_name(users, raw_uid);
 
+    // launchd parents every job it runs: with no process of ours that it parents, there is no
+    // job to ask `launchctl` about. PortReaper itself is never a job it reports, or a process
+    // it relaunched would carry its login item's label.
+    let launchd_parents_one = !orphan_pids.is_empty()
+        || socket_pids.iter().any(|pid| parent_of(&system, pid.as_u32()) == Some(1));
+    let mut jobs = if launchd_parents_one { crate::launchd::running_jobs() } else { HashMap::new() };
+    jobs.remove(&std::process::id());
+    let home = std::env::var_os("HOME");
+    let home = home.as_deref().map(Path::new);
+    // One description per job and listing: its plist is read once however many sockets it has.
+    let mut described: HashMap<String, LaunchdJob> = HashMap::new();
+    let mut launchd_of = |pid: u32| -> Option<LaunchdJob> {
+        let label = crate::launchd::job_of(pid, &jobs, |p| parent_of(&system, p))?;
+        let job = described
+            .entry(label.to_string())
+            .or_insert_with(|| crate::launchd::describe(label, home, raw_uid));
+        Some(job.clone())
+    };
+
     let mut details: HashMap<u32, ProcessDetails> = HashMap::new();
     let mut entries: Vec<PortEntry> = sockets
         .into_iter()
@@ -168,7 +195,7 @@ pub(crate) fn listing() -> Result<Listing, PortsError> {
             let tool = d.project.as_ref().and_then(|p| p.tool.as_deref());
             let (category, framework) =
                 crate::classify::classify(socket.port, socket.protocol, tool, &d.name, d.exe.as_deref(), &d.command);
-            PortEntry {
+            let mut entry = PortEntry {
                 port: socket.port,
                 protocol: socket.protocol,
                 bind: socket.bind,
@@ -189,7 +216,10 @@ pub(crate) fn listing() -> Result<Listing, PortsError> {
                 category,
                 framework,
                 container: None,
-            }
+                launchd: None,
+            };
+            apply_launchd(&mut entry, launchd_of(socket.pid));
+            entry
         })
         .collect();
 
@@ -197,6 +227,10 @@ pub(crate) fn listing() -> Result<Listing, PortsError> {
     // sorted by pid after the socket entries (WP-23).
     for pid in orphan_pids {
         let p = pid.as_u32();
+        // A job is launchd's child on purpose, not a lost one.
+        if crate::launchd::job_of(p, &jobs, |pp| parent_of(&system, pp)).is_some() {
+            continue;
+        }
         let placeholder = Socket {
             pid: p,
             port: 0,
@@ -236,6 +270,7 @@ pub(crate) fn listing() -> Result<Listing, PortsError> {
             category,
             framework,
             container: None,
+            launchd: None,
         });
         details.insert(p, d);
     }
@@ -272,6 +307,26 @@ pub(crate) fn attach_containers(entries: &mut [PortEntry], containers: &[Contain
         // Kill stops the container, never the backend; it still asks twice.
         entry.protected = true;
     }
+}
+
+/// What launchd running a process as a job changes about its entry: it is never an orphan
+/// (launchd is its parent on purpose), and one that launchd starts again after a kill
+/// (`restarts == Some(true)`) asks first, so no bulk kill reaches it and every single one asks.
+/// `None` leaves the entry as it was.
+fn apply_launchd(entry: &mut PortEntry, job: Option<LaunchdJob>) {
+    let Some(job) = job else {
+        return;
+    };
+    entry.orphan = false;
+    if job.restarts == Some(true) {
+        entry.protected = true;
+    }
+    entry.launchd = Some(job);
+}
+
+/// The parent sysinfo reports for `pid`, when it knows the pid.
+fn parent_of(system: &System, pid: u32) -> Option<u32> {
+    system.process(Pid::from_u32(pid)).and_then(|p| p.parent()).map(|p| p.as_u32())
 }
 
 /// Whether this is one of the processes that hold a container's port on the host
@@ -798,6 +853,7 @@ mod tests {
             category,
             framework,
             container: None,
+            launchd: None,
         }
     }
 
@@ -869,6 +925,67 @@ mod tests {
         let entries = list().unwrap();
         let ours = entries.iter().find(|e| e.port == port && e.pid == pid).expect("our listener");
         assert_eq!(ours.container, None);
+    }
+
+    /// `ollama serve` as `brew services` runs it: launchd's child, owned by the current user,
+    /// under /opt/homebrew, so WP-1's rule calls it an orphan.
+    fn brew_service() -> PortEntry {
+        let me = Some("amit");
+        let exe = "/opt/homebrew/Cellar/ollama/0.13.0/bin/ollama";
+        let mut e = PortEntry {
+            port: 11434,
+            process_name: "ollama".into(),
+            command: format!("{exe} serve"),
+            exe: Some(exe.into()),
+            pid: 32014,
+            protected: false,
+            category: Category::Ai,
+            framework: Some("Ollama".into()),
+            ..docker_entry(11434, Protocol::Tcp)
+        };
+        e.orphan = is_orphan(e.parent_pid, e.exe.as_deref(), e.user.as_deref(), me);
+        e.protected = is_protected(&e.process_name, e.exe.as_deref(), e.user.as_deref(), me);
+        e
+    }
+
+    fn job(restarts: Option<bool>) -> LaunchdJob {
+        LaunchdJob {
+            label: "homebrew.mxcl.ollama".into(),
+            restarts,
+            brew: Some("ollama".into()),
+            stop_command: Some("brew services stop ollama".into()),
+        }
+    }
+
+    #[test]
+    fn a_launchd_job_is_never_an_orphan_and_one_that_restarts_asks_first() {
+        let before = brew_service();
+        assert!(before.orphan, "the finding: WP-1's rule alone calls a brew service a zombie");
+        assert!(!before.protected);
+
+        let mut restarts = brew_service();
+        apply_launchd(&mut restarts, Some(job(Some(true))));
+        assert!(!restarts.orphan);
+        assert!(restarts.protected, "launchd undoes the kill: it asks first");
+        assert_eq!(restarts.launchd, Some(job(Some(true))));
+
+        // Stays down after a kill, or nobody can tell: not an orphan, and no more protected than before.
+        for unknown in [Some(false), None] {
+            let mut e = brew_service();
+            apply_launchd(&mut e, Some(job(unknown)));
+            assert!(!e.orphan, "{unknown:?}");
+            assert!(!e.protected, "{unknown:?}");
+            assert_eq!(e.launchd, Some(job(unknown)));
+        }
+        // A job never lifts a protection the entry already had.
+        let mut db = PortEntry { protected: true, ..brew_service() };
+        apply_launchd(&mut db, Some(job(Some(false))));
+        assert!(db.protected);
+
+        // No job: nothing changes.
+        let mut plain = brew_service();
+        apply_launchd(&mut plain, None);
+        assert_eq!(plain, brew_service());
     }
 
     #[test]

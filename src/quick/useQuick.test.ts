@@ -12,7 +12,7 @@ const key = (k: string, init: KeyboardEventInit = {}) =>
 
 /**
  * What an empty query shows on the mock: the lost-terminal :5174 and :4000 first (newest first),
- * then the rest newest first, nothing protected, six at most (the 12-day-old Ollama is seventh).
+ * then the rest newest first, nothing protected (Ollama, a brew service launchd restarts, is), six at most.
  */
 const PRESELECTED = [5174, 4000, 5173, 3000, 8080, 9335];
 

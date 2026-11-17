@@ -162,14 +162,15 @@ describe("usePorts: grouping and order", () => {
       "tinyrecipe-lp",
       "@specmate/api",
       "chrome-helper",
-      "ollama",
       "mDNSResponder",
       "postgres:16",
       "redis:7",
       "ControlCenter",
+      // A brew service launchd restarts after a kill: protected, so among the protected groups.
+      "ollama",
     ]);
     const protectedFlags = store.groups.value.map((g) => g.protected);
-    expect(protectedFlags).toEqual([false, false, false, false, false, false, false, true, true, true, true]);
+    expect(protectedFlags).toEqual([false, false, false, false, false, false, true, true, true, true, true]);
   });
 
   it("sorts inside a group by port and lists distinct pids", () => {
