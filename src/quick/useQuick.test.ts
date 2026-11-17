@@ -702,8 +702,9 @@ describe("useQuick: the cached list", () => {
     await vi.advanceTimersByTimeAsync(0);
     expect(listPorts).toHaveBeenCalledTimes(1);
     expect(quick.entries.value.some((e) => e.port === 5173)).toBe(false);
-    // The seventh, the 12-day-old Ollama, moves up into the six.
-    expect(quick.matches.value.map((e) => e.port)).toEqual([5174, 4000, 3000, 8080, 9335, 11434]);
+    // Nothing moves up into the six: the seventh, Ollama, is a brew service launchd restarts, and
+    // a protected row is never preselected.
+    expect(quick.matches.value.map((e) => e.port)).toEqual([5174, 4000, 3000, 8080, 9335]);
     expect(write).toHaveBeenCalledTimes(1);
     expect(write.mock.calls[0]?.[0]).toHaveLength(MOCK_ENTRIES.length - 1);
     quick.stop();
