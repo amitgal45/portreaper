@@ -53,7 +53,11 @@ Part of: PortReaper (`~/work/portreaper`). Startup-wide rules come from the pare
      fine-grained token for that one repository with Contents: Read and write. A token that
      cannot read the tap stops the run before building (the job's first step); one that can read
      but not write fails only the last step, after the release is out. Retry it, or backfill an
-     older release, with a manual run of Release from `main` with `tag` set (one approval).
+     older release, with a manual run of Release from `main` with `tag` set (one approval). Never
+     "Re-run failed jobs" on a release: it reruns the whole job (a rebuild, a new notarization, a
+     second approval) and may replace the published assets.
+  5. Approve only a run you started: the actor is `amitgal45`, and the event is your tag push or
+     your manual run.
 - Secrets: all of them (`TAURI_SIGNING_PRIVATE_KEY`, `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`, the six
   `APPLE_*`, `TAP_TOKEN`) live in the `release` environment, never at repository level: a
   repository secret is readable by a workflow pushed to any branch by anyone with write access,
@@ -61,7 +65,10 @@ Part of: PortReaper (`~/work/portreaper`). Startup-wide rules come from the pare
   and requires the owner's approval, with no admin bypass. `release.yml` names it in both of its
   jobs (`release` for a tag, `tap` for a manual run), and each run has exactly one of them, so
   each run asks for one approval. Set or rotate a secret with
-  `gh secret set NAME --env release --repo amitgal45/portreaper` from the owner's machine.
+  `gh secret set NAME --env release --repo amitgal45/portreaper` from the owner's machine. Never
+  run `gh secret set` without `--env release`: it would create a repository secret again, which
+  any branch's workflow can read, while releases kept signing with the environment's old copy.
+  `src/lib/release-workflow.test.ts` pins that only the environment's two jobs name a secret.
 - `createUpdaterArtifacts` lives in `src-tauri/tauri.release.conf.json`, which only the release
   job merges in (`--config`): with it on, the Tauri CLI refuses to build without the private key,
   and CI's unsigned `pnpm tauri build --bundles app` has none. Keep it out of `tauri.conf.json`.
@@ -79,7 +86,8 @@ Part of: PortReaper (`~/work/portreaper`). Startup-wide rules come from the pare
   any of the six missing: a bundle the CLI does not sign opens as "damaged" on Apple Silicon.
   CI's PR build stays ad-hoc (`APPLE_SIGNING_IDENTITY: "-"`), because fork PRs get no secrets.
   Setting or renewing the secrets (the certificate expires after five years):
-  `ops/runbooks/apple-signing.md` in the meta-repo runs `ops/scripts/apple-secrets.sh`. The
+  `ops/runbooks/apple-signing.md` in the meta-repo runs `ops/scripts/apple-secrets.sh`, which must
+  set them with `--env release` (see Secrets above). The
   certificate's private key lives in the owner's login keychain; never export, print or commit
   it outside that script. Check a release with `spctl -a -vv PortReaper.app`
   ("source=Notarized Developer ID") and `xcrun stapler validate PortReaper.app`.

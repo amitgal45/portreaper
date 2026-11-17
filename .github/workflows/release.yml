@@ -37,7 +37,9 @@ jobs:
     runs-on: macos-latest
     # The secrets live here and nowhere else: the run waits for the owner's approval.
     environment: release
-    # One write to the tap at a time (this job and a manual `tap` run).
+    # One write to the tap at a time (this job and a manual `tap` run). GitHub keeps one running
+    # and one pending run per group; a third replaces the pending one, which then shows as
+    # cancelled. A cancelled release is run again from Actions (Re-run all jobs); its tag stays.
     concurrency:
       group: homebrew-tap
       cancel-in-progress: false
@@ -175,7 +177,9 @@ jobs:
       # The cask for the release just published, written to the tap. In this job rather than its
       # own so a release asks for one approval, not two. The actions above run in the same job as
       # TAP_TOKEN, as they already do with the Apple certificate and the updater key; the token
-      # reaches only this step and the check at the top.
+      # reaches only this step and the check at the top. If this step fails, retry with a manual
+      # run from main with the tag, never "Re-run failed jobs": that rebuilds and re-notarizes the
+      # whole release, and asks for another approval.
       - name: Update the Homebrew tap
         env:
           TAG: ${{ github.ref_name }}

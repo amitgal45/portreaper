@@ -7,9 +7,10 @@
 #
 #   TAG=vX.Y.Z RELEASE_TOKEN=<github.token> TAP_TOKEN=<secret> scripts/update-tap.sh
 #
-# RELEASE_TOKEN reads the release in this repository; TAP_TOKEN writes the tap and is handed to
-# `gh` for the tap's calls only. The run stops at the first problem; a re-run with the same tag
-# writes nothing when the tap already has this cask.
+# RELEASE_TOKEN reads the release in this repository; TAP_TOKEN writes the tap. Both are taken out
+# of the environment at once, so no command the script runs (node, shasum, awk) inherits them, and
+# each is handed to `gh` for its own calls only. The run stops at the first problem; a re-run with
+# the same tag writes nothing when the tap already has this cask.
 set -euo pipefail
 
 : "${TAG:?TAG is not set}"
@@ -19,6 +20,9 @@ if [ -z "${TAP_TOKEN:-}" ]; then
   echo "::error::the TAP_TOKEN secret is not set in the release environment. Store a fine-grained token for amitgal45/homebrew-tap with Contents: Read and write as the environment secret TAP_TOKEN, then run Release by hand from main with this tag." >&2
   exit 1
 fi
+tap_token="$TAP_TOKEN"
+release_token="$RELEASE_TOKEN"
+unset TAP_TOKEN RELEASE_TOKEN GH_TOKEN GITHUB_TOKEN
 
 re='^v[0-9]+\.[0-9]+\.[0-9]+$'
 if ! [[ "$TAG" =~ $re ]]; then
@@ -34,9 +38,9 @@ mkdir -p "$work/dmg"
 # two must agree, which catches a download corrupted on the way (an asset replaced on GitHub gets a
 # new digest, so this does not catch that). Older assets may carry none.
 name="PortReaper_${version}_universal.dmg"
-GH_TOKEN="$RELEASE_TOKEN" gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern "$name" --dir "$work/dmg"
+GH_TOKEN="$release_token" gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern "$name" --dir "$work/dmg"
 sha="$(shasum -a 256 "$work/dmg/$name" | cut -d' ' -f1)"
-assets="$(GH_TOKEN="$RELEASE_TOKEN" gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" --jq '.assets[] | [.name, (.digest // "")] | @tsv')"
+assets="$(GH_TOKEN="$release_token" gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" --jq '.assets[] | [.name, (.digest // "")] | @tsv')"
 digest="$(printf '%s\n' "$assets" | awk -F'\t' -v n="$name" '$1 == n { print $2 }')"
 case "$digest" in
   "" | null) echo "::notice::GitHub has no digest for $name; using the downloaded file's SHA-256 $sha unchecked" ;;
@@ -60,10 +64,10 @@ api=repos/amitgal45/homebrew-tap/contents/Casks/portreaper.rb
 # creates the file.
 current=""
 blob='^[0-9a-f]{40}$'
-if found="$(GH_TOKEN="$TAP_TOKEN" gh api "$api" --jq .sha)" && [[ "$found" =~ $blob ]]; then
+if found="$(GH_TOKEN="$tap_token" gh api "$api" --jq .sha)" && [[ "$found" =~ $blob ]]; then
   current="$found"
   # The same cask already there (a re-run): stop rather than make an empty commit.
-  GH_TOKEN="$TAP_TOKEN" gh api "$api" --jq .content | base64 --decode > "$work/tap-current.rb"
+  GH_TOKEN="$tap_token" gh api "$api" --jq .content | base64 --decode > "$work/tap-current.rb"
   if cmp -s "$work/tap-current.rb" "$work/portreaper.rb"; then
     echo "::notice::Casks/portreaper.rb in amitgal45/homebrew-tap is already the cask for $version; nothing to write"
     exit 0
@@ -76,4 +80,4 @@ args=(-X PUT "$api" -f message="portreaper $version" -f content="$content")
 if [ -n "$current" ]; then
   args+=(-f sha="$current")
 fi
-GH_TOKEN="$TAP_TOKEN" gh api "${args[@]}" --jq .commit.html_url
+GH_TOKEN="$tap_token" gh api "${args[@]}" --jq .commit.html_url
