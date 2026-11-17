@@ -5,7 +5,7 @@ import { createMockApi, MOCK_ENTRIES } from "../api/mock";
 import { ACTIONS_KEY, type UiActions } from "../composables/useActions";
 import type { RestartState } from "../composables/useKillFlow";
 import { WATCHED_KEY } from "../composables/useWatch";
-import type { PortApi, PortEntry } from "../types";
+import type { LaunchdJob, PortApi, PortEntry } from "../types";
 import Inspector from "./Inspector.vue";
 
 const byPort = (port: number): PortEntry => {
@@ -26,8 +26,10 @@ function spies(): UiActions {
     openInBrowser: vi.fn(),
     copyKill: vi.fn(),
     copyCommand: vi.fn(),
+    copyStopCommand: vi.fn(),
     revealFolder: vi.fn(),
     watch: vi.fn(),
+    hide: vi.fn(),
   };
 }
 
@@ -58,6 +60,21 @@ async function mountInspector(
   await flushPromises();
   return { wrapper, api, actions };
 }
+
+const CONTROL_CENTER_EXE = "/System/Library/CoreServices/ControlCenter.app/Contents/MacOS/ControlCenter";
+
+/** ControlCenter on :5000 (AirPlay Receiver) as the core sends it: Apple's job, a system one. */
+const controlCenter: PortEntry = {
+  ...byPort(7000),
+  port: 5000,
+  pid: 635,
+  processName: "ControlCenter",
+  command: CONTROL_CENTER_EXE,
+  exe: CONTROL_CENTER_EXE,
+  parentPid: 1,
+  protected: true,
+  launchd: { label: "com.apple.controlcenter", restarts: null, brew: null, stopCommand: null, system: true },
+};
 
 const text = () => mounted?.text().replace(/\s+/g, " ") ?? "";
 const button = (name: RegExp) => mounted?.findAll("button").find((b) => name.test(b.text())) ?? null;
@@ -132,6 +149,85 @@ describe("Inspector", () => {
     expect(actions.copyCommand).toHaveBeenCalledWith(byPort(3000));
     await button(/Reveal folder/)?.trigger("click");
     expect(actions.revealFolder).toHaveBeenCalledWith(byPort(3000));
+  });
+
+  it("shows the launchd job: its label, what a kill does, and copies the command that stops it", async () => {
+    const ollama = byPort(11434);
+    const { wrapper, actions } = await mountInspector(ollama);
+    const card = wrapper.get("[data-section='launchd']");
+    expect(card.text()).toContain("launchd");
+    expect(card.text()).toContain("homebrew.mxcl.ollama");
+    expect(card.text()).toContain("a kill is undone within seconds");
+    const copy = button(/^Copy brew services stop ollama$/);
+    expect(copy).not.toBeNull();
+    await copy?.trigger("click");
+    expect(actions.copyStopCommand).toHaveBeenCalledWith(ollama);
+    expect(actions.copyCommand).not.toHaveBeenCalled();
+    expect(actions.copyKill).not.toHaveBeenCalled();
+    wrapper.unmount();
+
+    // A job that stays down, with no command the core would put in a shell: the text, no button.
+    const agent = {
+      ...ollama,
+      launchd: { label: "com.example.agent", restarts: false, brew: null, stopCommand: null, system: false },
+    };
+    const { wrapper: stays } = await mountInspector(agent);
+    expect(stays.get("[data-section='launchd']").text()).toContain("com.example.agent");
+    expect(stays.get("[data-section='launchd']").text()).toContain("a kill lasts until the next login");
+    expect(stays.get("[data-section='launchd']").find("button").exists()).toBe(false);
+    stays.unmount();
+
+    const vagueJob = { ...agent.launchd, restarts: null };
+    const { wrapper: vague } = await mountInspector({ ...agent, launchd: vagueJob });
+    expect(vague.get("[data-section='launchd']").text()).toContain("launchd may start it again");
+    vague.unmount();
+
+    // Every other process, and an entry from a core that did not send `launchd` yet: no card.
+    const { wrapper: plain } = await mountInspector(byPort(3000));
+    expect(plain.find("[data-section='launchd']").exists()).toBe(false);
+    plain.unmount();
+    const older = { ...byPort(3000), launchd: undefined } as unknown as PortEntry;
+    const { wrapper: cached } = await mountInspector(older);
+    expect(cached.find("[data-section='launchd']").exists()).toBe(false);
+  });
+
+  it("ControlCenter on :5000, Apple's job, a system process: the launchd card shows its label and has nothing to copy", async () => {
+    const api = createMockApi(MOCK_ENTRIES.map((e) => (e.port === 7000 ? controlCenter : e)));
+    const { wrapper } = await mountInspector(controlCenter, { api, reason: "a system process" });
+    const card = wrapper.get("[data-section='launchd']");
+    expect(card.text()).toContain("com.apple.controlcenter");
+    // The card calls it what the dialog and the strip do, not a job launchd may start again.
+    expect(card.text()).toContain("a system process");
+    expect(card.text()).not.toContain("launchd may start it again");
+    expect(card.find("button").exists()).toBe(false);
+    // No button mentions launchctl; the only copy verbs left are the process's own: its command line and kill -9.
+    expect(button(/launchctl/)).toBeNull();
+    const copies = wrapper.findAll("button").filter((b) => b.text().includes("Copy"));
+    expect(copies.map((b) => b.text().trim())).toEqual(["Copy", "Copy kill -9 635"]);
+    // Restart is blocked with the same reason the dialog gives.
+    expect(button(/Restart/)?.attributes("title")).toContain("ControlCenter is a system process");
+    wrapper.unmount();
+
+    // Whatever launchd does to it: still nothing that would stop it for good.
+    const apple = controlCenter.launchd as LaunchdJob;
+    const { wrapper: restarting } = await mountInspector({
+      ...controlCenter,
+      launchd: { ...apple, restarts: true },
+    });
+    expect(restarting.get("[data-section='launchd']").text()).toContain("com.apple.controlcenter");
+    expect(restarting.get("[data-section='launchd']").text()).not.toContain("undone within seconds");
+    expect(button(/launchctl/)).toBeNull();
+    restarting.unmount();
+
+    // A buggy core that sent a disable command for it: the card still offers nothing to copy.
+    const disable =
+      "launchctl disable gui/501/com.apple.controlcenter && launchctl bootout gui/501/com.apple.controlcenter";
+    const { wrapper: buggy } = await mountInspector({
+      ...controlCenter,
+      launchd: { ...apple, restarts: true, stopCommand: disable },
+    });
+    expect(buggy.get("[data-section='launchd']").find("button").exists()).toBe(false);
+    expect(button(/launchctl/)).toBeNull();
   });
 
   it("asks to close on the ✕", async () => {

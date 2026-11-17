@@ -3049,6 +3049,7 @@ version = "0.4.0"
 dependencies = [
  "libc",
  "listeners",
+ "plist",
  "serde",
  "serde_json",
  "sysinfo",

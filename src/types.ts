@@ -55,6 +55,45 @@ export interface PortEntry {
   framework: string | null;
   /** The Docker container publishing this port when Docker's backend holds it (WP-20); null for every other process. */
   container: string | null;
+  /**
+   * The launchd job behind this process: its own job, or its parent's (then with `restarts: null`: its
+   * parent, not launchd, decides whether it comes back), when launchd runs it in the user's domain (a
+   * `brew services` formula, any LaunchAgent); null for every other process.
+   */
+  launchd: LaunchdJob | null;
+}
+
+/**
+ * The launchd job behind a process, when launchd runs it in the user's domain (a `brew services`
+ * formula, any LaunchAgent). Such a process is never an orphan.
+ */
+export interface LaunchdJob {
+  label: string;
+  /**
+   * `true`: launchd starts it again within seconds of a kill (KeepAlive). `false`: it stays down until
+   * the job is loaded again (the next login). `null`: unknown (no readable plist, a conditional
+   * KeepAlive, a job launchd also starts on demand, or a job's child). Anything but `false` makes the
+   * entry `protected`: a kill launchd may undo asks first. So does `system`, whatever this says.
+   */
+  restarts: boolean | null;
+  /** The Homebrew formula, when `brew services` started it. */
+  brew: string | null;
+  /**
+   * What stops it for good, for the user to copy: `brew services stop <formula>`, else
+   * `launchctl disable gui/<uid>/<label> && launchctl bootout gui/<uid>/<label>` (disabled, so the
+   * next login does not load it again). null when the label is not safe to put in a shell, for a
+   * system job (`system`), and for a process whose exe nobody knows: a piece of macOS is not the user's
+   * to disable. Where the exe lives does not withhold it.
+   */
+  stopCommand: string | null;
+  /**
+   * A piece of macOS, decided from the job alone: its label starts with `com.apple.`, in any case, or
+   * `/System/Library/LaunchAgents/<label>.plist` exists. No stop command, the entry is protected, and
+   * the UI calls it a system process. Where the process's exe lives decides nothing: the user's own
+   * agent that runs `/usr/bin/ssh` is no system job. Read it as `entry.launchd?.system`: a cached
+   * entry from an older core has no such field.
+   */
+  system: boolean;
 }
 
 export interface KillRequest {
@@ -154,10 +193,20 @@ export interface Settings {
   notifications: boolean;
   /** The first-run card was dismissed. */
   onboardingDone: boolean;
+  /**
+   * Ports left out of every list, count and bulk kill (AirPlay Receiver holds 5000 and 7000):
+   * hidden by number, TCP and UDP alike, wherever PortReaper lists ports. A portless (`stdio`,
+   * port 0) entry cannot be hidden, and the Taskline keeps what already happened. Sorted,
+   * distinct, 1–65535, at most `MAX_HIDDEN_PORTS`; the core normalizes what it is sent.
+   */
+  hiddenPorts: number[];
 }
 
+/** The most ports `Settings.hiddenPorts` holds: `hidden::MAX_HIDDEN` in the core. */
+export const MAX_HIDDEN_PORTS = 64;
+
 /** `impl Default for Settings` in `model.rs`, field for field. */
-export const DEFAULT_SETTINGS: Readonly<Settings> = Object.freeze({
+export const DEFAULT_SETTINGS: Readonly<Settings> = Object.freeze<Settings>({
   dockIcon: "show",
   startAtLogin: true,
   quickShortcut: "CmdOrCtrl+Shift+K",
@@ -166,6 +215,7 @@ export const DEFAULT_SETTINGS: Readonly<Settings> = Object.freeze({
   defaultForce: false,
   notifications: true,
   onboardingDone: false,
+  hiddenPorts: [],
 });
 
 export type WatchState = "listening" | "free";

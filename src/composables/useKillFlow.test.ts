@@ -69,6 +69,27 @@ describe("useKillFlow", () => {
     expect(killProcess).toHaveBeenCalledWith({ pid: 48213, force: false });
   });
 
+  it("asks before Kill all when the group's pid is protected on a port the user hid", async () => {
+    // The Jekyll's pid also holds :5432, which protects that socket; the user hid 5432.
+    const jekyll = MOCK_ENTRIES.find((e) => e.port === 4000) as PortEntry;
+    const api = createMockApi([...MOCK_ENTRIES, { ...jekyll, port: 5432, protected: true }]);
+    await api.setSettings({ ...(await api.getSettings()), hiddenPorts: [5432] });
+    const killProcess = vi.spyOn(api, "killProcess");
+    const ports = usePorts(api, { storage: null });
+    await ports.refresh();
+    const flow = useKillFlow(ports, useToasts());
+    const docs = ports.groups.value.find((g) => g.name === "legacy-docs") as PortGroup;
+    expect(docs.entries.map((e) => e.port)).toEqual([4000]);
+
+    // A kill takes the pid, :5432 with it: the group asks, and so does its one row.
+    await flow.request({ kind: "group", group: docs, force: false });
+    expect(flow.confirm.value).toMatchObject({ kind: "group" });
+    flow.cancel();
+    await flow.request({ kind: "entry", entry: docs.entries[0] as PortEntry, force: false });
+    expect(flow.confirm.value).toMatchObject({ kind: "entry" });
+    expect(killProcess).not.toHaveBeenCalled();
+  });
+
   it("ignores a second click while the first kill is in flight", async () => {
     const { flow, killProcess, ports, byPort } = await setup();
     ports.pending.add(48213);

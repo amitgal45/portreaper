@@ -16,6 +16,7 @@ import { killLabels, useActions } from "../composables/useActions";
 import { isPublic, isZombie } from "../composables/usePorts";
 import { useWatched } from "../composables/useWatch";
 import { formatBytes, formatUptime } from "../lib/format";
+import { launchdHint } from "../lib/protection";
 import { TABLE_COLUMNS, WIDE_ONLY } from "../lib/table-columns";
 import type { PortEntry } from "../types";
 import FrameworkIcon from "./FrameworkIcon.vue";
@@ -49,13 +50,17 @@ const framework = computed(() => {
 });
 
 interface Pill {
-  key: "zombie" | "public" | "protected" | "ai" | "running";
+  key: "zombie" | "public" | "protected" | "ai" | "running" | "launchd";
   label: string;
   tone: string;
   hint: string;
 }
 
-/** What the taxonomy knows, worst first; `Running` only when nothing else applies. */
+/**
+ * What the taxonomy knows, worst first; `Running` only when nothing else applies. Then the
+ * `launchd` chip, in the framework pill's neutral colours: who runs the process is a fact, not a
+ * state. An entry from an older core (the Quick strip's cache) has no `launchd`, so no chip.
+ */
 const pills = computed<Pill[]>(() => {
   const e = props.entry;
   const out: Pill[] = [];
@@ -97,6 +102,15 @@ const pills = computed<Pill[]>(() => {
   }
   if (out.length === 0)
     out.push({ key: "running", label: "Running", tone: "bg-green-tint text-green-ink", hint: "" });
+  const job = e.launchd;
+  if (job) {
+    out.push({
+      key: "launchd",
+      label: "launchd",
+      tone: "border border-line bg-canvas text-ink-2",
+      hint: launchdHint(job),
+    });
+  }
   return out;
 });
 
@@ -222,6 +236,10 @@ watch(
               <DropdownMenuItem :class="menuItem" @select="actions.inspect(entry)">Inspect</DropdownMenuItem>
               <DropdownMenuItem :class="menuItem" data-action="watch" :disabled="entry.port === 0" @select="actions.watch(entry)">
                 {{ entry.port === 0 ? "Watch port" : watched ? `Stop watching :${entry.port}` : `Watch :${entry.port}` }}
+              </DropdownMenuItem>
+              <!-- By number, TCP and UDP alike; a portless (stdio) row has no number to hide. -->
+              <DropdownMenuItem :class="menuItem" data-action="hide" :disabled="entry.port === 0" @select="actions.hide(entry)">
+                {{ entry.port === 0 ? "Hide port" : `Hide :${entry.port}` }}
               </DropdownMenuItem>
               <DropdownMenuItem :class="menuItem" :disabled="entry.port === 0 || entry.protocol !== 'tcp'" @select="actions.openInBrowser(entry)">
                 {{ entry.port === 0 ? "Open in browser" : `Open localhost:${entry.port}` }}
