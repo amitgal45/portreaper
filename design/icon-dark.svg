@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!-- PortReaper app icon — Dark appearance (Void Black #0A0B0E plate, Prismatic Cut Socket 3B). -->
+  <defs>
+    <clipPath id="squircle-dark">
+      <rect x="100" y="100" width="824" height="824" rx="185"/>
+    </clipPath>
+    <linearGradient id="bg-dark" x1="15%" y1="8%" x2="85%" y2="95%">
+      <stop offset="0%" stop-color="#121316"/>
+      <stop offset="50%" stop-color="#0A0B0E"/>
+      <stop offset="100%" stop-color="#040507"/>
+    </linearGradient>
+    <radialGradient id="aura-dark" cx="512" cy="512" r="400" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FF4528" stop-opacity="0.42"/>
+      <stop offset="55%" stop-color="#A78BFA" stop-opacity="0.20"/>
+      <stop offset="100%" stop-color="#0A0B0E" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="rim-dark" x1="20%" y1="0%" x2="80%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.28"/>
+      <stop offset="40%" stop-color="#FF4528" stop-opacity="0.34"/>
+      <stop offset="80%" stop-color="#4EA1FF" stop-opacity="0.26"/>
+      <stop offset="100%" stop-color="#26292F" stop-opacity="0.4"/>
+    </linearGradient>
+    <filter id="glow-dark" x="-25%" y="-25%" width="150%" height="150%">
+      <feDropShadow dx="0" dy="20" stdDeviation="24" flood-color="#000000" flood-opacity="0.8"/>
+      <feDropShadow dx="0" dy="0" stdDeviation="20" flood-color="#FF4528" flood-opacity="0.38"/>
+    </filter>
+    <linearGradient id="prism-left-dark" x1="10%" y1="0%" x2="90%" y2="100%">
+      <stop offset="0%" stop-color="#FFB74D"/>
+      <stop offset="45%" stop-color="#FF4528"/>
+      <stop offset="100%" stop-color="#E11D48"/>
+    </linearGradient>
+    <linearGradient id="prism-right-dark" x1="15%" y1="0%" x2="85%" y2="100%">
+      <stop offset="0%" stop-color="#4EA1FF"/>
+      <stop offset="45%" stop-color="#A78BFA"/>
+      <stop offset="100%" stop-color="#FF4528"/>
+    </linearGradient>
+    <linearGradient id="echo-dark" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.12"/>
+      <stop offset="100%" stop-color="#A78BFA" stop-opacity="0.05"/>
+    </linearGradient>
+  </defs>
+  <g clip-path="url(#squircle-dark)">
+    <rect x="100" y="100" width="824" height="824" fill="url(#bg-dark)"/>
+    <rect x="100" y="100" width="824" height="824" fill="url(#aura-dark)"/>
+    <g stroke="#FFFFFF" stroke-opacity="0.03" stroke-width="1.5" fill="none">
+      <circle cx="512" cy="512" r="180"/>
+      <circle cx="512" cy="512" r="290"/>
+      <circle cx="512" cy="512" r="400"/>
+      <line x1="100" y1="330" x2="924" y2="330"/>
+      <line x1="100" y1="512" x2="924" y2="512"/>
+      <line x1="100" y1="694" x2="924" y2="694"/>
+      <line x1="330" y1="100" x2="330" y2="924"/>
+      <line x1="512" y1="100" x2="512" y2="924"/>
+      <line x1="694" y1="100" x2="694" y2="924"/>
+    </g>
+  </g>
+  <rect x="103" y="103" width="818" height="818" rx="182" fill="none" stroke="url(#rim-dark)" stroke-width="6"/>
+  <rect x="252" y="298" width="520" height="296" rx="44" fill="url(#echo-dark)" stroke="#FFFFFF" stroke-opacity="0.15" stroke-width="3"/>
+  <g filter="url(#glow-dark)">
+    <path d="M166 264 A26 26 0 0 1 192 238 H492.4 Q465.6 291.7 442.2 346 H278 V566 H368.1 Q353.3 683 347.9 802 H294 A26 26 0 0 1 268 776 V674 H192 A26 26 0 0 1 166 648 Z" fill="url(#prism-left-dark)" stroke="#FFFFFF" stroke-opacity="0.7" stroke-width="5"/>
+    <path d="M669.8 218 H830 A26 26 0 0 1 856 244 V630 A26 26 0 0 1 830 656 H756 V756 A26 26 0 0 1 730 782 H499.1 Q503.8 728 512.7 674 H648 V546 H746 V326 H613.2 Q639.7 271.7 669.8 218 Z" fill="url(#prism-right-dark)" stroke="#FFFFFF" stroke-opacity="0.7" stroke-width="5"/>
+  </g>
+  <path d="M198 242 H478" fill="none" stroke="#FFFFFF" stroke-width="6" stroke-linecap="round" stroke-opacity="0.75"/>
+  <path d="M680 222 H824" fill="none" stroke="#FFFFFF" stroke-width="6" stroke-linecap="round" stroke-opacity="0.75"/>
+</svg>

@@ -1,0 +1,4 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!-- Cut Socket (3b): Tapered scythe sweep (128–164 px gap) with an 18 px diagonal shear between the two severed socket brackets. Foreground glyph layer for macOS 26 Icon Composer. -->
+  <path d="M170 262 A24 24 0 0 1 194 238 H503.5 Q476.8 291.2 454.6 346 H278 V566 H385 Q358.3 680.7 348.8 802 H292 A24 24 0 0 1 268 778 V674 H194 A24 24 0 0 1 170 650 Z M686 218 H830 A24 24 0 0 1 854 242 V630 A24 24 0 0 1 830 654 H756 V758 A24 24 0 0 1 732 782 H501.7 Q508.6 727.3 519.1 674 H648 V546 H746 V326 H631.1 Q656.3 271.2 686 218 Z" fill="#FF4528"/>
+</svg>

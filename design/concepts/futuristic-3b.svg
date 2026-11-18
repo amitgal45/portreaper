@@ -1,0 +1,113 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+    
+  <defs>
+    <clipPath id="squircle-f3b">
+      <rect x="100" y="100" width="824" height="824" rx="185"/>
+    </clipPath>
+
+    <!-- Anodized Obsidian-to-Void base gradient -->
+    <linearGradient id="bg-grad-f3b" x1="15%" y1="8%" x2="85%" y2="95%">
+      <stop offset="0%" stop-color="#1E222D"/>
+      <stop offset="45%" stop-color="#111319"/>
+      <stop offset="100%" stop-color="#07080B"/>
+    </linearGradient>
+
+    <!-- Top-left studio light sheen on squircle -->
+    <radialGradient id="top-sheen-f3b" cx="28%" cy="14%" r="65%">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.09"/>
+      <stop offset="55%" stop-color="#FFFFFF" stop-opacity="0.02"/>
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- Subsurface neon aura -->
+    <radialGradient id="aura-1-f3b" cx="512" cy="512" r="390" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FF4528" stop-opacity="0.34"/>
+      <stop offset="50%" stop-color="#4EA1FF" stop-opacity="0.14"/>
+      <stop offset="100%" stop-color="#0A0B0E" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- Specular glass rim gradient -->
+    <linearGradient id="rim-grad-f3b" x1="20%" y1="0%" x2="80%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.42"/>
+      <stop offset="30%" stop-color="#FF4528" stop-opacity="0.28"/>
+      <stop offset="70%" stop-color="#4EA1FF" stop-opacity="0.22"/>
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0.08"/>
+    </linearGradient>
+
+    <!-- Soft volumetric drop shadow + neon bloom -->
+    <filter id="drop-glow-f3b" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="22" stdDeviation="24" flood-color="#000000" flood-opacity="0.65"/>
+      <feDropShadow dx="0" dy="4" stdDeviation="16" flood-color="#FF4528" flood-opacity="0.28"/>
+    </filter>
+
+    <filter id="neon-bloom-f3b" x="-35%" y="-35%" width="170%" height="170%">
+      <feGaussianBlur stdDeviation="18" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Outer squircle shadow on canvas -->
+  <rect x="100" y="114" width="824" height="824" rx="185" fill="#000000" fill-opacity="0.28"/>
+
+  <!-- Main squircle plate -->
+  <g clip-path="url(#squircle-f3b)">
+    <rect x="100" y="100" width="824" height="824" fill="url(#bg-grad-f3b)"/>
+    <rect x="100" y="100" width="824" height="824" fill="url(#aura-1-f3b)"/>
+    <rect x="100" y="100" width="824" height="824" fill="url(#top-sheen-f3b)"/>
+
+    <!-- Subtle cmux/Antigravity precision radar & cartesian micro-grid -->
+    <g stroke="#FFFFFF" stroke-opacity="0.035" stroke-width="1.5" fill="none">
+      <circle cx="512" cy="512" r="180"/>
+      <circle cx="512" cy="512" r="290"/>
+      <circle cx="512" cy="512" r="400"/>
+      <line x1="100" y1="330" x2="924" y2="330"/>
+      <line x1="100" y1="512" x2="924" y2="512"/>
+      <line x1="100" y1="694" x2="924" y2="694"/>
+      <line x1="330" y1="100" x2="330" y2="924"/>
+      <line x1="512" y1="100" x2="512" y2="924"/>
+      <line x1="694" y1="100" x2="694" y2="924"/>
+    </g>
+  </g>
+
+  <!-- Apple macOS 26 specular inner rim highlight -->
+  <rect x="103" y="103" width="818" height="818" rx="182" fill="none" stroke="url(#rim-grad-f3b)" stroke-width="6"/>
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="none" stroke="#050608" stroke-width="2" stroke-opacity="0.6"/>
+  
+    <defs>
+      <!-- Left Bracket: Radiant Signal Coral to Warm Neon Amber (Frosted Liquid Glass) -->
+      <linearGradient id="prism-left-f3b" x1="10%" y1="0%" x2="90%" y2="100%">
+        <stop offset="0%" stop-color="#FFB74D"/>
+        <stop offset="45%" stop-color="#FF4528"/>
+        <stop offset="100%" stop-color="#E11D48"/>
+      </linearGradient>
+
+      <!-- Right Bracket: Signal Coral to Electric Violet to Cyber Azure -->
+      <linearGradient id="prism-right-f3b" x1="15%" y1="0%" x2="85%" y2="100%">
+        <stop offset="0%" stop-color="#38BDF8"/>
+        <stop offset="45%" stop-color="#A78BFA"/>
+        <stop offset="100%" stop-color="#FF4528"/>
+      </linearGradient>
+
+      <!-- Translucent Glass Echo / Ghost Frame behind the displaced brackets -->
+      <linearGradient id="echo-glass-f3b" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.16"/>
+        <stop offset="100%" stop-color="#A78BFA" stop-opacity="0.06"/>
+      </linearGradient>
+    </defs>
+
+    <!-- Frosted Glass Echo Plate inside the socket cavity (gives Figma/Apple multi-layer depth) -->
+    <rect x="252" y="298" width="520" height="296" rx="44" fill="url(#echo-glass-f3b)" stroke="#FFFFFF" stroke-opacity="0.18" stroke-width="3"/>
+
+    <!-- Displaced Prismatic Glass Brackets -->
+    <g filter="url(#drop-glow-f3b)">
+      <path d="M166 264 A26 26 0 0 1 192 238 H492.4 Q465.6 291.7 442.2 346 H278 V566 H368.1 Q353.3 683 347.9 802 H294 A26 26 0 0 1 268 776 V674 H192 A26 26 0 0 1 166 648 Z" fill="url(#prism-left-f3b)" stroke="#FFFFFF" stroke-opacity="0.65" stroke-width="5"/>
+      <path d="M669.8 218 H830 A26 26 0 0 1 856 244 V630 A26 26 0 0 1 830 656 H756 V756 A26 26 0 0 1 730 782 H499.1 Q503.8 728 512.7 674 H648 V546 H746 V326 H613.2 Q639.7 271.7 669.8 218 Z" fill="url(#prism-right-f3b)" stroke="#FFFFFF" stroke-opacity="0.65" stroke-width="5"/>
+    </g>
+
+    <!-- Specular Top-Edge Highlights -->
+    <path d="M198 242 H478" fill="none" stroke="#FFFFFF" stroke-width="6" stroke-linecap="round" stroke-opacity="0.7"/>
+    <path d="M680 222 H824" fill="none" stroke="#FFFFFF" stroke-width="6" stroke-linecap="round" stroke-opacity="0.7"/>
+  </svg>

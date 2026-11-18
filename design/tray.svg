@@ -1,20 +1,12 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="112 112 800 800" width="800" height="800">
   <!--
-    PortReaper menu-bar icon: the glyph from icon.svg, black on transparent, no plate.
-    macOS treats it as a template image (`icon_as_template(true)`) and tints it itself, so only
-    the alpha channel matters. Same geometry and the same scythe cut as the app icon; the wall
-    and the cut are a touch lighter (84 instead of 96 and 88, corner radius 21 instead of 24)
-    because menu-bar glyphs sit lighter than Dock icons, and the view box is tightened so the
-    glyph fills a 22 pt slot the way system icons do (about 18 x 15 pt).
-    Rendered by `pnpm icons` to tray-22.png / tray-44.png.
+    PortReaper menu-bar icon: the sheared, tapered Cut Socket glyph from icon.svg,
+    black on transparent, no plate. macOS treats it as a template image
+    (`icon_as_template(true)`) and tints it itself, so only the alpha channel matters.
+    Uses a pure compound <path> (no <mask>) with a 98 px wall, 22 px outer corners, a
+    tapered 128–164 px scythe gap, and an 18 px diagonal shear so the cut and both
+    socket brackets read crisply at 22 px / 44 px (`pnpm icons` -> tray-22.png, tray-44.png).
   -->
-  <defs>
-    <mask id="cut" maskUnits="userSpaceOnUse" x="0" y="0" width="1024" height="1024">
-      <rect width="1024" height="1024" fill="#fff"/>
-      <path d="M388 892 Q398 475 636 132" fill="none" stroke="#000" stroke-width="84"/>
-    </mask>
-  </defs>
-
-  <path d="M190 261 A21 21 0 0 1 211 240 H813 A21 21 0 0 1 834 261 V643 A21 21 0 0 1 813 664 H724 V763 A21 21 0 0 1 703 784 H321 A21 21 0 0 1 300 763 V664 H211 A21 21 0 0 1 190 643 Z M274 324 V580 H384 V700 H640 V580 H750 V324 Z"
-        fill="#000" fill-rule="evenodd" mask="url(#cut)"/>
+  <path d="M176 266 A22 22 0 0 1 198 244 H486.4 Q465.4 292.7 446.6 342 H274 V572 H360.3 Q348.5 683.9 344.8 796 H294 A22 22 0 0 1 272 774 V670 H198 A22 22 0 0 1 176 648 Z M675.1 224 H826 A22 22 0 0 1 848 246 V628 A22 22 0 0 1 826 650 H752 V754 A22 22 0 0 1 730 776 H498.5 Q503.1 727 511.2 678 H654 V552 H750 V322 H624.8 Q647.9 272.7 675.1 224 Z"
+        fill="#000"/>
 </svg>
