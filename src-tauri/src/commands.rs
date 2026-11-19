@@ -30,11 +30,13 @@ pub fn list_ports(app: AppHandle) -> Result<Vec<PortEntry>, String> {
     Ok(crate::hidden::visible(entries, &crate::hidden::hidden_ports(&app)))
 }
 
+/// The start time goes through as the UI sent it: it is the process the user chose, and the fresh
+/// listing's value would only describe whatever holds the pid now.
 #[tauri::command]
 pub fn kill_process(app: AppHandle, request: KillRequest) -> KillOutcome {
     // A list that cannot be read must not stop a kill the user asked for; it only goes unrecorded.
     match crate::ports::listing() {
-        Ok(listing) => kill_listed(&app, &listing, request.pid, request.force, None, |_| true),
+        Ok(listing) => kill_listed(&app, &listing, request.pid, request.force, request.started_at, None, |_| true),
         Err(e) => {
             warn(format_args!("could not list ports before killing {}; the kill is not recorded: {e}", request.pid));
             crate::kill::kill(&request)
@@ -42,12 +44,16 @@ pub fn kill_process(app: AppHandle, request: KillRequest) -> KillOutcome {
     }
 }
 
-/// Kills every process listening on `port`. One outcome per distinct pid.
+/// Kills every process listening on `port`. One outcome per distinct pid, each checked against the
+/// start time this listing gave it.
 #[tauri::command]
 pub fn free_port(app: AppHandle, port: u16, force: bool) -> Result<Vec<KillOutcome>, String> {
     let listing = crate::ports::listing().map_err(|e| e.to_string())?;
     let pids = distinct_pids(&listing, |e| e.port == port);
-    Ok(pids.into_iter().map(|pid| kill_listed(&app, &listing, pid, force, None, |e| e.port == port)).collect())
+    Ok(pids
+        .into_iter()
+        .map(|pid| kill_listed(&app, &listing, pid, force, started_at_of(&listing, pid), None, |e| e.port == port))
+        .collect())
 }
 
 #[tauri::command]
@@ -56,8 +62,9 @@ pub fn app_version(app: AppHandle) -> String {
 }
 
 /// Kills every lost-terminal, unprotected process on a port the user did not hide
-/// ([`reap_targets`]). One outcome per pid, each recorded as `zombieReaped`. A zombie that holds
-/// only hidden ports is left running: a bulk kill never reaches what the user cannot see.
+/// ([`reap_targets`]). One outcome per pid, each recorded as `zombieReaped` and checked against
+/// the start time this listing gave it. A zombie that holds only hidden ports is left running: a
+/// bulk kill never reaches what the user cannot see.
 #[tauri::command]
 pub fn reap_zombies(app: AppHandle) -> Result<Vec<KillOutcome>, String> {
     let listing = crate::ports::listing().map_err(|e| e.to_string())?;
@@ -65,8 +72,17 @@ pub fn reap_zombies(app: AppHandle) -> Result<Vec<KillOutcome>, String> {
     let zombie = |e: &PortEntry| reapable(e, &hidden);
     Ok(reap_targets(&listing.entries, &hidden)
         .into_iter()
-        .map(|pid| kill_listed(&app, &listing, pid, false, Some(EventKind::ZombieReaped), zombie))
+        .map(|pid| {
+            let started_at = started_at_of(&listing, pid);
+            kill_listed(&app, &listing, pid, false, started_at, Some(EventKind::ZombieReaped), zombie)
+        })
         .collect())
+}
+
+/// The start time `listing` gives `pid`: the `started_at` of its first entry, `None` when it has
+/// no entry for the pid. What a kill decided from this listing checks the pid against.
+fn started_at_of(listing: &Listing, pid: u32) -> Option<u64> {
+    listing.entries.iter().find(|e| e.pid == pid).and_then(|e| e.started_at)
 }
 
 /// What Reap kills: the distinct, sorted pids of the entries that are orphans, not protected
@@ -186,24 +202,29 @@ fn distinct_pids(listing: &Listing, keep: impl Fn(&PortEntry) -> bool) -> Vec<u3
 /// request cannot say which one it meant (`kill_process` carries only the pid), and guessing
 /// would stop the wrong one, so it is refused and the feed names them; `free_port` picks by
 /// port, which is always one container.
+///
+/// `started_at` is the start time of the process the caller chose (`KillRequest::started_at`):
+/// `kill::kill` refuses a pid that now belongs to another process. A container stop checks none:
+/// it goes by the container's name and signals no pid.
 fn kill_listed(
     app: &AppHandle,
     listing: &Listing,
     pid: u32,
     force: bool,
+    started_at: Option<u64>,
     kind: Option<EventKind>,
     pick: impl Fn(&PortEntry) -> bool,
 ) -> KillOutcome {
     let picked: Vec<&PortEntry> = listing.entries.iter().filter(|e| e.pid == pid && pick(e)).collect();
     let Some(first) = picked.first().copied() else {
         info(format_args!("pid {pid} holds no port the list knows; killing it unrecorded"));
-        return crate::kill::kill(&KillRequest { pid, force });
+        return crate::kill::kill(&KillRequest { pid, force, started_at });
     };
     let mut containers: Vec<&PortEntry> = picked.iter().copied().filter(|e| e.container.is_some()).collect();
     containers.sort_by_key(|e| e.container.as_deref());
     containers.dedup_by_key(|e| e.container.clone());
     match containers.as_slice() {
-        [] => crate::taskline::kill_recorded(app, listing, first, force, kind),
+        [] => crate::taskline::kill_recorded(app, listing, first, force, started_at, kind),
         [entry] => crate::taskline::stop_recorded(app, entry, entry.container.as_deref().unwrap_or_default(), force),
         several => {
             let names: Vec<&str> = several.iter().filter_map(|e| e.container.as_deref()).collect();
@@ -270,6 +291,24 @@ mod tests {
             "pid 10 is protected on :3000 too, and pid 30 holds only a hidden port"
         );
         assert_eq!(reap_targets(&entries, &[]), [20, 30], "nothing hidden: the orphan on :5000 is a target, pid 10 still not");
+    }
+
+    #[test]
+    fn started_at_of_is_the_first_entry_of_the_pid() {
+        let at = |port, pid, started_at| PortEntry { started_at, ..entry(port, pid, false, false) };
+        let listing = Listing {
+            entries: vec![
+                at(3000, 10, Some(1_700_000_000)),
+                at(3001, 10, Some(1_700_000_999)),
+                at(4000, 20, None),
+                at(5000, 30, Some(1_700_000_300)),
+            ],
+            argv: std::collections::HashMap::new(),
+        };
+        assert_eq!(started_at_of(&listing, 10), Some(1_700_000_000), "its first entry");
+        assert_eq!(started_at_of(&listing, 20), None, "listed, start time unknown");
+        assert_eq!(started_at_of(&listing, 30), Some(1_700_000_300));
+        assert_eq!(started_at_of(&listing, 40), None, "not listed");
     }
 
     #[test]

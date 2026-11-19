@@ -324,10 +324,21 @@ describe("usePorts: kill", () => {
     const entry = store.entries.value[0] as PortEntry;
     const done = store.kill(entry, true);
     expect(store.pending.has(entry.pid)).toBe(true);
-    expect(killProcess).toHaveBeenCalledWith({ pid: entry.pid, force: true });
+    expect(killProcess).toHaveBeenCalledWith({ pid: entry.pid, force: true, startedAt: entry.startedAt });
     resolve?.({ status: "killed", pid: entry.pid, graceful: false, waitedMs: 0 });
     await done;
     expect(store.pending.has(entry.pid)).toBe(false);
+  });
+
+  it("sends the row's start time, so the core kills only the process the row shows (#30)", async () => {
+    const api = createMockApi();
+    const killProcess = vi.spyOn(api, "killProcess");
+    const store = await loadedStore(api);
+    const entry = store.entries.value.find((e) => e.port === 3000) as PortEntry;
+    expect(entry.startedAt).toEqual(expect.any(Number));
+    const report = await store.kill(entry);
+    expect(killProcess).toHaveBeenCalledWith({ pid: entry.pid, force: false, startedAt: entry.startedAt });
+    expect(report.outcome.status).toBe("killed");
   });
 
   it("keeps the row on failed, refused and notFound", async () => {
@@ -377,14 +388,16 @@ describe("usePorts: kill", () => {
     const docker = store.groups.value.find((g) => g.name === "postgres:16");
     const specmate = store.groups.value.find((g) => g.name === "@specmate/api");
     if (!docker || !specmate) throw new Error("mock changed");
+    const startOf = (pid: number) => store.entries.value.find((e) => e.pid === pid)?.startedAt;
+    const [backend, shopDb, specmateApi] = [startOf(11710), startOf(11712), startOf(22104)];
     // The postgres:16 group holds two backend pids since WP-20 (:5432 and the shop-db container on :5433).
     const reports = await store.killGroup(docker);
     expect(reports).toHaveLength(2);
     expect(killProcess).toHaveBeenCalledTimes(2);
-    expect(killProcess).toHaveBeenCalledWith({ pid: 11710, force: false });
-    expect(killProcess).toHaveBeenCalledWith({ pid: 11712, force: false });
+    expect(killProcess).toHaveBeenCalledWith({ pid: 11710, force: false, startedAt: backend });
+    expect(killProcess).toHaveBeenCalledWith({ pid: 11712, force: false, startedAt: shopDb });
     await store.killGroup(specmate, true);
-    expect(killProcess).toHaveBeenLastCalledWith({ pid: 22104, force: true });
+    expect(killProcess).toHaveBeenLastCalledWith({ pid: 22104, force: true, startedAt: specmateApi });
     await flush();
     expect(store.entries.value.some((e) => [5433, 6379, 8080].includes(e.port))).toBe(false);
   });

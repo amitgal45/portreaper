@@ -153,8 +153,9 @@ describe("useKeyboard with usePorts", () => {
     expect(store.selected.value?.port).toBe(11434);
     for (let i = 0; i < 20; i++) press("ArrowUp");
     expect(store.selected.value?.port).toBe(3000);
+    const startedAt = store.selected.value?.startedAt;
     press("Enter");
-    expect(killProcess).toHaveBeenCalledWith({ pid: 48213, force: false });
+    expect(killProcess).toHaveBeenCalledWith({ pid: 48213, force: false, startedAt });
     keyboard.stop();
   });
 });
