@@ -128,7 +128,34 @@ LeftOpen also does things PortReaper does not: fixed `*.localhost` URLs through 
 other users' processes in full; PortReaper never asks for `sudo` and shows them as far as the
 kernel lets a normal user see.
 
-Compared on 2026-11-17 with LeftOpen v0.5.8, from its README and source. Corrections welcome:
+Other tools for the same problem:
+
+- **[Port Kill](https://github.com/treadiehq/port-kill)** finds and frees ports on macOS, Linux and
+  Windows, locally or over SSH, from a CLI and a macOS status bar app, and also manages dev caches
+  and starts and orchestrates services. PortReaper is macOS only and has no CLI; it shows the
+  project and git branch behind each port, and the leftovers that hold no port.
+- **[cc-reaper](https://github.com/theQuert/cc-reaper)** and scripts like
+  **[claude-cleanup](https://github.com/qazaqninja/claude-cleanup)**,
+  **[mcp-cleanup](https://github.com/radu2lupu/mcp-cleanup)** and
+  **[mac-ai-orphan-cleaner](https://github.com/maj0rika/mac-ai-orphan-cleaner)** clean up on their
+  own, from Claude Code or Codex hooks or on a launchd schedule. cc-reaper also cleans up settled
+  git worktrees; mcp-cleanup and mac-ai-orphan-cleaner also end MCP servers that pile up under an
+  app that is still running, which PortReaper does not list. PortReaper stops a process only when
+  you ask.
+- **[claude-load](https://github.com/Gerrux/claude-load)** is a Claude Code plugin that shows CPU
+  and memory per session inside Claude Code, and orphaned dev processes by repository or worktree,
+  ended in one click after a confirmation. It is developed on Windows; its README says the macOS
+  sampler has not run on a real Mac yet. PortReaper is a separate app and lists every listening
+  port, whatever started it.
+- **[bulkhead](https://github.com/dooly6276/claude-bulkhead)** is a set of hooks for Claude Code,
+  Codex, Gemini CLI, Copilot CLI, Cursor and other agents, on Windows, macOS and Linux, that blocks
+  a command before it runs when it would hurt another session, such as `pkill node` on its dev
+  servers or taking its port, and stops what a session left running when it exits. It works inside
+  the agents, before and after their commands; PortReaper works from outside, on what is running
+  now.
+
+Compared on 2026-11-17 with LeftOpen v0.5.8, from its README and source, and on 2026-11-19 with the
+other tools above, from their READMEs. Corrections welcome:
 [open an issue](https://github.com/amitgal45/portreaper/issues).
 
 ## Install
