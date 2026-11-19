@@ -10,6 +10,8 @@ function press(key: string, init: KeyboardEventInit = {}, target: EventTarget = 
 }
 
 const N = MOCK_ENTRIES.length;
+/** The start time of a mock pid: what its rows carry, and so what a kill of one of them sends. */
+const startOf = (pid: number) => MOCK_ENTRIES.find((e) => e.pid === pid)?.startedAt ?? null;
 
 let mounted: VueWrapper | null = null;
 
@@ -64,7 +66,7 @@ describe("App", () => {
     expect(wrapper.get("[role='row']").attributes("aria-selected")).toBe("true");
     press("Enter", {}, input.element);
     await flushPromises();
-    expect(killProcess).toHaveBeenCalledWith({ pid: 48213, force: false });
+    expect(killProcess).toHaveBeenCalledWith({ pid: 48213, force: false, startedAt: startOf(48213) });
     expect(rowsOf(wrapper)).toHaveLength(0);
     expect(wrapper.text()).toContain("Killed node (48213). Port 3000 is free.");
     // The Taskline item counts it.
@@ -90,7 +92,7 @@ describe("App", () => {
     );
     action?.click();
     await flushPromises();
-    expect(killProcess).toHaveBeenCalledWith({ pid: 11710, force: false });
+    expect(killProcess).toHaveBeenCalledWith({ pid: 11710, force: false, startedAt: startOf(11710) });
     expect(wrapper.find("[role='row'][data-port='6379']").exists()).toBe(false);
     expect(wrapper.text()).toContain("Ports 5432 and 6379 are free.");
   });
@@ -250,7 +252,7 @@ describe("App", () => {
     await flushPromises();
     inspectorButton(/Restart/)?.click();
     await flushPromises();
-    expect(killProcess).toHaveBeenCalledWith({ pid: 48213, force: false });
+    expect(killProcess).toHaveBeenCalledWith({ pid: 48213, force: false, startedAt: startOf(48213) });
     const back = wrapper.get("[role='row'][data-port='3000']");
     expect(back.attributes("data-pid")).not.toBe("48213");
     expect(back.attributes("aria-selected")).toBe("true");
@@ -273,7 +275,7 @@ describe("App", () => {
       .find((b) => b.textContent?.includes("Kill anyway"))
       ?.click();
     await flushPromises();
-    expect(killProcess).toHaveBeenCalledWith({ pid: 11710, force: false });
+    expect(killProcess).toHaveBeenCalledWith({ pid: 11710, force: false, startedAt: startOf(11710) });
     // The selection slid to the neighbour, and the column shows it: the shop-db container row
     // that follows :5432 in the postgres:16 group (WP-20), held by another pid and so still there.
     expect(inspector()?.textContent).toContain("PID 11712");
@@ -430,7 +432,7 @@ describe("App: preferences (WP-17b)", () => {
     await flushPromises();
     press("Enter");
     await flushPromises();
-    expect(killProcess).toHaveBeenCalledWith({ pid: 48213, force: true });
+    expect(killProcess).toHaveBeenCalledWith({ pid: 48213, force: true, startedAt: startOf(48213) });
     expect(wrapper.text()).toContain("Force-killed node (48213). Port 3000 is free.");
     // The selection slid to the neighbour; ⌘⌫ flips the base back to graceful.
     press("Backspace", { metaKey: true });

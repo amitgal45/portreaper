@@ -37,7 +37,7 @@ describe("useTaskline: loading", () => {
     expect(taskline.events.value).toEqual([]);
     expect(tasklineEvents).toHaveBeenCalledTimes(1);
 
-    await api.killProcess({ pid: 48213, force: false });
+    await api.killProcess({ pid: 48213, force: false, startedAt: null });
     await vi.advanceTimersByTimeAsync(2000);
     expect(tasklineEvents).toHaveBeenCalledTimes(2);
     expect(taskline.count.value).toBe(1);
@@ -99,7 +99,7 @@ describe("useTaskline: relaunch", () => {
     const api = createMockApi();
     const toasts = useToasts();
     const taskline = useTaskline(api, toasts, { subscribe: () => () => {} });
-    await api.killProcess({ pid: 48213, force: false });
+    await api.killProcess({ pid: 48213, force: false, startedAt: null });
     await taskline.refresh();
     const event = taskline.events.value[0] as TasklineEvent;
     return { api, toasts, taskline, event };

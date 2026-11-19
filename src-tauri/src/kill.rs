@@ -4,10 +4,15 @@
 //! - `force == false`: SIGTERM, then poll up to `GRACE_MS`, then SIGKILL if still alive;
 //! - `force == true`: SIGKILL at once;
 //! - refuses pid 0, pid 1 and our own pid before sending anything;
+//! - `started_at: Some(t)`: after those refusals and before any signal, the pid must still be the
+//!   process that started at `t` (sysinfo's `start_time()`, whole seconds, compared exactly, no
+//!   tolerance). Another start time is `Refused` ("is now another process"); one that cannot be
+//!   read is `NotFound` when the pid is gone, else `Refused` ("could not confirm"). `None` checks
+//!   nothing;
 //! - a permission error is `Refused`, not `Failed`: the user needs to know they cannot kill it,
 //!   not that something broke.
 
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use sysinfo::{Pid, ProcessRefreshKind, ProcessStatus, ProcessesToUpdate, System};
 
@@ -28,6 +33,13 @@ pub fn kill(request: &KillRequest) -> KillOutcome {
     let raw = pid as libc::pid_t;
 
     let mut target = Target::new(pid);
+    // The pid must still be the process the caller chose: a number freed and handed to another
+    // process since the caller's listing gets no signal.
+    if let Some(refusal) =
+        request.started_at.and_then(|expected| start_time_refusal(pid, raw, expected, target.start_time))
+    {
+        return refusal;
+    }
     let started = Instant::now();
     let waited = || started.elapsed().as_millis() as u64;
 
@@ -81,6 +93,36 @@ pub fn refusal_for(pid: u32, self_pid: u32) -> Option<&'static str> {
         return Some("not a valid pid");
     }
     None
+}
+
+/// The start-time check of [`kill`]: `None` when `pid` is still the process that started at
+/// `expected`, else what to answer without sending a signal. `actual` is what [`Target::new`] read.
+fn start_time_refusal(pid: u32, raw: libc::pid_t, expected: u64, actual: Option<u64>) -> Option<KillOutcome> {
+    // sysinfo reads 0 for a start time it does not know; the listing leaves that `None` as well.
+    match actual.filter(|&t| t > 0) {
+        Some(t) if t == expected => None,
+        Some(other) => {
+            let ago = seconds_since(other);
+            let reason =
+                format!("pid {pid} is now another process (started {ago} s ago), not the one you chose; refresh and try again");
+            Some(KillOutcome::Refused { pid, reason })
+        }
+        // Signal 0 sends nothing; it only asks whether the pid exists.
+        None => match signal(raw, 0) {
+            Err(err) if err.raw_os_error() == Some(libc::ESRCH) => Some(KillOutcome::NotFound { pid }),
+            _ => {
+                let reason = format!("could not confirm pid {pid} is the process you chose; refresh and try again");
+                Some(KillOutcome::Refused { pid, reason })
+            }
+        },
+    }
+}
+
+/// Whole seconds from `started_at` (seconds since the epoch) until now: 0 for a time ahead of the
+/// clock, and for a clock before the epoch.
+fn seconds_since(started_at: u64) -> u64 {
+    let now = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs());
+    now.saturating_sub(started_at)
 }
 
 fn signal(pid: libc::pid_t, signal: libc::c_int) -> std::io::Result<()> {
@@ -164,7 +206,11 @@ mod tests {
         }
 
         fn request(&self, force: bool) -> KillRequest {
-            KillRequest { pid: self.0.id(), force }
+            self.request_at(force, None)
+        }
+
+        fn request_at(&self, force: bool, started_at: Option<u64>) -> KillRequest {
+            KillRequest { pid: self.0.id(), force, started_at }
         }
     }
 
@@ -235,23 +281,77 @@ mod tests {
     #[test]
     fn vanished_pid_is_not_found() {
         let mut child = Spawned::new("true", &[]);
+        // What a listing taken before the reap would carry; `true` may be gone already, so any
+        // time does.
+        let started_at = Target::new(child.0.id()).start_time.unwrap_or(1_700_000_000);
         child.0.wait().unwrap();
         // The number could in theory already belong to a new process. Any outcome that sends no
         // fatal signal is acceptable; a kill is not.
-        match kill(&child.request(false)) {
-            KillOutcome::NotFound { .. } | KillOutcome::Refused { .. } => {}
-            other => panic!("a reaped pid must not be killed: {other:?}"),
+        for request in [child.request_at(false, Some(started_at)), child.request(false)] {
+            match kill(&request) {
+                KillOutcome::NotFound { .. } | KillOutcome::Refused { .. } => {}
+                other => panic!("a reaped pid must not be killed: {other:?} for {request:?}"),
+            }
         }
+    }
+
+    #[test]
+    fn another_start_time_is_refused_without_a_signal_and_the_same_one_kills() {
+        let mut child = Spawned::new("sleep", &["30"]);
+        let pid = child.0.id();
+        let real = Target::new(pid).start_time.expect("the start time of our own child");
+
+        match kill(&child.request_at(false, Some(real + 1))) {
+            KillOutcome::Refused { pid: refused, reason } => {
+                assert_eq!(refused, pid);
+                assert!(reason.starts_with(&format!("pid {pid} is now another process (started ")), "{reason}");
+                assert!(reason.ends_with(" s ago), not the one you chose; refresh and try again"), "{reason}");
+            }
+            other => panic!("expected a refusal, got {other:?}"),
+        }
+        // Give a stray signal time to land before looking: the child must still be running.
+        std::thread::sleep(POLL_INTERVAL);
+        assert!(matches!(child.0.try_wait(), Ok(None)), "the refused kill must leave the child running");
+
+        match kill(&child.request_at(false, Some(real))) {
+            KillOutcome::Killed { pid: killed, graceful: true, .. } => assert_eq!(killed, pid),
+            other => panic!("expected a graceful kill, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn start_time_refusals_say_what_was_found() {
+        // Our own live child; signal 0 is the only one sent here.
+        let child = Spawned::new("sleep", &["30"]);
+        let pid = child.0.id();
+        let raw = pid as libc::pid_t;
+        assert_eq!(start_time_refusal(pid, raw, 1_700_000_000, Some(1_700_000_000)), None);
+        // A start time ahead of the clock reads as 0 s ago, never as a wrap.
+        let ahead = format!("pid {pid} is now another process (started 0 s ago), not the one you chose; refresh and try again");
+        assert_eq!(
+            start_time_refusal(pid, raw, 1_700_000_000, Some(u64::MAX)),
+            Some(KillOutcome::Refused { pid, reason: ahead })
+        );
+        // A live pid whose start time could not be read is refused, never killed on a guess.
+        let unconfirmed = Some(KillOutcome::Refused {
+            pid,
+            reason: format!("could not confirm pid {pid} is the process you chose; refresh and try again"),
+        });
+        assert_eq!(start_time_refusal(pid, raw, 1_700_000_000, None), unconfirmed);
+        assert_eq!(start_time_refusal(pid, raw, 1_700_000_000, Some(0)), unconfirmed, "sysinfo's 0 is no start time");
     }
 
     #[test]
     fn refuses_launchd_and_itself_without_signalling() {
         // `refusal_for` runs before the first `libc::kill`; nothing observable says "no signal
-        // was sent", the structure of `kill` is the proof.
+        // was sent", the structure of `kill` is the proof. A start time changes nothing: those
+        // refusals come first.
         let me = std::process::id();
-        for (pid, reason) in [(1, "launchd"), (0, "pid 0"), (me, "that is PortReaper itself")] {
-            let outcome = kill(&KillRequest { pid, force: true });
-            assert_eq!(outcome, KillOutcome::Refused { pid, reason: reason.into() });
+        for started_at in [None, Some(1_700_000_000)] {
+            for (pid, reason) in [(1, "launchd"), (0, "pid 0"), (me, "that is PortReaper itself")] {
+                let outcome = kill(&KillRequest { pid, force: true, started_at });
+                assert_eq!(outcome, KillOutcome::Refused { pid, reason: reason.into() }, "{started_at:?}");
+            }
         }
     }
 }

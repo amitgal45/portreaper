@@ -390,7 +390,7 @@ export function useQuick(api: PortApi, options: UseQuickOptions = {}) {
     try {
       outcomes =
         entry.port === 0
-          ? [await api.killProcess({ pid: entry.pid, force })]
+          ? [await api.killProcess({ pid: entry.pid, force, startedAt: entry.startedAt })]
           : await api.freePort(entry.port, force);
     } catch (err) {
       console.error("freePort failed", err);

@@ -1610,7 +1610,9 @@ mod tests {
 
         let found = entries.iter().find(|e| e.pid == orphan_pid);
         // Clean up the child we spawned before asserting so we never leak it even if an assertion fails.
-        let outcome = crate::kill::kill(&crate::model::KillRequest { pid: orphan_pid, force: false });
+        // With the start time the listing read: the kill paths check exactly that value (#30).
+        let started_at = found.and_then(|e| e.started_at);
+        let outcome = crate::kill::kill(&crate::model::KillRequest { pid: orphan_pid, force: false, started_at });
         assert!(matches!(outcome, crate::model::KillOutcome::Killed { .. }), "expected Killed outcome: {outcome:?}");
 
         let entry = found.expect("our detached stdio MCP child must be listed as a port 0 orphan");

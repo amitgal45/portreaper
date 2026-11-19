@@ -710,7 +710,7 @@ fn free_from_tray(app: &AppHandle, port: u16, protocol: Protocol) {
             continue;
         }
         seen.push(pid);
-        match taskline::kill_recorded(app, &listing, entry, false, None) {
+        match taskline::kill_recorded(app, &listing, entry, false, entry.started_at, None) {
             KillOutcome::Killed { .. } => freed.push(format!("{name} ({pid})")),
             KillOutcome::NotFound { .. } => freed.push(format!("{name} ({pid}, already gone)")),
             KillOutcome::Refused { reason, .. } => failures.push(format!("{name} ({pid}): {reason}")),
@@ -797,7 +797,7 @@ fn bulk_kill(app: &AppHandle, bulk: Bulk) {
             continue;
         };
         let name = entry.process_name.as_str();
-        match taskline::kill_recorded(app, &listing, entry, false, bulk.event_kind()) {
+        match taskline::kill_recorded(app, &listing, entry, false, entry.started_at, bulk.event_kind()) {
             KillOutcome::Killed { graceful: true, .. } => {
                 info(format_args!("killed {name} ({pid})"));
                 freed.push(pid);

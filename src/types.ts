@@ -100,6 +100,12 @@ export interface KillRequest {
   pid: number;
   /** `true` sends SIGKILL at once. `false` sends SIGTERM, waits up to 3 s, then SIGKILL. */
   force: boolean;
+  /**
+   * When the process the caller chose started: unix seconds, sysinfo's `start_time()`, the
+   * `startedAt` of its row. The core refuses before any signal when the pid now belongs to a
+   * process that started at another time, or when it cannot read that time. `null` means no check.
+   */
+  startedAt: number | null;
 }
 
 export type KillOutcome =
