@@ -153,6 +153,11 @@ Other tools for the same problem:
   servers or taking its port, and stops what a session left running when it exits. It works inside
   the agents, before and after their commands; PortReaper works from outside, on what is running
   now.
+- **[PortKiller](https://github.com/productdevbook/port-killer)** is a menu bar app for macOS 15 or
+  later and a tray app for Windows that lists listening TCP ports, kills a process in one click,
+  watches ports with notifications, and also manages Kubernetes port forwards and Cloudflare
+  Tunnels. PortReaper runs on macOS 12 or later; it shows the project and git branch behind each
+  port, UDP too, and the leftovers that hold no port.
 
 Compared on 2026-11-17 with LeftOpen v0.5.8, from its README and source, and on 2026-11-19 with the
 other tools above, from their READMEs. Corrections welcome:
