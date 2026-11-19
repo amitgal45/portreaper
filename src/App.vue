@@ -114,7 +114,9 @@ function closeInspector() {
 async function restart(entry: PortEntry) {
   const outcome = await flow.restart(entry);
   if (outcome.status === "started" && inspector.inspecting.value?.pid === entry.pid) {
-    const back = { ...entry, pid: outcome.pid, startedAt: Math.floor(Date.now() / 1000), orphan: false };
+    // The real start time comes with the next listing. `null` sends no check for a pid PortReaper
+    // itself just spawned (#30); a guess could miss sysinfo's second and refuse the kill.
+    const back = { ...entry, pid: outcome.pid, startedAt: null, orphan: false };
     inspector.inspecting.value = back;
     // The selection follows the relaunched row instead of sliding to its neighbour.
     ports.select(back);

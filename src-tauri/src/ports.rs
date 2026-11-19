@@ -1609,11 +1609,25 @@ mod tests {
         }
 
         let found = entries.iter().find(|e| e.pid == orphan_pid);
-        // Clean up the child we spawned before asserting so we never leak it even if an assertion fails.
-        // With the start time the listing read: the kill paths check exactly that value (#30).
+        // Clean up the child we spawned before asserting, so a failed assertion does not leak it.
+        // First with the start time the listing read: the kill paths check exactly that value (#30).
+        // Only a "could not confirm" refusal can leave our child running under its pid, so only that
+        // one is followed by a kill without the check. "Is now another process" means the pid is no
+        // longer ours, and a test never signals a pid it did not create (CLAUDE.md); our `sleep 30`
+        // then ends on its own. The assert is on the first outcome.
         let started_at = found.and_then(|e| e.started_at);
         let outcome = crate::kill::kill(&crate::model::KillRequest { pid: orphan_pid, force: false, started_at });
-        assert!(matches!(outcome, crate::model::KillOutcome::Killed { .. }), "expected Killed outcome: {outcome:?}");
+        let unchecked = match &outcome {
+            crate::model::KillOutcome::Refused { reason, .. } if reason.starts_with("could not confirm") => {
+                let request = crate::model::KillRequest { pid: orphan_pid, force: false, started_at: None };
+                Some(crate::kill::kill(&request))
+            }
+            _ => None,
+        };
+        assert!(
+            matches!(outcome, crate::model::KillOutcome::Killed { .. }),
+            "expected Killed outcome: {outcome:?}; the cleanup kill without the start time: {unchecked:?}"
+        );
 
         let entry = found.expect("our detached stdio MCP child must be listed as a port 0 orphan");
         assert_eq!(entry.port, 0);

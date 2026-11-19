@@ -182,7 +182,8 @@ mod tests {
     /// Kills `child` through the one kill path and returns the event it left, which must be
     /// relaunchable.
     fn kill_through_the_taskline(taskline: &Taskline, child: &Spawned, entry: &PortEntry, argv: &[String]) -> TasklineEvent {
-        let request = KillRequest { pid: child.id(), force: false, started_at: entry.started_at };
+        // No check: `sleep_entry` carries no start time.
+        let request = KillRequest { pid: child.id(), force: false, started_at: None };
         let (outcome, event) = taskline.kill_and_record(entry, Some(argv), &request, None);
         assert!(matches!(outcome, KillOutcome::Killed { .. }), "{outcome:?}");
         assert!(event.relaunchable, "{event:?}");
@@ -230,7 +231,7 @@ mod tests {
 
         // A refused kill leaves an event that cannot be relaunched: pid 1 is never signalled.
         let entry = sleep_entry(1, "/");
-        let request = KillRequest { pid: 1, force: false, started_at: entry.started_at };
+        let request = KillRequest { pid: 1, force: false, started_at: None };
         let (outcome, event) = taskline.kill_and_record(&entry, Some(&sleep_argv()), &request, None);
         assert!(matches!(outcome, KillOutcome::Refused { .. }));
         assert!(!event.relaunchable);
