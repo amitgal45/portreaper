@@ -312,11 +312,12 @@ describe("useQuick: Enter", () => {
     expect(quick.result.value?.text).toBe(":8080 is already free");
   });
 
-  it("kills a portless (port: 0 / stdio) orphan by pid via killProcess and reports Killed without :0", async () => {
+  it("kills a portless (port: 0 / stdio) orphan by pid and start time via killProcess and reports Killed without :0", async () => {
     const mcp: PortEntry = {
       ...(MOCK_ENTRIES[0] as PortEntry),
       port: 0,
       pid: 61204,
+      startedAt: 1_700_000_123,
       address: "stdio",
       processName: "mcp-server-filesystem",
       command: "mcp-server-filesystem /Users/amit/work",
@@ -335,7 +336,8 @@ describe("useQuick: Enter", () => {
 
     quick.handleKey(key("Enter"));
     await vi.advanceTimersByTimeAsync(0);
-    expect(killProcess).toHaveBeenCalledWith({ pid: 61204, force: false });
+    // The row's start time goes along: the core refuses a pid that is now another process (#30).
+    expect(killProcess).toHaveBeenCalledWith({ pid: 61204, force: false, startedAt: 1_700_000_123 });
     expect(freePort).not.toHaveBeenCalled();
     expect(quick.result.value).toEqual({
       key: "61204:0:tcp",

@@ -523,7 +523,7 @@ export function usePorts(api: PortApi, options: UsePortsOptions = {}) {
     pending.add(entry.pid);
     let outcome: KillResult;
     try {
-      outcome = await api.killProcess({ pid: entry.pid, force });
+      outcome = await api.killProcess({ pid: entry.pid, force, startedAt: entry.startedAt });
     } catch (err) {
       console.error("killProcess failed", err);
       outcome = {

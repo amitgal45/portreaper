@@ -182,8 +182,9 @@ mod tests {
     /// Kills `child` through the one kill path and returns the event it left, which must be
     /// relaunchable.
     fn kill_through_the_taskline(taskline: &Taskline, child: &Spawned, entry: &PortEntry, argv: &[String]) -> TasklineEvent {
-        let (outcome, event) =
-            taskline.kill_and_record(entry, Some(argv), &KillRequest { pid: child.id(), force: false }, None);
+        // No check: `sleep_entry` carries no start time.
+        let request = KillRequest { pid: child.id(), force: false, started_at: None };
+        let (outcome, event) = taskline.kill_and_record(entry, Some(argv), &request, None);
         assert!(matches!(outcome, KillOutcome::Killed { .. }), "{outcome:?}");
         assert!(event.relaunchable, "{event:?}");
         event
@@ -215,7 +216,7 @@ mod tests {
         assert_eq!(events.iter().map(|e| e.kind).collect::<Vec<_>>(), [EventKind::Relaunched, EventKind::PortFreed]);
 
         // Our own child: kill it the way the app would, then `Spawned` reaps it on drop.
-        match crate::kill::kill(&KillRequest { pid: new_pid, force: true }) {
+        match crate::kill::kill(&KillRequest { pid: new_pid, force: true, started_at: None }) {
             KillOutcome::Killed { .. } => {}
             other => panic!("could not clean up the relaunched child: {other:?}"),
         }
@@ -230,8 +231,8 @@ mod tests {
 
         // A refused kill leaves an event that cannot be relaunched: pid 1 is never signalled.
         let entry = sleep_entry(1, "/");
-        let (outcome, event) =
-            taskline.kill_and_record(&entry, Some(&sleep_argv()), &KillRequest { pid: 1, force: false }, None);
+        let request = KillRequest { pid: 1, force: false, started_at: None };
+        let (outcome, event) = taskline.kill_and_record(&entry, Some(&sleep_argv()), &request, None);
         assert!(matches!(outcome, KillOutcome::Refused { .. }));
         assert!(!event.relaunchable);
         match start(&taskline, event.id) {

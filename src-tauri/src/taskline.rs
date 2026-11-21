@@ -438,14 +438,16 @@ pub(crate) fn emit(app: &AppHandle, event: &TasklineEvent) {
 
 /// Kills `entry`'s process the way every surface does and records the outcome: the entry was
 /// looked up in `listing` before the kill, because afterwards there is nothing left to describe.
+/// `started_at` is the start time of the process the caller chose (`KillRequest::started_at`).
 pub(crate) fn kill_recorded(
     app: &AppHandle,
     listing: &Listing,
     entry: &PortEntry,
     force: bool,
+    started_at: Option<u64>,
     kind_override: Option<EventKind>,
 ) -> KillOutcome {
-    let request = KillRequest { pid: entry.pid, force };
+    let request = KillRequest { pid: entry.pid, force, started_at };
     let Some(taskline) = state(app) else {
         return crate::kill::kill(&request);
     };
@@ -541,7 +543,7 @@ mod tests {
     }
 
     fn request(pid: u32, force: bool) -> KillRequest {
-        KillRequest { pid, force }
+        KillRequest { pid, force, started_at: None }
     }
 
     const ELAPSED: Duration = Duration::from_millis(250);

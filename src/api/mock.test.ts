@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { MAX_HIDDEN_PORTS } from "../types";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { MAX_HIDDEN_PORTS, type PortEntry } from "../types";
 import { createMockApi, MOCK_ENTRIES, MOCK_STDIO_ZOMBIES } from "./mock";
 
 describe("mock api", () => {
@@ -12,7 +12,7 @@ describe("mock api", () => {
 
   it("a killed pid disappears on the next list", async () => {
     const api = createMockApi();
-    const outcome = await api.killProcess({ pid: 48213, force: false });
+    const outcome = await api.killProcess({ pid: 48213, force: false, startedAt: null });
     expect(outcome.status).toBe("killed");
     expect((await api.listPorts()).some((e) => e.pid === 48213)).toBe(false);
   });
@@ -26,8 +26,69 @@ describe("mock api", () => {
 
   it("does not mutate the seed", async () => {
     const api = createMockApi();
-    await api.killProcess({ pid: 51022, force: true });
+    await api.killProcess({ pid: 51022, force: true, startedAt: null });
     expect(MOCK_ENTRIES.some((e) => e.pid === 51022)).toBe(true);
+  });
+});
+
+describe("mock api: a kill reaches only the process the caller chose (#30)", () => {
+  const STARTED = 1_700_000_000;
+  /** The mock with node on :3000 (pid 48213) started at `startedAt`, the clock 90 s later. */
+  function withNodeStartedAt(startedAt: number | null) {
+    vi.useFakeTimers();
+    vi.setSystemTime((STARTED + 90) * 1000);
+    return createMockApi(MOCK_ENTRIES.map((e) => (e.pid === 48213 ? { ...e, startedAt } : e)));
+  }
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("refuses another start time, says how old the pid's process is, and keeps the row", async () => {
+    const api = withNodeStartedAt(STARTED);
+    expect(await api.killProcess({ pid: 48213, force: false, startedAt: STARTED + 1 })).toEqual({
+      status: "refused",
+      pid: 48213,
+      reason:
+        "pid 48213 is now another process (started 90 s ago), not the one you chose; refresh and try again",
+    });
+    expect((await api.listPorts()).some((e) => e.pid === 48213)).toBe(true);
+    expect(await api.tasklineEvents()).toEqual([]);
+  });
+
+  it("kills on the same start time, and on none as before", async () => {
+    const same = withNodeStartedAt(STARTED);
+    expect(await same.killProcess({ pid: 48213, force: false, startedAt: STARTED })).toMatchObject({
+      status: "killed",
+    });
+    expect((await same.listPorts()).some((e) => e.pid === 48213)).toBe(false);
+
+    const unchecked = withNodeStartedAt(STARTED);
+    expect(await unchecked.killProcess({ pid: 48213, force: false, startedAt: null })).toMatchObject({
+      status: "killed",
+    });
+    expect((await unchecked.listPorts()).some((e) => e.pid === 48213)).toBe(false);
+  });
+
+  it("refuses a start time it cannot confirm, and keeps the row", async () => {
+    const api = withNodeStartedAt(null);
+    expect(await api.killProcess({ pid: 48213, force: true, startedAt: STARTED })).toEqual({
+      status: "refused",
+      pid: 48213,
+      reason: "could not confirm pid 48213 is the process you chose; refresh and try again",
+    });
+    expect((await api.listPorts()).some((e) => e.pid === 48213)).toBe(true);
+    expect(await api.tasklineEvents()).toEqual([]);
+  });
+
+  it("a container stop checks no start time, as the core's stop_recorded does not", async () => {
+    const api = createMockApi();
+    const shopDb = (await api.listPorts()).find((e) => e.container === "shop-db") as PortEntry;
+    const outcome = await api.killProcess({
+      pid: shopDb.pid,
+      force: false,
+      startedAt: (shopDb.startedAt ?? 0) + 1,
+    });
+    expect(outcome.status).toBe("killed");
   });
 });
 
@@ -53,7 +114,7 @@ describe("mock api v0.2", () => {
 
   it("records a kill in the Taskline and relaunches it with a new pid", async () => {
     const api = createMockApi();
-    await api.killProcess({ pid: 48213, force: false });
+    await api.killProcess({ pid: 48213, force: false, startedAt: null });
     const [event] = await api.tasklineEvents();
     expect(event).toMatchObject({
       kind: "portFreed",
@@ -130,7 +191,11 @@ describe("mock api v0.3", () => {
       project: { name: "postgres:16", root: "", tool: "docker" },
     });
 
-    const outcome = await api.killProcess({ pid: shopDb?.pid ?? -1, force: false });
+    const outcome = await api.killProcess({
+      pid: shopDb?.pid ?? -1,
+      force: false,
+      startedAt: shopDb?.startedAt ?? null,
+    });
     expect(outcome).toEqual({ status: "killed", pid: 11712, graceful: true, waitedMs: 180 });
     const left = await api.listPorts();
     expect(left.some((e) => e.port === 5433)).toBe(false);
@@ -149,7 +214,7 @@ describe("mock api v0.3", () => {
     expect(await api.relaunch(event?.id ?? -1)).toMatchObject({ status: "failed" });
 
     const forced = createMockApi();
-    await forced.killProcess({ pid: 11712, force: true });
+    await forced.killProcess({ pid: 11712, force: true, startedAt: null });
     expect((await forced.tasklineEvents())[0]).toMatchObject({
       kind: "forceKilled",
       message: "Killed container shop-db. Port 5433 is free.",
@@ -179,7 +244,7 @@ describe("mock api: protection is by pid", () => {
     expect((await api.reapZombies()).map((o) => o.pid)).toEqual([39871]);
     expect(await rows()).toEqual([":4000 protected"]);
     // Killed on purpose, it is not offered for a relaunch: the core never brings a protected pid back.
-    await api.killProcess({ pid, force: false });
+    await api.killProcess({ pid, force: false, startedAt: jekyll.startedAt });
     expect((await api.tasklineEvents())[0]).toMatchObject({ pid, relaunchable: false });
   });
 });

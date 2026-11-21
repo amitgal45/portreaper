@@ -6,6 +6,9 @@ import { type PortGroup, usePorts } from "./usePorts";
 import { useTaskline } from "./useTaskline";
 import { useToasts } from "./useToasts";
 
+/** The start time of a mock pid: what its rows carry, and so what a kill of one of them sends. */
+const startOf = (pid: number) => MOCK_ENTRIES.find((e) => e.pid === pid)?.startedAt ?? null;
+
 async function setup() {
   const api = createMockApi();
   const killProcess = vi.spyOn(api, "killProcess");
@@ -22,7 +25,7 @@ describe("useKillFlow", () => {
   it("kills an unprotected row at once and toasts the freed port", async () => {
     const { flow, killProcess, toasts, byPort } = await setup();
     await flow.request({ kind: "entry", entry: byPort(3000), force: false });
-    expect(killProcess).toHaveBeenCalledWith({ pid: 48213, force: false });
+    expect(killProcess).toHaveBeenCalledWith({ pid: 48213, force: false, startedAt: startOf(48213) });
     expect(flow.confirm.value).toBeNull();
     expect(toasts.toasts.value[0]?.message).toBe("Killed node (48213). Port 3000 is free.");
   });
@@ -30,7 +33,7 @@ describe("useKillFlow", () => {
   it("says so when the kill was forced", async () => {
     const { flow, killProcess, toasts, byPort } = await setup();
     await flow.request({ kind: "entry", entry: byPort(3000), force: true });
-    expect(killProcess).toHaveBeenCalledWith({ pid: 48213, force: true });
+    expect(killProcess).toHaveBeenCalledWith({ pid: 48213, force: true, startedAt: startOf(48213) });
     expect(toasts.toasts.value[0]?.message).toBe("Force-killed node (48213). Port 3000 is free.");
 
     const entry = { processName: "node", pid: 7, port: 3000 } as PortEntry;
@@ -54,7 +57,7 @@ describe("useKillFlow", () => {
     const { flow, killProcess, toasts, byPort } = await setup();
     await flow.request({ kind: "entry", entry: byPort(5432), force: true });
     await flow.confirmed();
-    expect(killProcess).toHaveBeenCalledWith({ pid: 11710, force: true });
+    expect(killProcess).toHaveBeenCalledWith({ pid: 11710, force: true, startedAt: startOf(11710) });
     expect(toasts.toasts.value[0]?.message).toBe(
       "Force-killed com.docker.backend (11710). Ports 5432 and 6379 are free.",
     );
@@ -66,7 +69,7 @@ describe("useKillFlow", () => {
     expect(killProcess).not.toHaveBeenCalled();
     flow.cancel();
     await flow.request({ kind: "group", group: group("shop-api"), force: false });
-    expect(killProcess).toHaveBeenCalledWith({ pid: 48213, force: false });
+    expect(killProcess).toHaveBeenCalledWith({ pid: 48213, force: false, startedAt: startOf(48213) });
   });
 
   it("asks before Kill all when the group's pid is protected on a port the user hid", async () => {
@@ -182,7 +185,7 @@ describe("useKillFlow: reap and restart (v0.2)", () => {
   it("restart kills gracefully, relaunches what the core recorded, and brings the row back with a new pid", async () => {
     const { flow, killProcess, ports, taskline, byPort } = await setupWithTaskline();
     const outcome = await flow.restart(byPort(3000));
-    expect(killProcess).toHaveBeenCalledWith({ pid: 48213, force: false });
+    expect(killProcess).toHaveBeenCalledWith({ pid: 48213, force: false, startedAt: startOf(48213) });
     expect(outcome.status).toBe("started");
     const pid = outcome.status === "started" ? outcome.pid : -1;
     expect(flow.restarting.value).toEqual({ phase: "started", pid: 48213, newPid: pid });

@@ -136,6 +136,12 @@ pub struct KillRequest {
     pub pid: u32,
     /// `true` sends SIGKILL at once. `false` sends SIGTERM, waits, then SIGKILL if still alive.
     pub force: bool,
+    /// When the process the caller chose started: seconds since the epoch, sysinfo's
+    /// `start_time()`, the `started_at` of its entry. `kill::kill` refuses before any signal when
+    /// the pid now belongs to a process that started at another time, or when it cannot read that
+    /// time. `None` means no check.
+    #[serde(default)]
+    pub started_at: Option<u64>,
 }
 
 // `rename_all` on the enum renames the variants (the `status` values); the one on each variant
@@ -514,5 +520,19 @@ mod tests {
         assert_eq!(json["waitedMs"], 120);
         let json = serde_json::to_value(KillOutcome::Refused { pid: 1, reason: "launchd".into() }).unwrap();
         assert_eq!(json["status"], "refused");
+    }
+
+    #[test]
+    fn kill_request_reads_started_at_and_a_missing_one_checks_nothing() {
+        let json = serde_json::json!({ "pid": 48213, "force": false, "startedAt": 1_700_000_000u64 });
+        let request: KillRequest = serde_json::from_value(json.clone()).unwrap();
+        assert_eq!(request, KillRequest { pid: 48213, force: false, started_at: Some(1_700_000_000) });
+        assert_eq!(serde_json::to_value(&request).unwrap(), json);
+        let json = serde_json::json!({ "pid": 7, "force": true, "startedAt": null });
+        let null: KillRequest = serde_json::from_value(json).unwrap();
+        assert_eq!(null.started_at, None);
+        // A caller from before #30 sends no `startedAt`: no check, as before.
+        let old: KillRequest = serde_json::from_value(serde_json::json!({ "pid": 7, "force": true })).unwrap();
+        assert_eq!(old.started_at, None);
     }
 }

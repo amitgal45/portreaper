@@ -1,8 +1,9 @@
 import { flushPromises, mount, type VueWrapper } from "@vue/test-utils";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import App from "./App.vue";
 import { API_KEY } from "./api";
 import { createMockApi, MOCK_ENTRIES } from "./api/mock";
+import { INSPECTOR_COLUMN_MIN_WIDTH } from "./composables/useInspector";
 import { UNREAD_SETTINGS } from "./composables/useSettings";
 
 function press(key: string, init: KeyboardEventInit = {}, target: EventTarget = window) {
@@ -10,6 +11,8 @@ function press(key: string, init: KeyboardEventInit = {}, target: EventTarget = 
 }
 
 const N = MOCK_ENTRIES.length;
+/** The start time of a mock pid: what its rows carry, and so what a kill of one of them sends. */
+const startOf = (pid: number) => MOCK_ENTRIES.find((e) => e.pid === pid)?.startedAt ?? null;
 
 let mounted: VueWrapper | null = null;
 
@@ -64,7 +67,7 @@ describe("App", () => {
     expect(wrapper.get("[role='row']").attributes("aria-selected")).toBe("true");
     press("Enter", {}, input.element);
     await flushPromises();
-    expect(killProcess).toHaveBeenCalledWith({ pid: 48213, force: false });
+    expect(killProcess).toHaveBeenCalledWith({ pid: 48213, force: false, startedAt: startOf(48213) });
     expect(rowsOf(wrapper)).toHaveLength(0);
     expect(wrapper.text()).toContain("Killed node (48213). Port 3000 is free.");
     // The Taskline item counts it.
@@ -90,7 +93,7 @@ describe("App", () => {
     );
     action?.click();
     await flushPromises();
-    expect(killProcess).toHaveBeenCalledWith({ pid: 11710, force: false });
+    expect(killProcess).toHaveBeenCalledWith({ pid: 11710, force: false, startedAt: startOf(11710) });
     expect(wrapper.find("[role='row'][data-port='6379']").exists()).toBe(false);
     expect(wrapper.text()).toContain("Ports 5432 and 6379 are free.");
   });
@@ -250,7 +253,7 @@ describe("App", () => {
     await flushPromises();
     inspectorButton(/Restart/)?.click();
     await flushPromises();
-    expect(killProcess).toHaveBeenCalledWith({ pid: 48213, force: false });
+    expect(killProcess).toHaveBeenCalledWith({ pid: 48213, force: false, startedAt: startOf(48213) });
     const back = wrapper.get("[role='row'][data-port='3000']");
     expect(back.attributes("data-pid")).not.toBe("48213");
     expect(back.attributes("aria-selected")).toBe("true");
@@ -259,6 +262,43 @@ describe("App", () => {
     expect(wrapper.text()).toContain(
       `Relaunched node on port 3000 (new pid ${back.attributes("data-pid")}).`,
     );
+  });
+
+  it("a Kill from the inspector right after Restart, before the new pid is listed, sends no start time and kills it (#30)", async () => {
+    // A narrow window: the inspector is a slide-over, which keeps its row while that row is not
+    // listed (the column follows the selection and would close).
+    const realMatchMedia = window.matchMedia.bind(window);
+    const narrow = vi
+      .spyOn(window, "matchMedia")
+      .mockImplementation((query) =>
+        query.includes(`${INSPECTOR_COLUMN_MIN_WIDTH}px`)
+          ? ({ matches: false, addEventListener() {}, removeEventListener() {} } as unknown as MediaQueryList)
+          : realMatchMedia(query),
+      );
+    onTestFinished(() => narrow.mockRestore());
+    // The relaunched server has not bound :3000 yet: the listing leaves its pid out. So the
+    // inspector shows App.vue's row for it, not a listed one, and that row decides what a Kill sends.
+    const api = createMockApi();
+    const list = api.listPorts;
+    api.listPorts = async () => (await list()).filter((e) => MOCK_ENTRIES.some((m) => m.pid === e.pid));
+    const { wrapper, killProcess } = await mountApp(api);
+    await wrapper.get("[role='row'][data-port='3000']").trigger("click");
+    await flushPromises();
+    inspectorButton(/Restart/)?.click();
+    await flushPromises();
+    const newPid = Number(/Back on :3000 as pid (\d+)\./.exec(inspector()?.textContent ?? "")?.[1]);
+    expect(newPid).toBeGreaterThan(0);
+    expect(wrapper.find(`[role='row'][data-pid='${newPid}']`).exists()).toBe(false);
+
+    inspectorButton(/^\s*Kill/)?.click();
+    await flushPromises();
+    expect(killProcess).toHaveBeenLastCalledWith({ pid: newPid, force: false, startedAt: null });
+    expect(killProcess).toHaveLastResolvedWith(expect.objectContaining({ status: "killed", pid: newPid }));
+    // No port in the toast: the listing never showed the pid holding one.
+    expect(wrapper.text()).toContain(`Killed node (${newPid}).`);
+    expect(wrapper.text()).not.toContain("Did not kill");
+    // The row goes: the core no longer lists the pid once it would have bound.
+    expect((await list()).some((e) => e.pid === newPid)).toBe(false);
   });
 
   it("Kill from the inspector goes through the gate; the column moves on once the row is gone", async () => {
@@ -273,7 +313,7 @@ describe("App", () => {
       .find((b) => b.textContent?.includes("Kill anyway"))
       ?.click();
     await flushPromises();
-    expect(killProcess).toHaveBeenCalledWith({ pid: 11710, force: false });
+    expect(killProcess).toHaveBeenCalledWith({ pid: 11710, force: false, startedAt: startOf(11710) });
     // The selection slid to the neighbour, and the column shows it: the shop-db container row
     // that follows :5432 in the postgres:16 group (WP-20), held by another pid and so still there.
     expect(inspector()?.textContent).toContain("PID 11712");
@@ -430,7 +470,7 @@ describe("App: preferences (WP-17b)", () => {
     await flushPromises();
     press("Enter");
     await flushPromises();
-    expect(killProcess).toHaveBeenCalledWith({ pid: 48213, force: true });
+    expect(killProcess).toHaveBeenCalledWith({ pid: 48213, force: true, startedAt: startOf(48213) });
     expect(wrapper.text()).toContain("Force-killed node (48213). Port 3000 is free.");
     // The selection slid to the neighbour; ⌘⌫ flips the base back to graceful.
     press("Backspace", { metaKey: true });

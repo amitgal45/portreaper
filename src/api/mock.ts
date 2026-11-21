@@ -339,6 +339,32 @@ export const MOCK_STDIO_ZOMBIES: PortEntry[] = [
   }),
 ];
 
+/**
+ * The core's start-time check (`kill::kill`, #30): a request that names a start time reaches only
+ * the process that started then. Refused, with the core's words, when the pid's process started at
+ * another time or its start time is unknown. `null`, or missing as from an older caller (serde's
+ * default in the core), checks nothing.
+ */
+function startTimeRefusal(request: KillRequest, victim: PortEntry): KillOutcome | null {
+  const pid = request.pid;
+  const expected = request.startedAt ?? null;
+  if (expected === null) return null;
+  if (victim.startedAt === null) {
+    return {
+      status: "refused",
+      pid,
+      reason: `could not confirm pid ${pid} is the process you chose; refresh and try again`,
+    };
+  }
+  if (victim.startedAt === expected) return null;
+  const ago = Math.max(0, Math.floor(Date.now() / 1000) - victim.startedAt);
+  return {
+    status: "refused",
+    pid,
+    reason: `pid ${pid} is now another process (started ${ago} s ago), not the one you chose; refresh and try again`,
+  };
+}
+
 export function createMockApi(seed: PortEntry[] = MOCK_ENTRIES): PortApi {
   let entries = seed.map((e) => ({ ...e }));
   const events: TasklineEvent[] = [];
@@ -425,6 +451,10 @@ export function createMockApi(seed: PortEntry[] = MOCK_ENTRIES): PortApi {
       );
       return { status: "killed", pid: request.pid, graceful: !request.force, waitedMs };
     }
+    // As `kill::kill` before its first signal. Not for a container above: the core stops it by
+    // name (`stop_recorded`) and checks no start time.
+    const refusal = startTimeRefusal(request, victim);
+    if (refusal) return refusal;
     entries = entries.filter((e) => e.pid !== request.pid);
     const verb = request.force ? "Force-killed" : "Killed";
     record(
@@ -442,8 +472,12 @@ export function createMockApi(seed: PortEntry[] = MOCK_ENTRIES): PortApi {
     listPorts: async () => listed().filter((e) => !hidden(e.port)),
     killProcess: async (request) => kill(request),
     freePort: async (port, force) => {
-      const pids = [...new Set(entries.filter((e) => e.port === port).map((e) => e.pid))];
-      return pids.map((pid) => kill({ pid, force }));
+      // As `commands::free_port`: each pid carries the start time of the entry it was chosen from.
+      const victims = entries.filter((e) => e.port === port);
+      const pids = [...new Set(victims.map((e) => e.pid))];
+      return pids.map((pid) =>
+        kill({ pid, force, startedAt: victims.find((e) => e.pid === pid)?.startedAt ?? null }),
+      );
     },
     appVersion: async () => "0.2.0-mock",
     processTree: async (pid): Promise<ProcessNode[]> => {
@@ -470,7 +504,7 @@ export function createMockApi(seed: PortEntry[] = MOCK_ENTRIES): PortApi {
       // reaches what the user cannot see, so a hidden zombie is left running.
       const zombies = listed().filter((e) => e.orphan && !e.protected && !hidden(e.port));
       return zombies.map((z) => {
-        const outcome = kill({ pid: z.pid, force: false });
+        const outcome = kill({ pid: z.pid, force: false, startedAt: z.startedAt });
         const ev = events[0];
         if (outcome.status === "killed" && ev && ev.pid === z.pid) {
           ev.kind = "zombieReaped";
