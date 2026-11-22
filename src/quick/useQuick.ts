@@ -2,7 +2,7 @@ import { computed, getCurrentScope, onScopeDispose, ref, watch } from "vue";
 import { onSettingsChanged } from "../api/events";
 import { hideCurrentWindow } from "../api/window";
 import { guessCurrentUser, protectionReason } from "../lib/protection";
-import type { KillOutcome, PortApi, PortEntry } from "../types";
+import type { KillOutcome, KillTarget, PortApi, PortEntry } from "../types";
 import {
   COLLISION_WINDOW_MS,
   collisionPorts,
@@ -383,7 +383,23 @@ export function useQuick(api: PortApi, options: UseQuickOptions = {}) {
     }
   }
 
-  async function free(entry: PortEntry, force: boolean): Promise<void> {
+  /**
+   * The processes the strip has on `entry`'s port: what `freePort` may kill. A process that takes
+   * the port after this is not in it, and the core refuses it. `confirmed` goes only to the pid of
+   * the row the user pressed Enter on twice.
+   */
+  function targetsOf(entry: PortEntry, confirmed: boolean): KillTarget[] {
+    const targets = new Map<number, KillTarget>();
+    for (const e of entries.value) {
+      if (e.port !== entry.port || targets.has(e.pid)) continue;
+      targets.set(e.pid, { pid: e.pid, startedAt: e.startedAt, confirmed: confirmed && e.pid === entry.pid });
+    }
+    if (!targets.has(entry.pid))
+      targets.set(entry.pid, { pid: entry.pid, startedAt: entry.startedAt, confirmed });
+    return [...targets.values()];
+  }
+
+  async function free(entry: PortEntry, force: boolean, confirmed: boolean): Promise<void> {
     const key = quickKey(entry);
     busy.value = true;
     let outcomes: KillOutcome[] | null = null;
@@ -391,7 +407,7 @@ export function useQuick(api: PortApi, options: UseQuickOptions = {}) {
       outcomes =
         entry.port === 0
           ? [await api.killProcess({ pid: entry.pid, force, startedAt: entry.startedAt })]
-          : await api.freePort(entry.port, force);
+          : await api.freePort(entry.port, force, targetsOf(entry, confirmed));
     } catch (err) {
       console.error("freePort failed", err);
     } finally {
@@ -448,7 +464,8 @@ export function useQuick(api: PortApi, options: UseQuickOptions = {}) {
       return;
     }
     disarm();
-    void free(entry, force);
+    // Reaching here on a protected row means it was armed: this Enter is the confirmation.
+    void free(entry, force, entry.protected);
   }
 
   /** Esc: back out one step. An armed row disarms; a query clears; an empty strip hides. */

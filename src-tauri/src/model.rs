@@ -144,6 +144,21 @@ pub struct KillRequest {
     pub started_at: Option<u64>,
 }
 
+/// One process the caller decided to kill when it asked to free a port: what the user saw on that
+/// port, and whether they confirmed it. `free_port` kills only these.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct KillTarget {
+    pub pid: u32,
+    /// As [`KillRequest::started_at`]: the `started_at` of the row the user saw.
+    #[serde(default)]
+    pub started_at: Option<u64>,
+    /// `true` when the user confirmed killing a protected process (the strip's second Enter).
+    /// A protected process is refused without it; an unprotected one needs none.
+    #[serde(default)]
+    pub confirmed: bool,
+}
+
 // `rename_all` on the enum renames the variants (the `status` values); the one on each variant
 // renames its fields. Both are needed for `waitedMs`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -520,6 +535,15 @@ mod tests {
         assert_eq!(json["waitedMs"], 120);
         let json = serde_json::to_value(KillOutcome::Refused { pid: 1, reason: "launchd".into() }).unwrap();
         assert_eq!(json["status"], "refused");
+    }
+
+    #[test]
+    fn kill_target_reads_camel_case_and_defaults_to_unconfirmed() {
+        let json = serde_json::json!({ "pid": 48213, "startedAt": 1_700_000_000u64, "confirmed": true });
+        let full: KillTarget = serde_json::from_value(json).unwrap();
+        assert_eq!(full, KillTarget { pid: 48213, started_at: Some(1_700_000_000), confirmed: true });
+        let bare: KillTarget = serde_json::from_value(serde_json::json!({ "pid": 7, "startedAt": null })).unwrap();
+        assert_eq!(bare, KillTarget { pid: 7, started_at: None, confirmed: false });
     }
 
     #[test]

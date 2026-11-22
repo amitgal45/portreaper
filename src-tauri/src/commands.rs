@@ -8,14 +8,16 @@
 //! The hidden ports (`crate::hidden`) are left out of what the UI is shown (`list_ports`,
 //! `watched_ports`) and of the one bulk kill here (`reap_zombies`). `kill_process` and
 //! `free_port` are explicit requests and stay as they are: nothing in the UI offers a hidden port.
+//! `free_port` kills only the processes its caller names (`KillTarget`), never whoever holds the
+//! port by the time it runs.
 //! Protection comes pid-wide from `ports::listing`, so a pid protected on a hidden socket is
 //! still protected on the ones the user sees.
 
 use tauri::AppHandle;
 
 use crate::model::{
-    EventKind, KillOutcome, KillRequest, PortEntry, ProcessNode, Protocol, RelaunchOutcome, Settings, TasklineEvent,
-    WatchedPort,
+    EventKind, KillOutcome, KillRequest, KillTarget, PortEntry, ProcessNode, Protocol, RelaunchOutcome, Settings,
+    TasklineEvent, WatchedPort,
 };
 use crate::ports::Listing;
 use crate::tray::{info, warn};
@@ -44,16 +46,77 @@ pub fn kill_process(app: AppHandle, request: KillRequest) -> KillOutcome {
     }
 }
 
-/// Kills every process listening on `port`. One outcome per distinct pid, each checked against the
-/// start time this listing gave it.
+/// Frees `port` of the processes the caller chose, and of no other. One outcome per distinct pid
+/// that holds the port now ([`free_plan`]): a pid in `expected` with the same start time is killed,
+/// a protected one only when its target is `confirmed`; any other holder took the port after the
+/// caller looked and is `Refused` without a signal. A chosen process that left the port gets no
+/// outcome: an empty answer still means the port is free.
 #[tauri::command]
-pub fn free_port(app: AppHandle, port: u16, force: bool) -> Result<Vec<KillOutcome>, String> {
+pub fn free_port(
+    app: AppHandle,
+    port: u16,
+    force: bool,
+    expected: Vec<KillTarget>,
+) -> Result<Vec<KillOutcome>, String> {
     let listing = crate::ports::listing().map_err(|e| e.to_string())?;
-    let pids = distinct_pids(&listing, |e| e.port == port);
-    Ok(pids
+    Ok(free_plan(&listing.entries, port, &expected)
         .into_iter()
-        .map(|pid| kill_listed(&app, &listing, pid, force, started_at_of(&listing, pid), None, |e| e.port == port))
+        .map(|(pid, step)| match step {
+            FreeStep::Kill { started_at } => {
+                kill_listed(&app, &listing, pid, force, started_at, None, |e| e.port == port)
+            }
+            FreeStep::Refuse { reason } => {
+                info(format_args!("free :{port}: pid {pid} refused: {reason}"));
+                KillOutcome::Refused { pid, reason }
+            }
+        })
         .collect())
+}
+
+/// What [`free_port`] does with one pid that holds the port.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum FreeStep {
+    /// Kill it, checked against this start time (the caller's, else this listing's).
+    Kill { started_at: Option<u64> },
+    /// Send nothing and answer `Refused` with this reason.
+    Refuse { reason: String },
+}
+
+/// The decision behind [`free_port`], one step per distinct pid on `port` in `entries`, sorted by
+/// pid. Pure, so the rule is tested without a signal:
+/// - a pid that is not in `expected`, or whose start time here differs from its target's, is not
+///   the process the caller chose: refused;
+/// - a pid protected here (pid-wide, as `ports::listing` makes it) whose target is not
+///   `confirmed` is refused: the second confirmation is the core's rule, not only the UI's;
+/// - anything else is killed. A start time one side does not know cannot differ; `kill::kill`
+///   still checks the caller's when it has one.
+pub(crate) fn free_plan(entries: &[PortEntry], port: u16, expected: &[KillTarget]) -> Vec<(u32, FreeStep)> {
+    let mut pids: Vec<u32> = entries.iter().filter(|e| e.port == port).map(|e| e.pid).collect();
+    pids.sort_unstable();
+    pids.dedup();
+    pids.into_iter()
+        .map(|pid| {
+            let mine = || entries.iter().filter(move |e| e.pid == pid);
+            let name = mine().find(|e| e.port == port).map_or("", |e| e.process_name.as_str());
+            let listed_at = mine().find_map(|e| e.started_at);
+            let changed_hands = || FreeStep::Refuse {
+                reason: format!(
+                    "port {port} is now held by {name} ({pid}), not the process you chose; refresh and try again"
+                ),
+            };
+            let Some(target) = expected.iter().find(|t| t.pid == pid) else {
+                return (pid, changed_hands());
+            };
+            if matches!((target.started_at, listed_at), (Some(chosen), Some(now)) if chosen != now) {
+                return (pid, changed_hands());
+            }
+            if mine().any(|e| e.protected) && !target.confirmed {
+                let reason = format!("{name} ({pid}) is protected and was not confirmed; refresh and try again");
+                return (pid, FreeStep::Refuse { reason });
+            }
+            (pid, FreeStep::Kill { started_at: target.started_at.or(listed_at) })
+        })
+        .collect()
 }
 
 #[tauri::command]
@@ -183,14 +246,6 @@ pub fn unwatch_port(app: AppHandle, port: u16, protocol: Protocol) -> Vec<Watche
     crate::watch::unwatch(&app, port, protocol)
 }
 
-/// The distinct, sorted pids of the entries `keep` accepts.
-fn distinct_pids(listing: &Listing, keep: impl Fn(&PortEntry) -> bool) -> Vec<u32> {
-    let mut pids: Vec<u32> = listing.entries.iter().filter(|e| keep(e)).map(|e| e.pid).collect();
-    pids.sort_unstable();
-    pids.dedup();
-    pids
-}
-
 /// Kills `pid` and records it against the first of its entries that `pick` accepts (the list
 /// is sorted by port, so that is its lowest port). Without such an entry the kill still
 /// happens, unrecorded: the user asked for it, and the Taskline cannot describe what it never
@@ -309,6 +364,106 @@ mod tests {
         assert_eq!(started_at_of(&listing, 20), None, "listed, start time unknown");
         assert_eq!(started_at_of(&listing, 30), Some(1_700_000_300));
         assert_eq!(started_at_of(&listing, 40), None, "not listed");
+    }
+
+    fn target(pid: u32, started_at: Option<u64>, confirmed: bool) -> KillTarget {
+        KillTarget { pid, started_at, confirmed }
+    }
+
+    fn refused(step: &FreeStep) -> &str {
+        match step {
+            FreeStep::Refuse { reason } => reason,
+            FreeStep::Kill { .. } => panic!("expected a refusal, got {step:?}"),
+        }
+    }
+
+    #[test]
+    fn free_plan_kills_only_the_processes_the_caller_chose() {
+        let at = |port, pid, started_at| PortEntry { started_at, ..entry(port, pid, false, false) };
+        let entries = vec![at(3000, 10, Some(100)), at(3000, 20, Some(200)), at(4000, 30, Some(300))];
+
+        // Both holders chosen, with the start times the caller saw.
+        let plan = free_plan(&entries, 3000, &[target(10, Some(100), false), target(20, Some(200), false)]);
+        assert_eq!(
+            plan,
+            [(10, FreeStep::Kill { started_at: Some(100) }), (20, FreeStep::Kill { started_at: Some(200) })]
+        );
+
+        // pid 20 took the port after the caller looked: it is named and gets no signal.
+        let plan = free_plan(&entries, 3000, &[target(10, Some(100), false)]);
+        assert_eq!(plan[0], (10, FreeStep::Kill { started_at: Some(100) }));
+        assert_eq!(
+            refused(&plan[1].1),
+            "port 3000 is now held by node (20), not the process you chose; refresh and try again"
+        );
+
+        // The same pid number, another process: the start time differs.
+        let plan = free_plan(&entries, 3000, &[target(10, Some(99), false), target(20, Some(200), false)]);
+        assert!(refused(&plan[0].1).starts_with("port 3000 is now held by node (10)"));
+        assert_eq!(plan[1], (20, FreeStep::Kill { started_at: Some(200) }));
+
+        // Nobody chosen: nobody killed. A pid on another port is never part of the plan.
+        let plan = free_plan(&entries, 3000, &[target(30, Some(300), true)]);
+        assert_eq!(plan.len(), 2);
+        assert!(plan.iter().all(|(_, step)| matches!(step, FreeStep::Refuse { .. })));
+
+        // The chosen process left and nothing took the port: an empty answer, the port is free.
+        assert_eq!(free_plan(&entries, 5000, &[target(10, Some(100), false)]), []);
+    }
+
+    #[test]
+    fn free_plan_kills_a_protected_process_only_when_confirmed() {
+        let mut entries = vec![
+            PortEntry { started_at: Some(100), ..entry(3000, 10, false, false) },
+            // pid 10 also holds :5432, which protects it on :3000 too.
+            PortEntry { started_at: Some(100), ..entry(5432, 10, false, true) },
+        ];
+        crate::ports::protect_whole_pids(&mut entries);
+
+        let plan = free_plan(&entries, 3000, &[target(10, Some(100), false)]);
+        assert_eq!(refused(&plan[0].1), "node (10) is protected and was not confirmed; refresh and try again");
+
+        let plan = free_plan(&entries, 3000, &[target(10, Some(100), true)]);
+        assert_eq!(plan, [(10, FreeStep::Kill { started_at: Some(100) })]);
+
+        // Confirming one process does not confirm whoever holds the port now.
+        let plan = free_plan(&entries, 3000, &[target(11, Some(100), true)]);
+        assert!(refused(&plan[0].1).starts_with("port 3000 is now held by node (10)"));
+    }
+
+    #[test]
+    fn free_plan_with_an_unknown_start_time_goes_by_the_pid_and_checks_what_is_known() {
+        let at = |port, pid, started_at| PortEntry { started_at, ..entry(port, pid, false, false) };
+        // The caller knew no start time: the kill is checked against this listing's.
+        let plan = free_plan(&[at(3000, 10, Some(100))], 3000, &[target(10, None, false)]);
+        assert_eq!(plan, [(10, FreeStep::Kill { started_at: Some(100) })]);
+        // The listing knows none: `kill::kill` checks the caller's.
+        let plan = free_plan(&[at(3000, 10, None)], 3000, &[target(10, Some(100), false)]);
+        assert_eq!(plan, [(10, FreeStep::Kill { started_at: Some(100) })]);
+    }
+
+    /// A real socket and the real listing; no signal is sent, the plan is only read. The holder is
+    /// this test process, which stands for "a process that took the port after the user decided".
+    #[test]
+    fn free_plan_refuses_a_real_listener_the_caller_did_not_choose() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let me = std::process::id();
+        let listing = crate::ports::listing().expect("list ports");
+        let mine = listing.entries.iter().find(|e| e.port == port && e.pid == me).expect("the listing has our socket");
+
+        // The user chose another process on this port (it exited; we hold the port now).
+        let plan = free_plan(&listing.entries, port, &[target(me.wrapping_add(1), mine.started_at, true)]);
+        assert_eq!(plan.len(), 1, "only our pid holds :{port}");
+        assert_eq!(plan[0].0, me);
+        assert!(refused(&plan[0].1).contains("not the process you chose"), "{:?}", plan[0].1);
+
+        // The same pid, started at another time: also not the chosen process.
+        if let Some(started_at) = mine.started_at {
+            let plan = free_plan(&listing.entries, port, &[target(me, Some(started_at + 1), true)]);
+            assert!(refused(&plan[0].1).contains("not the process you chose"));
+        }
+        drop(listener);
     }
 
     #[test]

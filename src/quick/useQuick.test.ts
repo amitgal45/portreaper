@@ -161,7 +161,11 @@ describe("useQuick: Enter", () => {
 
     quick.handleKey(key("Enter"));
     await vi.advanceTimersByTimeAsync(0);
-    expect(freePort).toHaveBeenCalledWith(3000, false);
+    // What the strip showed on :3000 goes along: the core kills only that (#31).
+    const node = MOCK_ENTRIES.find((e) => e.pid === 48213);
+    expect(freePort).toHaveBeenCalledWith(3000, false, [
+      { pid: 48213, startedAt: node?.startedAt ?? null, confirmed: false },
+    ]);
     expect(quick.result.value).toEqual({
       key: "48213:3000:tcp",
       text: "Freed :3000 · node (48213)",
@@ -187,7 +191,7 @@ describe("useQuick: Enter", () => {
     await nextTick();
     quick.handleKey(key("Enter", { altKey: true }));
     await vi.advanceTimersByTimeAsync(0);
-    expect(freePort).toHaveBeenCalledWith(5173, true);
+    expect(freePort).toHaveBeenCalledWith(5173, true, expect.any(Array));
   });
 
   it("does nothing with no match, and ignores a second Enter while one is in flight", async () => {
@@ -347,6 +351,54 @@ describe("useQuick: Enter", () => {
   });
 });
 
+describe("useQuick: the port changed hands after the strip listed it (#31)", () => {
+  /** The mock with one more process, which the strip has not polled yet. */
+  function taken(by: Partial<PortEntry>) {
+    const node = MOCK_ENTRIES.find((e) => e.pid === 48213) as PortEntry;
+    const seed = MOCK_ENTRIES.filter((e) => e.pid !== 48213);
+    return {
+      node,
+      later: createMockApi([...seed, { ...node, pid: 70_001, startedAt: 1_700_000_500, ...by }]),
+    };
+  }
+
+  it("another process took the port: it is refused by name and stays", async () => {
+    const api = createMockApi();
+    const quick = await loaded(api);
+    quick.query.value = "3000";
+    await nextTick();
+    expect(quick.selected.value?.pid).toBe(48213);
+
+    // node (48213) exited and postgres took :3000 before Enter reached the core.
+    const { later } = taken({ processName: "postgres", protected: true, category: "db" });
+    const freePort = vi.spyOn(api, "freePort").mockImplementation(later.freePort);
+    quick.handleKey(key("Enter"));
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(freePort).toHaveBeenCalledTimes(1);
+    expect(quick.result.value).toMatchObject({
+      ok: false,
+      text: "Did not kill pid (70001): port 3000 is now held by postgres (70001), not the process you chose; refresh and try again",
+    });
+    expect((await later.listPorts()).some((e) => e.pid === 70_001)).toBe(true);
+    expect(hideCurrentWindow).not.toHaveBeenCalled();
+  });
+
+  it("the same pid number, another process: refused on the start time", async () => {
+    const api = createMockApi();
+    const quick = await loaded(api);
+    quick.query.value = "3000";
+    await nextTick();
+    const { later } = taken({ pid: 48213 });
+    vi.spyOn(api, "freePort").mockImplementation(later.freePort);
+    quick.handleKey(key("Enter"));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(quick.result.value?.ok).toBe(false);
+    expect(quick.result.value?.text).toContain("not the process you chose");
+    expect((await later.listPorts()).some((e) => e.port === 3000)).toBe(true);
+  });
+});
+
 describe("useQuick: a protected entry", () => {
   it("arms on the first Enter, kills on the second within 5 s", async () => {
     const api = createMockApi();
@@ -368,7 +420,14 @@ describe("useQuick: a protected entry", () => {
     await vi.advanceTimersByTimeAsync(4000);
     quick.handleKey(key("Enter"));
     await vi.advanceTimersByTimeAsync(0);
-    expect(freePort).toHaveBeenCalledWith(5432, false);
+    // The second Enter is the confirmation the core asks for on a protected process (#31).
+    expect(freePort).toHaveBeenCalledWith(5432, false, [
+      {
+        pid: 11710,
+        startedAt: MOCK_ENTRIES.find((e) => e.pid === 11710)?.startedAt ?? null,
+        confirmed: true,
+      },
+    ]);
     expect(quick.armed.value).toBeNull();
     expect(quick.result.value?.text).toBe("Freed :5432 · com.docker.backend (11710)");
   });
@@ -433,7 +492,7 @@ describe("useQuick: a protected entry", () => {
     // Kill anyway is the second Enter, as for any protected row.
     quick.handleKey(key("Enter"));
     await vi.advanceTimersByTimeAsync(0);
-    expect(freePort).toHaveBeenCalledWith(11434, false);
+    expect(freePort).toHaveBeenCalledWith(11434, false, expect.any(Array));
     expect(quick.result.value?.text).toBe("Freed :11434 · ollama (32014)");
   });
 
@@ -509,7 +568,7 @@ describe("useQuick: a protected entry", () => {
 
     quick.handleKey(key("Enter"));
     await vi.advanceTimersByTimeAsync(0);
-    expect(freePort).toHaveBeenCalledWith(5000, false);
+    expect(freePort).toHaveBeenCalledWith(5000, false, expect.any(Array));
     expect(freePort).toHaveBeenCalledTimes(1);
   });
 
@@ -535,7 +594,7 @@ describe("useQuick: a protected entry", () => {
 
     quick.handleKey(key("Enter"));
     await vi.advanceTimersByTimeAsync(0);
-    expect(freePort).toHaveBeenCalledWith(11434, false);
+    expect(freePort).toHaveBeenCalledWith(11434, false, expect.any(Array));
   });
 
   it("⌥Enter on an armed row forces", async () => {
@@ -549,7 +608,7 @@ describe("useQuick: a protected entry", () => {
     quick.handleKey(key("Alt"));
     quick.handleKey(key("Enter", { altKey: true }));
     await vi.advanceTimersByTimeAsync(0);
-    expect(freePort).toHaveBeenCalledWith(7000, true);
+    expect(freePort).toHaveBeenCalledWith(7000, true, expect.any(Array));
   });
 });
 
@@ -647,7 +706,7 @@ describe("useQuick: refresh", () => {
     window.dispatchEvent(event);
     expect(event.defaultPrevented).toBe(true);
     await vi.advanceTimersByTimeAsync(0);
-    expect(freePort).toHaveBeenCalledWith(5174, false);
+    expect(freePort).toHaveBeenCalledWith(5174, false, expect.any(Array));
     quick.stop();
   });
 });

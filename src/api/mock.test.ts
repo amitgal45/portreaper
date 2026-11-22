@@ -19,9 +19,48 @@ describe("mock api", () => {
 
   it("freeing a port kills each pid once", async () => {
     const api = createMockApi();
-    const outcomes = await api.freePort(5432, false);
+    const outcomes = await api.freePort(5432, false, [{ pid: 11710, startedAt: null, confirmed: true }]);
     expect(outcomes).toHaveLength(1);
     expect((await api.listPorts()).some((e) => e.port === 6379)).toBe(false);
+  });
+
+  it("freeing a port kills only the processes the caller chose (#31)", async () => {
+    const api = createMockApi();
+    const before = await api.listPorts();
+    const node = before.find((e) => e.port === 3000);
+    expect(node?.pid).toBe(48213);
+
+    // Nobody chosen, or another pid: whoever holds :3000 now is refused and stays.
+    for (const expected of [[], [{ pid: 999_999, startedAt: null, confirmed: true }]]) {
+      expect(await api.freePort(3000, true, expected)).toEqual([
+        {
+          status: "refused",
+          pid: 48213,
+          reason: "port 3000 is now held by node (48213), not the process you chose; refresh and try again",
+        },
+      ]);
+    }
+    // The same pid number, started at another time.
+    const other = (node?.startedAt ?? 1_700_000_000) + 1;
+    const [stale] = await api.freePort(3000, false, [{ pid: 48213, startedAt: other, confirmed: false }]);
+    expect(stale.status).toBe("refused");
+    expect((await api.listPorts()).some((e) => e.pid === 48213)).toBe(true);
+
+    // A protected process needs the confirmation, in the core and not only in the UI.
+    const [unconfirmed] = await api.freePort(5432, false, [
+      { pid: 11710, startedAt: null, confirmed: false },
+    ]);
+    expect(unconfirmed).toEqual({
+      status: "refused",
+      pid: 11710,
+      reason: "com.docker.backend (11710) is protected and was not confirmed; refresh and try again",
+    });
+    expect((await api.listPorts()).some((e) => e.port === 5432)).toBe(true);
+
+    // A free port answers nothing.
+    expect(await api.freePort(65_000, false, [{ pid: 48213, startedAt: null, confirmed: false }])).toEqual(
+      [],
+    );
   });
 
   it("does not mutate the seed", async () => {
