@@ -231,7 +231,7 @@ describe("QuickApp", () => {
 
       key("Enter");
       await vi.advanceTimersByTimeAsync(0);
-      expect(freePort).toHaveBeenCalledWith(3000, false);
+      expect(freePort).toHaveBeenCalledWith(3000, false, expect.any(Array));
       expect(wrapper.find("[role='option']").text()).toContain("Freed :3000 · node (48213)");
       expect(wrapper.find("[role='option']").classes()).toContain("bg-green-tint");
       expect(wrapper.find("[role='option']").find(".text-green-ink").exists()).toBe(true);

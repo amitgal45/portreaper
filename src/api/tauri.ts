@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type {
   KillOutcome,
   KillRequest,
+  KillTarget,
   PortApi,
   PortEntry,
   ProcessNode,
@@ -16,7 +17,8 @@ import type {
 export const tauriApi: PortApi = {
   listPorts: () => invoke<PortEntry[]>("list_ports"),
   killProcess: (request: KillRequest) => invoke<KillOutcome>("kill_process", { request }),
-  freePort: (port: number, force: boolean) => invoke<KillOutcome[]>("free_port", { port, force }),
+  freePort: (port: number, force: boolean, expected: KillTarget[]) =>
+    invoke<KillOutcome[]>("free_port", { port, force, expected }),
   appVersion: () => invoke<string>("app_version"),
   processTree: (pid: number) => invoke<ProcessNode[]>("process_tree", { pid }),
   tasklineEvents: () => invoke<TasklineEvent[]>("taskline_events"),
