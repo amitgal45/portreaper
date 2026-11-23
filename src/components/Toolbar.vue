@@ -45,9 +45,10 @@ const reapTitle = computed(() =>
     : "No lost-terminal servers right now",
 );
 
-/** The two toolbar buttons; each sets its own radius (Reap 6 px, Clear 8 px as before). */
+/** The two toolbar buttons; each sets its own radius (Reap 6 px, Clear 8 px as before). The ring is
+ *  brand-ink outside the border, on the toolbar's surface: 5.55:1 light, 6.57:1 dark. */
 const button =
-  "inline-flex h-[30px] shrink-0 items-center gap-1.5 whitespace-nowrap border px-3 text-[13px] font-medium outline-none focus-visible:ring-2 focus-visible:ring-brand/40";
+  "inline-flex h-[30px] shrink-0 items-center gap-1.5 whitespace-nowrap border px-3 text-[13px] font-medium outline-none focus-visible:ring-2 focus-visible:ring-brand-ink";
 </script>
 
 <template>

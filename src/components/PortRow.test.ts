@@ -10,7 +10,7 @@ import { useToasts } from "../composables/useToasts";
 import { WATCHED_KEY } from "../composables/useWatch";
 import type { LaunchdJob, PortEntry } from "../types";
 import HintTooltip from "./HintTooltip.vue";
-import { DotIcon, GlobeIcon, type IconProps, SparkIcon, ZapIcon } from "./icons";
+import { DotIcon, EyeIcon, GlobeIcon, type IconProps, SparkIcon, ZapIcon } from "./icons";
 import PortRow from "./PortRow.vue";
 
 const byPort = (port: number): PortEntry => {
@@ -526,6 +526,29 @@ describe("PortRow", () => {
     wrapper.unmount();
   });
 
+  it("after the row's menu closes (Escape), the trigger's aria-expanded is false again, so Kill hides again (whole-branch review, m7)", async () => {
+    const wrapper = mountRow(byPort(3000), spies());
+    const row = wrapper.get("[role='row']");
+    const trigger = wrapper.get("button[aria-label='More']");
+    expect(trigger.attributes("aria-expanded")).toBe("false");
+    await trigger.trigger("click");
+    await flushPromises();
+    const menu = document.body.querySelector<HTMLElement>("[role='menu']");
+    expect(menu, "the menu is open").not.toBeNull();
+    expect(trigger.attributes("aria-expanded")).toBe("true");
+    // Escape where the focus is (the menu, portaled out of the row), as a keyboard user closes it.
+    (document.activeElement ?? menu)?.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }),
+    );
+    await flushPromises();
+    expect(document.body.querySelector("[role='menu']"), "the menu is closed").toBeNull();
+    expect(trigger.attributes("aria-expanded")).toBe("false");
+    // Nothing in the row matches the variant's selector now, so Kill falls back to opacity-0.
+    expect(row.find("[aria-expanded='true']").exists()).toBe(false);
+    expect(wrapper.get("button[aria-label='Kill']").classes()).toContain("opacity-0");
+    wrapper.unmount();
+  });
+
   it("the selected row's Kill puts a band of the coral between its white ring and its white button (review of part 2, finding 1)", () => {
     const selected = mountRow(byPort(3000), spies(), { selected: true });
     const kill = selected.get("button[aria-label='Kill']");
@@ -580,6 +603,60 @@ describe("PortRow", () => {
     const other = mountRow(byPort(5173), spies(), {}, { [WATCHED_KEY as symbol]: isWatched });
     expect(other.find("[data-badge='watched']").exists()).toBe(false);
     other.unmount();
+  });
+
+  it("the watched eye is our EyeIcon (14 px, its own 1.75 stroke), not lucide's; the mark keeps its name, watched", () => {
+    const isWatched = (t: { port: number; protocol: string }) => t.port === 3000 && t.protocol === "tcp";
+    const wrapper = mountRow(byPort(3000), spies(), {}, { [WATCHED_KEY as symbol]: isWatched });
+    const mark = wrapper.get("[data-badge='watched']");
+    const eyes = wrapper.findAllComponents(EyeIcon).filter((c) => mark.element.contains(c.element));
+    expect(eyes).toHaveLength(1);
+    expect((eyes[0]?.props() as IconProps | undefined)?.size).toBe(14);
+    expect((eyes[0]?.props() as IconProps | undefined)?.strokeWidth).toBeUndefined();
+    expect(mark.find("svg").attributes("stroke-width")).toBe("1.75");
+    expect(mark.find(".lucide").exists()).toBe(false);
+    // The icon is decorative (aria-hidden), so the name sits on the mark itself, an image.
+    expect(mark.find("svg").attributes("aria-hidden")).toBe("true");
+    expect(mark.attributes("role")).toBe("img");
+    expect(mark.attributes("aria-label")).toBe("watched");
+    wrapper.unmount();
+  });
+
+  it("the status cell is one 22 px line that wraps what does not fit out of sight, so a badge drops whole (whole-branch review, m1)", () => {
+    const plain = mountRow(byPort(11434), spies());
+    expect(plain.get("[data-cell='status']").classes()).toEqual([
+      "flex",
+      "h-[22px]",
+      "min-w-0",
+      "flex-wrap",
+      "items-center",
+      "gap-2",
+      "overflow-hidden",
+      "leading-[22px]",
+    ]);
+    plain.unmount();
+    // Each badge, chip and mark is a flex item of the cell itself (the tooltip's trigger renders
+    // the badge, as-child), and none shrinks: a wrap moves it whole.
+    const selected = mountRow(byPort(11434), spies(), { selected: true });
+    const cell = selected.get("[data-cell='status']");
+    expect(cell.classes()).toEqual(
+      expect.arrayContaining([
+        "flex",
+        "flex-wrap",
+        "h-[22px]",
+        "overflow-hidden",
+        "[&_[data-brand]_path]:fill-current",
+      ]),
+    );
+    const items = [...cell.element.children];
+    expect(items.map((el) => el.getAttribute("data-badge") ?? el.getAttribute("data-testid"))).toEqual([
+      "protected",
+      "ai",
+      "launchd",
+      "framework-icon",
+    ]);
+    for (const el of items) expect(el.classList.contains("shrink-0"), el.outerHTML).toBe(true);
+    selected.unmount();
   });
 
   it("the row menu has Hide :PORT right after Watch and asks for it; a stdio row's Hide port is off", async () => {

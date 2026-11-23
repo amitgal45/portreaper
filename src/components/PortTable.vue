@@ -5,11 +5,11 @@
 // how a watch on a free port is removed.
 // B v3 (#34): the header and the group rows sit on the band, in sentence case; the colour of a
 // group is an 8 px dot; rows are 34 px on the row line, like PortRow.
-import { Eye } from "lucide-vue-next";
 import { useActions } from "../composables/useActions";
 import type { CategoryFilter, PortGroup } from "../composables/usePorts";
 import { TABLE_COLUMNS, WIDE_ONLY } from "../lib/table-columns";
 import type { PortEntry, WatchedPort } from "../types";
+import { EyeIcon } from "./icons";
 import ProjectGroup from "./ProjectGroup.vue";
 
 defineProps<{
@@ -32,7 +32,7 @@ const actions = useActions();
 /** Sentence case, 11.5 px medium, ink-3 on the band (4.9:1 light, 5.0:1 dark). */
 const heading = "truncate text-[11.5px] font-medium text-ink-3";
 const stopButton =
-  "h-[26px] rounded-md border border-line-strong bg-surface px-2.5 text-[12px] font-medium text-ink-2 outline-none hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-brand/40";
+  "h-[26px] rounded-md border border-line-strong bg-surface px-2.5 text-[12px] font-medium text-ink-2 outline-none hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-brand-ink";
 </script>
 
 <template>
@@ -103,10 +103,12 @@ const stopButton =
             </span>
             <span
               data-badge="watched"
+              role="img"
+              aria-label="watched"
               class="flex items-center text-blue-ink"
               title="Watching: PortReaper will say when something takes this port"
             >
-              <Eye :size="14" :stroke-width="2" aria-label="watched" />
+              <EyeIcon :size="14" />
             </span>
             <span :class="WIDE_ONLY" />
             <span :class="WIDE_ONLY" />

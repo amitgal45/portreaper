@@ -6,7 +6,7 @@
 // everything in it turns white (on-sel-fill, 4.7:1 light, 4.5:1 dark): nothing lighter would pass.
 // Kill shows on the selected row, under the pointer and with the focus in the row; elsewhere it is
 // transparent (opacity alone, so it keeps its place, its name and its Tab stop). Nothing moves.
-import { Ellipsis, Eye, LoaderCircle } from "lucide-vue-next";
+import { Ellipsis, LoaderCircle } from "lucide-vue-next";
 import {
   DropdownMenuContent,
   DropdownMenuItem,
@@ -25,7 +25,7 @@ import { TABLE_COLUMNS, WIDE_ONLY } from "../lib/table-columns";
 import type { PortEntry } from "../types";
 import FrameworkIcon from "./FrameworkIcon.vue";
 import HintTooltip from "./HintTooltip.vue";
-import { DotIcon, GlobeIcon, SparkIcon, ZapIcon } from "./icons";
+import { DotIcon, EyeIcon, GlobeIcon, SparkIcon, ZapIcon } from "./icons";
 
 const props = defineProps<{
   entry: PortEntry;
@@ -225,10 +225,13 @@ watch(
       </template>
     </span>
 
-    <!-- On the coral, a brand mark paints white too (`fill: currentColor` beats its fill attribute). -->
+    <!-- On the coral, a brand mark paints white too (`fill: currentColor` beats its fill attribute).
+         One 22 px line (the chip's height) that wraps: a badge that does not fit goes whole to a
+         second line, which overflow-hidden keeps out of sight, so no badge shows as a sliver. The
+         22 px leading makes the first line 22 px even with no chip on it, so it stays centred. -->
     <span
       data-cell="status"
-      :class="['flex min-w-0 items-center gap-2 overflow-hidden', selected && '[&_[data-brand]_path]:fill-current']"
+      :class="['flex h-[22px] min-w-0 flex-wrap items-center gap-2 overflow-hidden leading-[22px]', selected && '[&_[data-brand]_path]:fill-current']"
     >
       <template v-for="(b, i) in badges" :key="b.key">
         <HintTooltip v-if="b.hint" :text="b.hint">
@@ -239,13 +242,16 @@ watch(
       <FrameworkIcon :entry="entry" :size="16">
         <span v-if="framework" data-badge="framework" :class="[chip, 'inline-flex', chipTone]">{{ framework }}</span>
       </FrameworkIcon>
+      <!-- Our eye is aria-hidden, so the mark carries the name. -->
       <span
         v-if="watched"
         data-badge="watched"
+        role="img"
+        aria-label="watched"
         :class="['flex shrink-0 items-center', ink('text-blue-ink')]"
         title="Watching: PortReaper will say when this port is free"
       >
-        <Eye :size="14" :stroke-width="2" aria-label="watched" />
+        <EyeIcon :size="14" />
       </span>
     </span>
 

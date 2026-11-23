@@ -2,7 +2,7 @@
 // One process, in full: the header, network, resources, project, ancestry, the full command
 // with its copy button, and the two verbs. The same panel sits as the third column of the Board
 // in a wide window and inside a slide-over in a narrow one (App.vue decides).
-import { Copy, ExternalLink, Eye, FolderOpen, GitBranch, LoaderCircle, RotateCw, X } from "lucide-vue-next";
+import { Copy, ExternalLink, FolderOpen, GitBranch, LoaderCircle, RotateCw, X } from "lucide-vue-next";
 import { computed, ref, watch } from "vue";
 import { useApi } from "../api";
 import { killLabels, useActions } from "../composables/useActions";
@@ -12,6 +12,7 @@ import { formatBytes, formatUptime } from "../lib/format";
 import { jobText, offeredStopCommand } from "../lib/protection";
 import type { PortEntry, ProcessNode } from "../types";
 import FrameworkIcon from "./FrameworkIcon.vue";
+import { EyeIcon } from "./icons";
 
 const props = defineProps<{
   entry: PortEntry;
@@ -28,7 +29,7 @@ const actions = useActions();
 const labels = computed(() => killLabels(actions.defaultForce?.() ?? false));
 const isWatched = useWatched();
 
-/** The port is watched (WP-18): the eye in the header is on, and the Network card says so. */
+/** The port is watched (WP-18): the eye in the header is on, and the Network section says so. */
 const watched = computed(() => isWatched(props.entry));
 
 /** The ancestry, launchd first. `null` while loading, `[]` when the core does not know. */
@@ -65,7 +66,7 @@ const image = computed(() => (props.entry.project?.tool === "docker" ? props.ent
 const job = computed(() => props.entry.launchd ?? null);
 /** Never for a system job, whatever the core sent (`offeredStopCommand`). */
 const stopCommand = computed(() => offeredStopCommand(job.value));
-/** The Container card's mark is Docker's whatever the header's framework icon says. */
+/** The Container section's mark is Docker's whatever the header's framework icon says. */
 const DOCKER_MARK = { framework: "Docker", processName: "docker" } as const;
 const isPublic = computed(() => props.entry.bind === "any");
 const bindNote = computed(() => {
@@ -144,7 +145,7 @@ const ghost =
         :title="entry.port === 0 ? 'No port to watch (stdio process)' : watched ? `Stop watching :${entry.port}` : `Watch :${entry.port} · notify when it is free`"
         @click="actions.watch(entry)"
       >
-        <Eye :size="14" :stroke-width="2" />
+        <EyeIcon :size="14" />
       </button>
       <button
         type="button"
@@ -277,9 +278,11 @@ const ghost =
           <RotateCw v-else :size="13" :stroke-width="2" class="text-blue-ink" aria-hidden="true" />
           Restart
         </button>
+        <!-- The ring stands 2 px off the red fill, on a band of the surface (the footer shows the
+             aside's): brand-ink right on red-ink would be 1.14:1. -->
         <button
           type="button"
-          class="flex h-8 flex-1 items-center justify-center gap-1.5 rounded-md border border-red-ink bg-red-ink text-[13px] font-semibold text-surface outline-none transition-colors hover:brightness-95 focus-visible:ring-2 focus-visible:ring-brand-ink"
+          class="flex h-8 flex-1 items-center justify-center gap-1.5 rounded-md border border-red-ink bg-red-ink text-[13px] font-semibold text-surface outline-none transition-colors hover:brightness-95 focus-visible:ring-2 focus-visible:ring-brand-ink ring-offset-2 ring-offset-surface"
           :title="entry.protected ? 'Kill (asks first)' : labels.title"
           @click="actions.kill(entry, $event.altKey)"
         >

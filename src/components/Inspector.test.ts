@@ -7,6 +7,7 @@ import type { RestartState } from "../composables/useKillFlow";
 import { WATCHED_KEY } from "../composables/useWatch";
 import type { LaunchdJob, PortApi, PortEntry } from "../types";
 import Inspector from "./Inspector.vue";
+import { EyeIcon, type IconProps } from "./icons";
 
 const byPort = (port: number): PortEntry => {
   const e = MOCK_ENTRIES.find((x) => x.port === port);
@@ -405,6 +406,36 @@ describe("Inspector", () => {
       }
       const footer = wrapper.get("[data-inspector] > div:last-child").classes();
       expect(footer).toEqual(expect.arrayContaining(["border-t", "border-line"]));
+    });
+
+    it("Kill's brand-ink ring sits 2 px off its red-ink fill, on a band of the surface the footer shows (whole-branch review, I1)", async () => {
+      const { wrapper } = await mountInspector(byPort(3000));
+      const kill = button(/^\s*Kill/);
+      expect(kill?.classes()).toEqual(
+        expect.arrayContaining([
+          "focus-visible:ring-2",
+          "focus-visible:ring-brand-ink",
+          "ring-offset-2",
+          "ring-offset-surface",
+        ]),
+      );
+      // The band is the colour behind the button: the footer paints no fill of its own, so it shows
+      // the aside's surface.
+      const footer = wrapper.get("[data-inspector] > div:last-child").classes();
+      expect(footer.filter((k) => k.startsWith("bg-"))).toEqual([]);
+      expect(wrapper.get("[data-inspector]").classes()).toContain("bg-surface");
+    });
+
+    it("the Watch button draws our eye (EyeIcon, 14 px, its own 1.75 stroke), not lucide's; its name stays Watch", async () => {
+      const { wrapper } = await mountInspector(byPort(3000));
+      const watch = wrapper.get("header button[aria-label='Watch']");
+      const eyes = wrapper.findAllComponents(EyeIcon).filter((c) => watch.element.contains(c.element));
+      expect(eyes).toHaveLength(1);
+      expect((eyes[0]?.props() as IconProps | undefined)?.size).toBe(14);
+      expect((eyes[0]?.props() as IconProps | undefined)?.strokeWidth).toBeUndefined();
+      expect(watch.find("svg").attributes("aria-hidden")).toBe("true");
+      expect(watch.find("svg").attributes("stroke-width")).toBe("1.75");
+      expect(watch.find(".lucide").exists()).toBe(false);
     });
 
     it("every focus ring in the Inspector is brand-ink, the section buttons (Copy, Open, Reveal) too; none is brand at 40%", async () => {

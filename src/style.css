@@ -30,7 +30,8 @@
   /* The table's header and group rows, and the line between rows. */
   --band: #fafafa;
   --row-line: #f0f0f3;
-  /* The sidebar, translucent over the canvas, its edge, and its items' fills (hovered, selected). */
+  /* The sidebar, a macOS grey (rgba over the canvas, so it reads as solid; no vibrancy), its edge,
+     and its items' fills (hovered, selected). */
   --sidebar: rgba(232, 232, 236, 0.92);
   --sidebar-edge: #dcdce0;
   --sidebar-hover: rgba(0, 0, 0, 0.04);

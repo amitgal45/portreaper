@@ -5,9 +5,10 @@
 // item is on: a category while the Studio shows, the Taskline while the feed shows, Settings
 // while Preferences shows (WP-17b). Clicking a category from either goes back to the Studio, and
 // so do ⌘1–⌘4 (App.vue), whose hints sit on the first four items.
-// B v3 (#34): a translucent macOS sidebar, our own icons, plain grey counts, and a neutral fill with
-// a coral icon on the item that is on. The nav takes the sidebar's own greys (`sidebar-inks`), so
-// text-ink-2 and text-ink-3 in here are darker than in the window.
+// B v3 (#34): a macOS-grey sidebar (rgba over the canvas, so it reads as solid; no vibrancy), our
+// own icons, plain grey counts, and a neutral fill with a coral icon on the item that is on. The
+// nav takes the sidebar's own greys (`sidebar-inks`), so text-ink-2 and text-ink-3 in here are
+// darker than in the window.
 import type { Component } from "vue";
 import { CATEGORY_SHORTCUTS } from "../composables/useKeyboard";
 import type { CategoryCounts, CategoryFilter } from "../composables/usePorts";
@@ -77,8 +78,10 @@ const quiet = "text-[11px] leading-4 tabular-nums";
 /** Two digits wide, right-aligned: the ⌘ hints stay in one column for 1- and 2-digit counts. */
 const countBox = "min-w-[2ch] text-right";
 const section = "px-2 pt-3.5 pb-1.5 text-[11px] font-semibold text-ink-3";
+/** Update and Retry are filled with brand-ink, so their brand-ink ring stands 2 px off, on a band of the
+ *  banner's tint: right on the fill it would be 1:1. Ring on the tint 5.0:1 light, 6.2:1 dark. */
 const updateButton =
-  "h-6 rounded-md bg-brand-ink px-2 text-[12px] font-semibold text-surface outline-none hover:opacity-90 focus-visible:ring-2 focus-visible:ring-brand/40";
+  "h-6 rounded-md bg-brand-ink px-2 text-[12px] font-semibold text-surface outline-none hover:opacity-90 focus-visible:ring-2 focus-visible:ring-brand-ink ring-offset-2 ring-offset-brand-tint";
 
 /** The progress bar's fill: the known percent, full once installed, empty while the size is unknown. */
 function downloadedWidth(state: UpdateState): string {

@@ -100,15 +100,17 @@ describe.each<Scheme>(["light", "dark"])("Board text contrast (%s)", (scheme) =>
     ).toBeGreaterThanOrEqual(AA);
     expect(
       contrast(t("ink-2"), t("orange-tint")),
-      "ink-2 on orange-tint (the armed hint, the Zombies card)",
+      "ink-2 on orange-tint (the ⌘⇧K strip's armed hint)",
     ).toBeGreaterThanOrEqual(AA);
+    // Pins the token pair only: since B v3 no text in the window or the strip puts ink-2 on
+    // red-tint (the strip's failed row writes red-ink there). Kept so the next use finds it proven.
     expect(
       contrast(t("ink-2"), t("red-tint")),
-      "ink-2 on red-tint (the Public card's caption)",
+      "ink-2 on red-tint (the token pair, unused today)",
     ).toBeGreaterThanOrEqual(AA);
   });
 
-  it("every <c>-ink clears AA on its <c>-tint: the pills, the cards, the badges, the sidebar alarms, Reap", () => {
+  it("every <c>-ink clears AA on its <c>-tint: the Taskline's tags, the ⌘⇧K strip's statuses and rows, Reap, the update banner", () => {
     for (const c of COLOURS) {
       expect(contrast(t(`${c}-ink`), t(`${c}-tint`)), `${c}-ink on ${c}-tint`).toBeGreaterThanOrEqual(AA);
     }
@@ -306,6 +308,24 @@ describe("the B v3 tokens (#34, spec item 1)", () => {
       expect(t("sidebar-edge")).not.toEqual(sidebar());
     });
 
+    it("the banner's Update and Retry: a brand-ink ring clears 3:1 on the brand tint and on the sidebar; off its own fill by a band of the tint", () => {
+      // 5.04 light, 6.24 dark on the tint; 4.58 and 6.75 on the sidebar (whole-branch review, m4).
+      expect(
+        contrast(t("brand-ink"), t("brand-tint")),
+        "brand-ink ring on brand-tint",
+      ).toBeGreaterThanOrEqual(3);
+      expect(contrast(t("brand-ink"), sidebar()), "brand-ink ring on the sidebar").toBeGreaterThanOrEqual(3);
+      // The button is filled with brand-ink: a ring right on it would be 1:1 (I1's defect), so it sits
+      // 2 px off, and that band of the tint takes the fill at 3:1 or more.
+      expect(contrast(t("brand-ink"), t("brand-ink")), "brand-ink ring on its brand-ink fill").toBeLessThan(
+        3,
+      );
+      expect(
+        contrast(t("brand-tint"), t("brand-ink")),
+        "the brand-tint band against the fill",
+      ).toBeGreaterThanOrEqual(3);
+    });
+
     it("ink, ink-2 and ink-3 clear AA on the band (table header, group rows)", () => {
       for (const ink of ["ink", "ink-2", "ink-3"]) {
         expect(contrast(t(ink), t("band")), `${ink} on band`).toBeGreaterThanOrEqual(AA);
@@ -406,6 +426,15 @@ describe("the Inspector (#34 part 3: flat sections on the surface)", () => {
       for (const on of ["surface", "hover"]) {
         expect(contrast(t("brand-ink"), t(on)), `brand-ink ring on ${on}`).toBeGreaterThanOrEqual(3);
       }
+      // Kill is filled with red-ink, which a brand-ink ring would touch at 1.14:1 (whole-branch review,
+      // I1): its ring sits 2 px off, on a band of the surface (ring-offset-surface, the footer's own
+      // colour). The ring against that band, and the band against the fill, clear 3:1.
+      expect(contrast(t("brand-ink"), t("red-ink")), "brand-ink ring on Kill's red-ink").toBeLessThan(3);
+      expect(
+        contrast(t("brand-ink"), t("surface")),
+        "Kill's ring on its offset band (surface)",
+      ).toBeGreaterThanOrEqual(3);
+      expect(contrast(t("surface"), t("red-ink")), "the band against Kill's fill").toBeGreaterThanOrEqual(3);
     });
 
     it("why the headings never sit on --line: ink-3 falls short there", () => {
@@ -525,6 +554,31 @@ describe("the components", () => {
       } else {
         expect(uses, `${file} paints text-on-sel-fill`).toBe(false);
       }
+    }
+  });
+
+  it("ring the toolbar's buttons, the free rows' Stop watching and the banner's Update in brand-ink, not brand at 40% (whole-branch review, m4)", () => {
+    for (const [name, constant] of [
+      ["Toolbar.vue", "button"],
+      ["PortTable.vue", "stopButton"],
+      ["Sidebar.vue", "updateButton"],
+    ] as const) {
+      const source = readFileSync(resolve(componentsDir, name), "utf8");
+      const classes = source.match(new RegExp(`const ${constant} =\\s*"([^"]*)"`))?.[1];
+      expect(classes, `${name}: no \`const ${constant}\``).toBeDefined();
+      expect(classes, `${name} ${constant}`).not.toMatch(/\bring-brand\/40\b/);
+      expect(classes, `${name} ${constant}`).toMatch(/(?:^|\s)focus-visible:ring-brand-ink(?:\s|$)/);
+    }
+  });
+
+  it("draw the eye with our EyeIcon: no component imports lucide's Eye (whole-branch review, m5)", () => {
+    for (const file of files) {
+      const source = readFileSync(file, "utf8");
+      const lucide = source.match(/import\s*\{([^}]*)\}\s*from\s*"lucide-vue-next"/)?.[1] ?? "";
+      expect(
+        lucide.split(",").map((s) => s.trim()),
+        `${file} imports lucide's Eye`,
+      ).not.toContain("Eye");
     }
   });
 
