@@ -3,11 +3,13 @@
 // strips above and below do not. Under the `watching` filter the watched ports nothing holds
 // follow the groups as "free" rows (WP-18): the port, "— free —", and Stop watching, which is
 // how a watch on a free port is removed.
-import { Eye } from "lucide-vue-next";
+// B v3 (#34): the header and the group rows sit on the band, in sentence case; the colour of a
+// group is an 8 px dot; rows are 34 px on the row line, like PortRow.
 import { useActions } from "../composables/useActions";
 import type { CategoryFilter, PortGroup } from "../composables/usePorts";
 import { TABLE_COLUMNS, WIDE_ONLY } from "../lib/table-columns";
 import type { PortEntry, WatchedPort } from "../types";
+import { EyeIcon } from "./icons";
 import ProjectGroup from "./ProjectGroup.vue";
 
 defineProps<{
@@ -27,14 +29,15 @@ defineProps<{
 
 const actions = useActions();
 
-const heading = "truncate text-[11px] font-semibold uppercase tracking-wide text-ink-3";
+/** Sentence case, 11.5 px medium, ink-3 on the band (4.9:1 light, 5.0:1 dark). */
+const heading = "truncate text-[11.5px] font-medium text-ink-3";
 const stopButton =
-  "h-[26px] rounded-md border border-line-strong bg-surface px-2.5 text-[12px] font-medium text-ink-2 outline-none hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-brand/40";
+  "h-[26px] rounded-md border border-line-strong bg-surface px-2.5 text-[12px] font-medium text-ink-2 outline-none hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-brand-ink";
 </script>
 
 <template>
   <div role="grid" aria-label="Listening ports" class="min-h-0 flex-1 overflow-y-auto bg-surface">
-    <div :class="[TABLE_COLUMNS, 'sticky top-0 z-20 h-7 border-b border-line bg-surface']" aria-hidden="true">
+    <div :class="[TABLE_COLUMNS, 'sticky top-0 z-20 h-7 border-b border-line bg-band']" aria-hidden="true">
       <span :class="heading">Port</span>
       <span :class="heading">Process</span>
       <span :class="heading">Status</span>
@@ -75,8 +78,8 @@ const stopButton =
         :collisions="collisions"
       />
       <section v-if="freeRows.length > 0" data-group="watching:free">
-        <div class="sticky top-7 z-10 flex h-8 items-center gap-2 border-b border-line bg-surface px-4 text-[13px]">
-          <span class="h-4 w-1 shrink-0 rounded-sm bg-blue" aria-hidden="true" />
+        <div class="sticky top-7 z-10 flex h-8 items-center gap-2 border-b border-line bg-band px-4 text-[13px]">
+          <span class="h-2 w-2 shrink-0 rounded-full bg-blue" aria-hidden="true" />
           <span class="truncate font-semibold text-ink">Free</span>
           <span class="truncate text-[12px] text-ink-2">watched, nothing listening</span>
           <span class="ml-auto shrink-0 text-[12px] text-ink-3 tabular-nums">
@@ -90,7 +93,7 @@ const stopButton =
             role="row"
             :data-port="w.port"
             data-watch="free"
-            :class="[TABLE_COLUMNS, 'h-10 border-b border-line hover:bg-hover']"
+            :class="[TABLE_COLUMNS, 'h-[34px] border-b border-row-line hover:bg-hover']"
           >
             <span class="truncate font-mono text-[15px] font-semibold tracking-tight text-ink-3 tabular-nums">
               {{ w.port }}<span v-if="w.protocol === 'udp'" class="ml-1 text-[10px] font-normal">udp</span>
@@ -100,10 +103,12 @@ const stopButton =
             </span>
             <span
               data-badge="watched"
+              role="img"
+              aria-label="watched"
               class="flex items-center text-blue-ink"
               title="Watching: PortReaper will say when something takes this port"
             >
-              <Eye :size="14" :stroke-width="2" aria-label="watched" />
+              <EyeIcon :size="14" />
             </span>
             <span :class="WIDE_ONLY" />
             <span :class="WIDE_ONLY" />

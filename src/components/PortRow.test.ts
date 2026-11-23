@@ -1,7 +1,7 @@
 import { flushPromises, mount } from "@vue/test-utils";
 import { TooltipProvider } from "reka-ui";
 import { describe, expect, it, vi } from "vitest";
-import { defineComponent, h } from "vue";
+import { type Component, defineComponent, h } from "vue";
 import { createMockApi, MOCK_ENTRIES } from "../api/mock";
 import { ACTIONS_KEY, type UiActions } from "../composables/useActions";
 import { useKillFlow } from "../composables/useKillFlow";
@@ -10,6 +10,7 @@ import { useToasts } from "../composables/useToasts";
 import { WATCHED_KEY } from "../composables/useWatch";
 import type { LaunchdJob, PortEntry } from "../types";
 import HintTooltip from "./HintTooltip.vue";
+import { DotIcon, EyeIcon, GlobeIcon, type IconProps, SparkIcon, ZapIcon } from "./icons";
 import PortRow from "./PortRow.vue";
 
 const byPort = (port: number): PortEntry => {
@@ -70,6 +71,23 @@ const pillsOf = (wrapper: ReturnType<typeof mountRow>) =>
 /** The hints of the pills that have one, in order (a tooltip's text is only in the DOM while it is open). */
 const hintsOf = (wrapper: ReturnType<typeof mountRow>) =>
   wrapper.findAllComponents(HintTooltip).map((t) => t.props("text"));
+
+/** The five statuses, the icon each draws and its ink (spec item 8; decisions: Protected dot, AI spark). */
+const STATUSES: [port: number, badge: string, icon: Component, ink: string][] = [
+  [3000, "running", DotIcon, "text-green-ink"],
+  [5174, "zombie", ZapIcon, "text-orange-ink"],
+  [8080, "public", GlobeIcon, "text-red-ink"],
+  [53, "protected", DotIcon, "text-blue-ink"],
+  [11434, "ai", SparkIcon, "text-purple-ink"],
+];
+
+/** Every element of a row, the row included. */
+const everything = (wrapper: ReturnType<typeof mountRow>) => {
+  const row = wrapper.get("[role='row']").element;
+  return [row, ...row.querySelectorAll<Element>("*")];
+};
+/** An element's classes as the DOM has them (an SVG's `className` is not a string). */
+const classesOf = (el: Element) => [...el.classList];
 
 describe("PortRow", () => {
   it("kills an unprotected row on click, and forces on ⌥-click", async () => {
@@ -284,16 +302,279 @@ describe("PortRow", () => {
     hot.unmount();
   });
 
-  it("fills the Kill button on the selected row", () => {
+  it("is a 34 px row on the row line, the hover fill when it is not selected (B v3, spec item 4)", () => {
     const plain = mountRow(byPort(3000), spies());
-    expect(plain.get("button[aria-label='Kill']").classes()).toContain("text-red-ink");
+    const row = plain.get("[role='row']");
+    expect(row.classes()).toEqual(expect.arrayContaining(["h-[34px]", "border-row-line", "hover:bg-hover"]));
+    expect(row.classes()).not.toContain("h-10");
+    expect(row.classes()).not.toContain("border-line");
     plain.unmount();
-    const selected = mountRow(byPort(3000), spies(), { selected: true });
-    expect(selected.get("button[aria-label='Kill']").classes()).toEqual(
-      expect.arrayContaining(["bg-red-ink", "text-surface"]),
+  });
+
+  it("draws each status as coloured text with its icon, never a filled pill (spec item 8)", () => {
+    for (const [port, key, icon, ink] of STATUSES) {
+      const row = mountRow(byPort(port), spies());
+      const badge = row.get(`[data-badge='${key}']`);
+      expect(badge.classes(), key).toEqual(
+        expect.arrayContaining([ink, "text-[12px]", "font-medium", "gap-[5px]"]),
+      );
+      // No pill: no fill, no radius, no padding, no fixed height, no border.
+      expect(
+        badge.classes().filter((c) => /^(bg-|rounded|px-|h-|border)/.test(c)),
+        `${key} is a pill`,
+      ).toEqual([]);
+      // Its icon first, 13 px, inside the badge.
+      const drawn = row.findAllComponents(icon).filter((c) => badge.element.contains(c.element));
+      expect(drawn, `${key} icon`).toHaveLength(1);
+      expect((drawn[0]?.props() as IconProps | undefined)?.size, `${key} icon size`).toBe(13);
+      expect(badge.element.firstElementChild?.tagName.toLowerCase(), `${key} icon first`).toBe("svg");
+      row.unmount();
+    }
+
+    // Two statuses on one row, each with its own icon: Public's globe, then Protected's dot.
+    const docker = mountRow(byPort(5432), spies());
+    const globe = docker.findAllComponents(GlobeIcon).map((c) => c.element.closest("[data-badge]"));
+    const dot = docker.findAllComponents(DotIcon).map((c) => c.element.closest("[data-badge]"));
+    expect(globe.map((b) => b?.getAttribute("data-badge"))).toEqual(["public"]);
+    expect(dot.map((b) => b?.getAttribute("data-badge"))).toEqual(["protected"]);
+    // The first shows at every width; the next only from 640 px of main column. The second has no
+    // `inline-flex` of its own: Tailwind writes `.hidden` before `.inline-flex`, so it would win.
+    const first = docker.get("[data-badge='public']").classes();
+    const second = docker.get("[data-badge='protected']").classes();
+    expect(first).toContain("inline-flex");
+    expect(first).not.toContain("hidden");
+    expect(second).toEqual(expect.arrayContaining(["hidden", "@min-[640px]/main:inline-flex"]));
+    expect(second).not.toContain("inline-flex");
+    docker.unmount();
+
+    // The launchd chip is who runs it, not a status: no icon, still the soft bordered chip.
+    const ollama = mountRow(byPort(11434), spies());
+    const chip = ollama.get("[data-badge='launchd']");
+    expect(chip.find("svg").exists()).toBe(false);
+    expect(chip.classes()).toEqual(
+      expect.arrayContaining(["rounded-full", "border", "border-line", "bg-canvas"]),
     );
-    expect(selected.get("[role='row']").attributes("aria-selected")).toBe("true");
-    expect(selected.get("[role='row']").classes()).toContain("bg-sel");
+    ollama.unmount();
+  });
+
+  it("the selected row is the coral fill, and every text and icon in it is white at full opacity", () => {
+    const isWatched = (t: { port: number; protocol: string }) => t.port === 7000;
+    const container = MOCK_ENTRIES.find((e) => e.container);
+    if (!container) throw new Error("no container in the mock");
+    const cases: [what: string, entry: PortEntry, extra?: { collision: boolean }][] = [
+      ["a dev server after a collision", byPort(3000), { collision: true }],
+      ["a udp daemon", byPort(53)],
+      ["a launchd job with three statuses", byPort(11434)],
+      ["an unknown stack, watched", { ...byPort(7000), framework: "AirPlay" }],
+      ["a container", container],
+      ["a stdio orphan", { ...byPort(5174), port: 0, pid: 61204, address: "stdio" }],
+    ];
+    for (const [what, entry, extra] of cases) {
+      const wrapper = mountRow(
+        entry,
+        spies(),
+        { selected: true, ...extra },
+        { [WATCHED_KEY as symbol]: isWatched },
+      );
+      const row = wrapper.get("[role='row']");
+      expect(row.attributes("aria-selected")).toBe("true");
+      expect(row.classes(), what).toEqual(expect.arrayContaining(["bg-sel-fill", "text-on-sel-fill"]));
+      // No tint, no left bar, no hover fill on the coral.
+      expect(
+        row.classes().filter((c) => c === "bg-sel" || c.startsWith("before:") || c.startsWith("hover:")),
+      ).toEqual([]);
+      const kill = wrapper.get("button[aria-label='Kill']").element;
+      for (const el of everything(wrapper)) {
+        const classes = classesOf(el);
+        // No grey and no ink of a status anywhere; Kill alone is the surface with red ink.
+        expect(
+          classes.filter((c) => /^text-ink(-\d)?$/.test(c)),
+          `${what}: ${el.tagName} ${classes.join(" ")}`,
+        ).toEqual([]);
+        if (el !== kill) {
+          expect(
+            classes.filter((c) => /^text-(green|orange|red|blue|purple|brand)(-ink)?$/.test(c)),
+            `${what}: ${el.tagName} ${classes.join(" ")}`,
+          ).toEqual([]);
+        }
+        // Full opacity: no opacity utility (Kill's opacity-100 aside) and no alpha on a text colour.
+        expect(
+          classes.filter(
+            (c) => (/^opacity-/.test(c) && !(el === kill && c === "opacity-100")) || /^text-.+\/\d+$/.test(c),
+          ),
+          `${what}: ${el.tagName} ${classes.join(" ")}`,
+        ).toEqual([]);
+      }
+      // Each status, chip and mark says white itself, so nothing inherits a colour from elsewhere.
+      for (const badge of row.findAll("[data-badge]")) {
+        expect(badge.classes(), `${what}: ${badge.attributes("data-badge")}`).toContain("text-on-sel-fill");
+      }
+      wrapper.unmount();
+    }
+  });
+
+  it("on the selected row the pid, memory, uptime, udp tag and port are white; the chips are white on the coral", () => {
+    const wrapper = mountRow(byPort(53), spies(), { selected: true });
+    for (const text of ["4102", "udp"]) {
+      const el = wrapper.findAll("span").find((s) => s.text() === text);
+      expect(el?.classes(), text).toContain("text-on-sel-fill");
+    }
+    expect(wrapper.get("[role='row'] > span").classes()).toContain("text-on-sel-fill");
+    wrapper.unmount();
+
+    const ollama = mountRow(byPort(11434), spies(), { selected: true });
+    // The cells: port · process · status · memory · uptime · actions.
+    const cells = ollama.findAll("[role='row'] > span");
+    expect(cells[3]?.text()).toBe("4.9 GB");
+    for (const cell of [cells[3], cells[4]]) {
+      expect(cell?.classes(), cell?.text()).toContain("text-on-sel-fill");
+    }
+    // The launchd chip: white text, no fill of its own (white 18% over the coral would be 3.7:1), a white edge.
+    const chip = ollama.get("[data-badge='launchd']");
+    expect(chip.classes()).toEqual(
+      expect.arrayContaining(["border", "border-on-sel-fill/60", "text-on-sel-fill"]),
+    );
+    expect(chip.classes().filter((c) => c.startsWith("bg-"))).toEqual([]);
+    // The brand mark paints white too, over its brand colour.
+    expect(ollama.get("[data-cell='status']").classes()).toContain("[&_[data-brand]_path]:fill-current");
+    ollama.unmount();
+
+    const airplay = mountRow({ ...byPort(7000), framework: "AirPlay" }, spies(), { selected: true });
+    const framework = airplay.get("[data-badge='framework']");
+    expect(framework.classes()).toEqual(
+      expect.arrayContaining(["border-on-sel-fill/60", "text-on-sel-fill"]),
+    );
+    expect(framework.classes().filter((c) => c.startsWith("bg-"))).toEqual([]);
+    airplay.unmount();
+
+    // Not selected: the soft chips and the brand colours as before.
+    const plain = mountRow(byPort(11434), spies());
+    expect(plain.get("[data-badge='launchd']").classes()).toEqual(
+      expect.arrayContaining(["border-line", "bg-canvas", "text-ink-2"]),
+    );
+    expect(plain.get("[data-cell='status']").classes()).not.toContain("[&_[data-brand]_path]:fill-current");
+    plain.unmount();
+  });
+
+  it("hides Kill by opacity alone on a row that is not selected; hover, focus and the selection show it (spec item 5)", () => {
+    const plain = mountRow(byPort(3000), spies());
+    expect(plain.get("[role='row']").classes()).toContain("group/row");
+    const kill = plain.get("button[aria-label='Kill']");
+    expect(kill.classes()).toContain("opacity-0");
+    expect(kill.classes()).not.toContain("opacity-100");
+    expect(kill.classes()).toEqual(
+      expect.arrayContaining([
+        "group-hover/row:opacity-100",
+        "group-has-[:focus-visible]/row:opacity-100",
+        "group-has-[[aria-expanded=true]]/row:opacity-100",
+        "focus-visible:opacity-100",
+      ]),
+    );
+    // The keyboard focus shows it, a click's focus does not (review of part 2, finding 3).
+    expect(kill.classes()).not.toContain("group-focus-within/row:opacity-100");
+    // Never out of the layout, the tab order or the accessibility tree, and no motion.
+    for (const c of ["hidden", "invisible", "collapse", "sr-only", "pointer-events-none"]) {
+      expect(kill.classes(), c).not.toContain(c);
+    }
+    expect(kill.attributes("tabindex")).toBeUndefined();
+    expect(kill.attributes("aria-hidden")).toBeUndefined();
+    expect(kill.attributes("style")).toBeUndefined();
+    expect(kill.text()).toBe("Kill");
+    // Today's look on a row that is not selected: a bordered button, red ink, a red fill on its own hover.
+    expect(kill.classes()).toEqual(
+      expect.arrayContaining([
+        "border-line-strong",
+        "bg-surface",
+        "text-red-ink",
+        "hover:bg-red-ink",
+        "hover:text-surface",
+      ]),
+    );
+    plain.unmount();
+
+    // The selected row: shown, the white (surface) button with red ink of the mock-up.
+    const selected = mountRow(byPort(3000), spies(), { selected: true });
+    const shown = selected.get("button[aria-label='Kill']");
+    expect(shown.classes()).toContain("opacity-100");
+    expect(shown.classes()).not.toContain("opacity-0");
+    expect(shown.classes()).toEqual(expect.arrayContaining(["border-surface", "bg-surface", "text-red-ink"]));
+    expect(shown.classes()).not.toContain("bg-red-ink");
+    selected.unmount();
+
+    // Nothing in a row moves: no transition and no animation (R6; the pending spinner aside).
+    for (const s of [false, true]) {
+      const wrapper = mountRow(byPort(3000), spies(), { selected: s });
+      const moving = everything(wrapper).flatMap((el) =>
+        classesOf(el).filter((c) => /(^|:)(transition|duration-|ease-|animate-)/.test(c)),
+      );
+      expect(moving, `selected ${s}`).toEqual([]);
+      wrapper.unmount();
+    }
+  });
+
+  it("Kill stays shown while its row's menu is open: the trigger in the row carries aria-expanded (review of part 2, finding 3)", async () => {
+    const wrapper = mountRow(byPort(3000), spies());
+    const row = wrapper.get("[role='row']");
+    const kill = wrapper.get("button[aria-label='Kill']");
+    expect(kill.classes()).toContain("group-has-[[aria-expanded=true]]/row:opacity-100");
+    expect(row.find("[aria-expanded='true']").exists()).toBe(false);
+    await wrapper.get("button[aria-label='More']").trigger("click");
+    await flushPromises();
+    expect(document.body.querySelector("[role='menu']"), "the menu is open").not.toBeNull();
+    // The variant's selector, inside the row (the menu itself is portaled out of it).
+    expect(row.get("[aria-expanded='true']").attributes("aria-label")).toBe("More");
+    wrapper.unmount();
+  });
+
+  it("after the row's menu closes (Escape), the trigger's aria-expanded is false again, so Kill hides again (whole-branch review, m7)", async () => {
+    const wrapper = mountRow(byPort(3000), spies());
+    const row = wrapper.get("[role='row']");
+    const trigger = wrapper.get("button[aria-label='More']");
+    expect(trigger.attributes("aria-expanded")).toBe("false");
+    await trigger.trigger("click");
+    await flushPromises();
+    const menu = document.body.querySelector<HTMLElement>("[role='menu']");
+    expect(menu, "the menu is open").not.toBeNull();
+    expect(trigger.attributes("aria-expanded")).toBe("true");
+    // Escape where the focus is (the menu, portaled out of the row), as a keyboard user closes it.
+    (document.activeElement ?? menu)?.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }),
+    );
+    await flushPromises();
+    expect(document.body.querySelector("[role='menu']"), "the menu is closed").toBeNull();
+    expect(trigger.attributes("aria-expanded")).toBe("false");
+    // Nothing in the row matches the variant's selector now, so Kill falls back to opacity-0.
+    expect(row.find("[aria-expanded='true']").exists()).toBe(false);
+    expect(wrapper.get("button[aria-label='Kill']").classes()).toContain("opacity-0");
+    wrapper.unmount();
+  });
+
+  it("the selected row's Kill puts a band of the coral between its white ring and its white button (review of part 2, finding 1)", () => {
+    const selected = mountRow(byPort(3000), spies(), { selected: true });
+    const kill = selected.get("button[aria-label='Kill']");
+    expect(kill.classes()).toEqual(
+      expect.arrayContaining([
+        "focus-visible:ring-2",
+        "focus-visible:ring-on-sel-fill",
+        "ring-offset-2",
+        "ring-offset-sel-fill",
+      ]),
+    );
+    selected.unmount();
+  });
+
+  it("the ⋯ menu has no border and is always visible; white on the selected row", () => {
+    const plain = mountRow(byPort(3000), spies());
+    const more = plain.get("button[aria-label='More']");
+    expect(more.classes().filter((c) => /(^|:)border/.test(c))).toEqual([]);
+    expect(more.classes().filter((c) => /(^|:)opacity-/.test(c))).toEqual([]);
+    expect(more.classes()).toContain("text-ink-3");
+    plain.unmount();
+
+    const selected = mountRow(byPort(3000), spies(), { selected: true });
+    const white = selected.get("button[aria-label='More']");
+    expect(white.classes()).toContain("text-on-sel-fill");
+    expect(white.classes().filter((c) => /(^|:)(border|opacity-|bg-)/.test(c))).toEqual([]);
     selected.unmount();
   });
 
@@ -322,6 +603,60 @@ describe("PortRow", () => {
     const other = mountRow(byPort(5173), spies(), {}, { [WATCHED_KEY as symbol]: isWatched });
     expect(other.find("[data-badge='watched']").exists()).toBe(false);
     other.unmount();
+  });
+
+  it("the watched eye is our EyeIcon (14 px, its own 1.75 stroke), not lucide's; the mark keeps its name, watched", () => {
+    const isWatched = (t: { port: number; protocol: string }) => t.port === 3000 && t.protocol === "tcp";
+    const wrapper = mountRow(byPort(3000), spies(), {}, { [WATCHED_KEY as symbol]: isWatched });
+    const mark = wrapper.get("[data-badge='watched']");
+    const eyes = wrapper.findAllComponents(EyeIcon).filter((c) => mark.element.contains(c.element));
+    expect(eyes).toHaveLength(1);
+    expect((eyes[0]?.props() as IconProps | undefined)?.size).toBe(14);
+    expect((eyes[0]?.props() as IconProps | undefined)?.strokeWidth).toBeUndefined();
+    expect(mark.find("svg").attributes("stroke-width")).toBe("1.75");
+    expect(mark.find(".lucide").exists()).toBe(false);
+    // The icon is decorative (aria-hidden), so the name sits on the mark itself, an image.
+    expect(mark.find("svg").attributes("aria-hidden")).toBe("true");
+    expect(mark.attributes("role")).toBe("img");
+    expect(mark.attributes("aria-label")).toBe("watched");
+    wrapper.unmount();
+  });
+
+  it("the status cell is one 22 px line that wraps what does not fit out of sight, so a badge drops whole (whole-branch review, m1)", () => {
+    const plain = mountRow(byPort(11434), spies());
+    expect(plain.get("[data-cell='status']").classes()).toEqual([
+      "flex",
+      "h-[22px]",
+      "min-w-0",
+      "flex-wrap",
+      "items-center",
+      "gap-2",
+      "overflow-hidden",
+      "leading-[22px]",
+    ]);
+    plain.unmount();
+    // Each badge, chip and mark is a flex item of the cell itself (the tooltip's trigger renders
+    // the badge, as-child), and none shrinks: a wrap moves it whole.
+    const selected = mountRow(byPort(11434), spies(), { selected: true });
+    const cell = selected.get("[data-cell='status']");
+    expect(cell.classes()).toEqual(
+      expect.arrayContaining([
+        "flex",
+        "flex-wrap",
+        "h-[22px]",
+        "overflow-hidden",
+        "[&_[data-brand]_path]:fill-current",
+      ]),
+    );
+    const items = [...cell.element.children];
+    expect(items.map((el) => el.getAttribute("data-badge") ?? el.getAttribute("data-testid"))).toEqual([
+      "protected",
+      "ai",
+      "launchd",
+      "framework-icon",
+    ]);
+    for (const el of items) expect(el.classList.contains("shrink-0"), el.outerHTML).toBe(true);
+    selected.unmount();
   });
 
   it("the row menu has Hide :PORT right after Watch and asks for it; a stdio row's Hide port is off", async () => {

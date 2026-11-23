@@ -29,7 +29,7 @@ import ToastList from "./components/ToastList.vue";
 import Toolbar from "./components/Toolbar.vue";
 import { provideActions } from "./composables/useActions";
 import { useInspector } from "./composables/useInspector";
-import { useKeyboard } from "./composables/useKeyboard";
+import { CATEGORY_SHORTCUTS, useKeyboard } from "./composables/useKeyboard";
 import { useKillFlow } from "./composables/useKillFlow";
 import { usePorts } from "./composables/usePorts";
 import { demoOnboarding, type SettingsPatch, useSettings } from "./composables/useSettings";
@@ -227,6 +227,13 @@ const keyboard = useKeyboard(
     },
     preferences: () => {
       view.value = "settings";
+    },
+    // ⌘1–⌘4: what a click on the item does (Sidebar's `pick`), from the Taskline and Preferences too.
+    category: (index) => {
+      const filter = CATEGORY_SHORTCUTS[index];
+      if (!filter) return;
+      pickCategory(filter);
+      view.value = "studio";
     },
     digit: (digit) => {
       view.value = "studio";

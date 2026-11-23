@@ -1,20 +1,44 @@
 @import "tailwindcss";
 
-/* Design tokens: the "Board" system (v0.2, direction D). Light and dark follow the system.
-   The raw values live on :root and flip with prefers-color-scheme; `@theme inline` turns them
-   into Tailwind utilities (bg-canvas, text-ink-2, border-line, bg-green-tint...). Components use
-   the utilities, never a hex. */
+/* Design tokens: the native skin, direction B v3 (#34), over the Board's names (v0.2). Light and
+   dark follow the system. The raw values live on :root and flip with prefers-color-scheme;
+   `@theme inline` turns them into Tailwind utilities (bg-canvas, text-ink-2, border-line,
+   bg-green-tint...). Components use the utilities, never a hex.
+   Light takes the mock-up's neutrals, dark macOS's. Every grey clears 4.5:1 on each background it
+   sits on (src/lib/contrast.test.ts), so ink-2 and ink-3 are darker than the mock-up's #6e6e73 and
+   #8e8e93: each is the lightest grey that keeps 4.5:1 on its backgrounds with the background two
+   levels darker. The sidebar has its own, darker pair (--sidebar-ink-2/3, the `sidebar-inks`
+   utility on its nav): a hovered and a selected item are darker than anything in the window. */
 :root {
   color-scheme: light dark;
   -webkit-font-smoothing: antialiased;
 
-  --canvas: #f5f6f8;
+  --canvas: #f5f5f7;
   --surface: #ffffff;
-  --line: #e6e9ef;
-  --line-strong: #d0d4dc;
-  --ink: #1f2329;
-  --ink-2: #5c6370;
-  --ink-3: #667085;
+  --line: #e8e8ed;
+  --line-strong: #d2d2d7;
+  --ink: #1d1d1f;
+  /* Mock-up #6e6e73 (4.15:1 on the line); this clears 4.5:1 on the line, its darkest background
+     (the Taskline's REFUSED and FAILED tags). */
+  --ink-2: #67676b;
+  /* Mock-up #8e8e93 (3.3:1 on white); this clears 4.5:1 on a selected row's tint and the canvas.
+     It goes on white, the canvas, the band, the hover and that tint only: never on line (4.16:1;
+     dark 4.07) or on a status tint (red 4.42, purple 4.37, blue 4.51 with no margin; dark green
+     4.31, orange 4.41). Text on a tint takes that tint's ink. Pinned in src/lib/contrast.test.ts. */
+  --ink-3: #6e6e72;
+
+  /* The table's header and group rows, and the line between rows. */
+  --band: #fafafa;
+  --row-line: #f0f0f3;
+  /* The sidebar, a macOS grey (rgba over the canvas, so it reads as solid; no vibrancy), its edge,
+     and its items' fills (hovered, selected). */
+  --sidebar: rgba(232, 232, 236, 0.92);
+  --sidebar-edge: #dcdce0;
+  --sidebar-hover: rgba(0, 0, 0, 0.04);
+  --sidebar-sel: rgba(0, 0, 0, 0.07);
+  /* The sidebar's greys: ink-2 clears 4.5:1 on a selected item, ink-3 on a hovered one. */
+  --sidebar-ink-2: #5d5d61;
+  --sidebar-ink-3: #626266;
 
   --brand: #ff4528;
   --brand-tint: #fff1ee;
@@ -36,19 +60,36 @@
   --purple-tint: #f3ebfb;
   --purple-ink: #7a3fb0;
 
+  /* The selected option's tint (the ⌘⇧K strip), and the full coral fill of the selected row (B v3)
+     with its white text: #ff4528 takes white at 3.4:1, this at 4.7:1. */
   --sel: #fff1ee;
-  --hover: #f7f8fa;
+  --sel-fill: #d63a20;
+  --on-sel-fill: #ffffff;
+  --hover: #f7f7f8;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --canvas: #1c1c1f;
-    --surface: #232327;
-    --line: #2f3035;
-    --line-strong: #3b3c42;
-    --ink: #f2f2f4;
-    --ink-2: #a9adb6;
-    --ink-3: #9096a0;
+    --canvas: #1e1e1e;
+    --surface: #262628;
+    --line: #38383a;
+    --line-strong: #48484a;
+    --ink: #f5f5f7;
+    --ink-2: #a1a1a6;
+    --ink-3: #98989d;
+
+    --band: #2a2a2c;
+    --row-line: #2f2f31;
+    /* A shade above the canvas, like macOS's dark sidebar; dark enough that ink-2 and ink-3 keep
+       4.5:1 on its hovered and selected items. */
+    --sidebar: rgba(36, 36, 38, 0.92);
+    --sidebar-edge: #161617;
+    --sidebar-hover: rgba(255, 255, 255, 0.05);
+    --sidebar-sel: rgba(255, 255, 255, 0.08);
+    /* The window's greys already clear 4.5:1 there (ink-3 is 4.2:1 on a selected item, which takes
+       ink-2 for its count and hint). */
+    --sidebar-ink-2: #a1a1a6;
+    --sidebar-ink-3: #98989d;
 
     --brand: #ff5a3f;
     --brand-tint: #3a251f;
@@ -71,7 +112,10 @@
     --purple-ink: #d6b6ff;
 
     --sel: #3a251f;
-    --hover: #2a2a2f;
+    /* The coral nearest #ff5a3f (same hue and chroma, lower lightness) with white at 4.5:1. */
+    --sel-fill: #dd381e;
+    --on-sel-fill: #ffffff;
+    --hover: #2c2c2e;
   }
 }
 
@@ -106,7 +150,15 @@
   --color-purple-tint: var(--purple-tint);
   --color-purple-ink: var(--purple-ink);
   --color-sel: var(--sel);
+  --color-sel-fill: var(--sel-fill);
+  --color-on-sel-fill: var(--on-sel-fill);
+  --color-sidebar-sel: var(--sidebar-sel);
   --color-hover: var(--hover);
+  --color-band: var(--band);
+  --color-row-line: var(--row-line);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-edge: var(--sidebar-edge);
+  --color-sidebar-hover: var(--sidebar-hover);
 }
 
 html,
@@ -124,6 +176,21 @@ body {
   font-size: 13px;
   user-select: none;
   cursor: default;
+}
+
+/* The sidebar's nav: every text-ink-2 and text-ink-3 inside it takes the sidebar's greys. `@theme
+   inline` writes the utilities as `color: var(--ink-2)`, resolved at each element, so overriding the
+   two variables here is enough. */
+@utility sidebar-inks {
+  --ink-2: var(--sidebar-ink-2);
+  --ink-3: var(--sidebar-ink-3);
+}
+
+/* One stroke weight in the window (spec item 8): lucide draws `stroke-width="2"` (or what a call site
+   passes) as an SVG presentation attribute, and any author rule beats one. Unlayered, so no
+   Tailwind layer outranks it either. Our own icons (components/icons) draw 1.75 themselves. */
+.lucide {
+  stroke-width: 1.75;
 }
 
 /* The title bar is hidden (tauri.conf.json: titleBarStyle Overlay). Anything with this attribute

@@ -1,6 +1,7 @@
 <script setup lang="ts">
-// A project (or a process without one) and its ports: a 32 px row with a colour bar, the name,
-// the branch in mono and the count. It sticks under the table header while its rows scroll.
+// A project (or a process without one) and its ports: a 32 px row on the band with a colour dot
+// (8 px, B v3), the name, the branch in mono and the count. It sticks under the table header while
+// its rows scroll.
 import { ChevronDown, Lock } from "lucide-vue-next";
 import { computed } from "vue";
 import { useActions } from "../composables/useActions";
@@ -23,13 +24,13 @@ const actions = useActions();
 const count = computed(
   () => `${props.group.entries.length} ${props.group.entries.length === 1 ? "port" : "ports"}`,
 );
-const bar = computed(() => groupColour(props.group.name));
+const dot = computed(() => groupColour(props.group.name));
 </script>
 
 <template>
   <section :data-group="group.key">
-    <div class="group/header sticky top-7 z-10 flex h-8 items-center gap-2 border-b border-line bg-surface px-4 text-[13px]">
-      <span class="h-4 w-1 shrink-0 rounded-sm" :class="bar" aria-hidden="true" />
+    <div class="group/header sticky top-7 z-10 flex h-8 items-center gap-2 border-b border-line bg-band px-4 text-[13px]">
+      <span class="h-2 w-2 shrink-0 rounded-full" :class="dot" aria-hidden="true" />
       <button
         type="button"
         class="flex h-full min-w-0 flex-1 items-center gap-2 text-left outline-none focus-visible:underline"
