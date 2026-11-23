@@ -668,6 +668,24 @@ test.describe("the tokens", () => {
   }
 });
 
+/**
+ * Presses Tab from `from` and returns the key that put the focus on `to`, for the presses after it.
+ *
+ * WebKit on macOS Tabs onto links and text fields but skips buttons unless System Settings >
+ * Keyboard > "Keyboard navigation" is on (Safari does the same), and Option+Tab does the opposite.
+ * A CI runner and a Mac at its default have it off; a Mac whose owner turned it on takes Tab. So
+ * try Tab, and when the focus did not land on `to`, go back to `from` and try Option+Tab.
+ * Chromium and WebKit on Linux always take the first branch.
+ */
+async function tabKey(page: Page, from: Locator, to: Locator): Promise<"Tab" | "Alt+Tab"> {
+  await from.focus();
+  await page.keyboard.press("Tab");
+  if (await to.evaluate((el) => el === document.activeElement)) return "Tab";
+  await from.focus();
+  await page.keyboard.press("Alt+Tab");
+  return "Alt+Tab";
+}
+
 test.describe("Kill on a row (B v3, spec item 5)", () => {
   test.use({ viewport: { width: 1280, height: 720 } });
 
@@ -700,16 +718,16 @@ test.describe("Kill on a row (B v3, spec item 5)", () => {
 
     // By Tab, with the pointer away: from the group's Kill all to the row's Kill, which shows while
     // it has the focus and while its row has it (on to the row's menu).
-    await group(page, "p:portreaper").getByRole("button", { name: "Kill all" }).focus();
-    await page.keyboard.press("Tab");
+    const killAll = group(page, "p:portreaper").getByRole("button", { name: "Kill all" });
+    const tab = await tabKey(page, killAll, kill);
     await expect(kill).toBeFocused();
     await expect(kill).toBeVisible();
     await expect(kill).toHaveAccessibleName("Kill");
     await expect(kill).toHaveCSS("opacity", "1");
-    await page.keyboard.press("Tab");
+    await page.keyboard.press(tab);
     await expect(vite.getByRole("button", { name: "More" })).toBeFocused();
     await expect(kill).toHaveCSS("opacity", "1");
-    await page.keyboard.press("Tab");
+    await page.keyboard.press(tab);
     await expect(vite.getByRole("button", { name: "More" })).not.toBeFocused();
     await expect(kill).toHaveCSS("opacity", "0");
 
