@@ -471,13 +471,27 @@ export function createMockApi(seed: PortEntry[] = MOCK_ENTRIES): PortApi {
   return {
     listPorts: async () => listed().filter((e) => !hidden(e.port)),
     killProcess: async (request) => kill(request),
-    freePort: async (port, force) => {
-      // As `commands::free_port`: each pid carries the start time of the entry it was chosen from.
-      const victims = entries.filter((e) => e.port === port);
-      const pids = [...new Set(victims.map((e) => e.pid))];
-      return pids.map((pid) =>
-        kill({ pid, force, startedAt: victims.find((e) => e.pid === pid)?.startedAt ?? null }),
-      );
+    freePort: async (port, force, expected) => {
+      // As `commands::free_plan`: only the processes the caller chose are killed. A pid it did not
+      // name, or one that started at another time, took the port since; a protected one needs
+      // `confirmed`. Protection is pid-wide (`listed()`).
+      const all = listed();
+      const pids = [...new Set(all.filter((e) => e.port === port).map((e) => e.pid))].sort((x, y) => x - y);
+      return pids.map((pid): KillOutcome => {
+        const mine = all.filter((e) => e.pid === pid);
+        const name = mine.find((e) => e.port === port)?.processName ?? "";
+        const listedAt = mine.find((e) => e.startedAt !== null)?.startedAt ?? null;
+        const target = expected.find((t) => t.pid === pid);
+        if (!target || (target.startedAt !== null && listedAt !== null && target.startedAt !== listedAt)) {
+          const reason = `port ${port} is now held by ${name} (${pid}), not the process you chose; refresh and try again`;
+          return { status: "refused", pid, reason };
+        }
+        if (mine.some((e) => e.protected) && !target.confirmed) {
+          const reason = `${name} (${pid}) is protected and was not confirmed; refresh and try again`;
+          return { status: "refused", pid, reason };
+        }
+        return kill({ pid, force, startedAt: target.startedAt ?? listedAt });
+      });
     },
     appVersion: async () => "0.2.0-mock",
     processTree: async (pid): Promise<ProcessNode[]> => {

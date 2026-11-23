@@ -108,6 +108,18 @@ export interface KillRequest {
   startedAt: number | null;
 }
 
+/**
+ * One process the caller decided to kill when it asked to free a port: what the user saw on that
+ * port, and whether they confirmed it. `freePort` kills only these.
+ */
+export interface KillTarget {
+  pid: number;
+  /** As `KillRequest.startedAt`: the `startedAt` of the row the user saw. */
+  startedAt: number | null;
+  /** `true` when the user confirmed killing a protected process (the strip's second Enter). */
+  confirmed: boolean;
+}
+
 export type KillOutcome =
   | { status: "killed"; pid: number; graceful: boolean; waitedMs: number }
   | { status: "notFound"; pid: number }
@@ -243,8 +255,12 @@ export interface WatchedPort {
 export interface PortApi {
   listPorts(): Promise<PortEntry[]>;
   killProcess(request: KillRequest): Promise<KillOutcome>;
-  /** Kills every process on `port`. One outcome per distinct pid. */
-  freePort(port: number, force: boolean): Promise<KillOutcome[]>;
+  /**
+   * Frees `port` of the processes in `expected`, and of no other. One outcome per distinct pid
+   * that holds the port now: a process that took the port since the caller looked, or a protected
+   * one that is not `confirmed`, is `refused` and gets no signal. Empty when the port is free.
+   */
+  freePort(port: number, force: boolean, expected: KillTarget[]): Promise<KillOutcome[]>;
   appVersion(): Promise<string>;
   /** Ancestry of a process, launchd first. Empty when unknown. */
   processTree(pid: number): Promise<ProcessNode[]>;
