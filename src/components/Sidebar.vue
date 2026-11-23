@@ -6,7 +6,8 @@
 // while Preferences shows (WP-17b). Clicking a category from either goes back to the Studio, and
 // so do ⌘1–⌘4 (App.vue), whose hints sit on the first four items.
 // B v3 (#34): a translucent macOS sidebar, our own icons, plain grey counts, and a neutral fill with
-// a coral icon on the item that is on.
+// a coral icon on the item that is on. The nav takes the sidebar's own greys (`sidebar-inks`), so
+// text-ink-2 and text-ink-3 in here are darker than in the window.
 import type { Component } from "vue";
 import { CATEGORY_SHORTCUTS } from "../composables/useKeyboard";
 import type { CategoryCounts, CategoryFilter } from "../composables/usePorts";
@@ -47,7 +48,7 @@ interface Item {
   key: CategoryFilter;
   label: string;
   icon: Component;
-  /** Alarms keep their colour on the icon while the item is off; the count stays grey. */
+  /** Alarms colour their icon while the item is off and its count is above 0; the count stays grey. */
   tone?: "warn" | "danger";
 }
 
@@ -64,13 +65,17 @@ const ATTENTION: Item[] = [
   { key: "watching", label: "Watching", icon: EyeIcon },
 ];
 
+/** The focus ring is brand-ink: 3.9:1 or more on every item fill in light (brand is 2.4–2.8:1), 5.3:1 in dark. */
 const item =
-  "flex h-7 w-full items-center gap-2 rounded-md px-2 text-left text-[13px] outline-none focus-visible:ring-2 focus-visible:ring-brand/40";
-/** On or off, never both: two utilities for one property would leave the winner to the stylesheet's order. */
-const on = "bg-sel-neutral text-ink";
-const off = "text-ink-2 hover:bg-sidebar-hover";
+  "flex h-7 w-full items-center gap-2 rounded-md px-2 text-left text-[13px] outline-none focus-visible:ring-2 focus-visible:ring-brand-ink";
+/** On or off, never both: two utilities for one property would leave the winner to the stylesheet's order.
+ *  A press fills an off item like the selected one, at once: no transition, no scale. */
+const on = "bg-sidebar-sel text-ink";
+const off = "text-ink-2 hover:bg-sidebar-hover active:bg-sidebar-sel";
 /** The hint and the count: 11 px sans, grey. ink-3 off; ink-2 on the selected fill, where ink-3 is short of AA. */
 const quiet = "text-[11px] leading-4 tabular-nums";
+/** Two digits wide, right-aligned: the ⌘ hints stay in one column for 1- and 2-digit counts. */
+const countBox = "min-w-[2ch] text-right";
 const section = "px-2 pt-3.5 pb-1.5 text-[11px] font-semibold text-ink-3";
 const updateButton =
   "h-6 rounded-md bg-brand-ink px-2 text-[12px] font-semibold text-surface outline-none hover:opacity-90 focus-visible:ring-2 focus-visible:ring-brand/40";
@@ -92,10 +97,13 @@ function shortcutOf(key: CategoryFilter): number | null {
   return index < 0 ? null : index + 1;
 }
 
+/** Coral when on; an alarm's colour while it has something to show; the quiet grey otherwise. */
 function iconClass(it: Item, active: boolean): string {
   if (active) return "text-brand";
-  if (it.tone === "warn") return "text-orange";
-  if (it.tone === "danger") return "text-red";
+  if (props.counts[it.key] > 0) {
+    if (it.tone === "warn") return "text-orange";
+    if (it.tone === "danger") return "text-red";
+  }
   return "text-ink-3";
 }
 
@@ -110,7 +118,7 @@ function pick(key: CategoryFilter) {
 </script>
 
 <template>
-  <nav aria-label="Views" class="flex h-full min-h-0 flex-col border-r border-sidebar-edge bg-sidebar px-2.5 pb-2.5">
+  <nav aria-label="Views" class="sidebar-inks flex h-full min-h-0 flex-col border-r border-sidebar-edge bg-sidebar px-2.5 pb-2.5">
     <!-- 52 px for the traffic lights alone: macOS draws them at the top left, and nothing sits
          beside them. The brand gets its own row below, the way Slack places the workspace name. -->
     <div data-tauri-drag-region class="h-[52px] shrink-0"></div>
@@ -140,7 +148,7 @@ function pick(key: CategoryFilter) {
       >⌘{{ shortcutOf(it.key) }}</span>
       <span
         data-count
-        :class="[shortcutOf(it.key) ? 'ml-2' : 'ml-auto', quiet, quietClass(isOn(it.key))]"
+        :class="[shortcutOf(it.key) ? 'ml-2' : 'ml-auto', quiet, countBox, quietClass(isOn(it.key))]"
       >{{ counts[it.key] }}</span>
     </button>
 
@@ -156,7 +164,7 @@ function pick(key: CategoryFilter) {
     >
       <component :is="it.icon" class="shrink-0" :class="iconClass(it, isOn(it.key))" />
       <span class="truncate">{{ it.label }}</span>
-      <span data-count :class="['ml-auto', quiet, quietClass(isOn(it.key))]">{{ counts[it.key] }}</span>
+      <span data-count :class="['ml-auto', quiet, countBox, quietClass(isOn(it.key))]">{{ counts[it.key] }}</span>
     </button>
 
     <div class="mt-auto grid gap-0.5 pt-3">
@@ -193,7 +201,7 @@ function pick(key: CategoryFilter) {
           v-if="tasklineCount > 0"
           data-count
           data-badge="taskline-count"
-          :class="['ml-auto', quiet, quietClass(view === 'taskline')]"
+          :class="['ml-auto', quiet, countBox, quietClass(view === 'taskline')]"
         >
           {{ tasklineCount }}
         </span>

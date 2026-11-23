@@ -87,16 +87,24 @@ describe.each<Scheme>(["light", "dark"])("Board text contrast (%s)", (scheme) =>
     }
   });
 
-  it("ink-3, the tertiary, clears AA too: the section headings, the hints, the status line, the strip's chrome", () => {
-    // 11–12 px labels on the canvas (sidebar), the surface (status line, inspector) and a
-    // selected row (the strip's "↩ free"). Not on `line`: the quiet counts use ink-2 there.
+  it("ink-3, the tertiary, clears AA too: the table's headings, the hints, the status line, the strip's chrome", () => {
+    // 11–12 px labels on the canvas (the Taskline, the search box), the surface (status line,
+    // inspector), a hovered row or open menu, and a selected row (the strip's "↩ free"). Not on
+    // `line`: nothing puts ink-3 there. The sidebar has its own greys (the B v3 tests below).
     for (const surface of ["canvas", "surface", "sel", "hover"]) {
       expect(contrast(t("ink-3"), t(surface)), `ink-3 on ${surface}`).toBeGreaterThanOrEqual(AA);
     }
-    expect(contrast(t("ink-2"), t("line")), "ink-2 on line (the quiet counts)").toBeGreaterThanOrEqual(AA);
+    expect(
+      contrast(t("ink-2"), t("line")),
+      "ink-2 on line (the Taskline's REFUSED and FAILED tags)",
+    ).toBeGreaterThanOrEqual(AA);
     expect(
       contrast(t("ink-2"), t("orange-tint")),
-      "ink-2 on orange-tint (the armed hint)",
+      "ink-2 on orange-tint (the armed hint, the Zombies card)",
+    ).toBeGreaterThanOrEqual(AA);
+    expect(
+      contrast(t("ink-2"), t("red-tint")),
+      "ink-2 on red-tint (the Public card's caption)",
     ).toBeGreaterThanOrEqual(AA);
   });
 
@@ -133,7 +141,7 @@ describe("the gaps WP-15 left, closed by WP-19", () => {
     expect(contrast(token("orange-ink", "light"), token("surface", "light"))).toBeGreaterThanOrEqual(AA);
   });
 
-  it("light ink-3 clears AA on the surface and the canvas (#626266: 6.07:1 and 5.58:1); dark too (#98989D: 5.26:1 and 5.81:1)", () => {
+  it("light ink-3 clears AA on the surface and the canvas (#6e6e72: 5.08:1 and 4.66:1); dark too (#98989D: 5.26:1 and 5.81:1)", () => {
     for (const scheme of ["light", "dark"] as const) {
       expect(
         contrast(token("ink-3", scheme), token("surface", scheme)),
@@ -169,8 +177,46 @@ describe("the B v3 tokens (#34, spec item 1)", () => {
     expect(light("sidebar-edge")).toEqual(parseHex("#dcdce0"));
     expect(light("brand")).toEqual(parseHex("#ff4528"));
     expect(translucent("sidebar", "light")).toEqual([232, 232, 236, 0.92]);
-    expect(translucent("sel-neutral", "light")).toEqual([0, 0, 0, 0.07]);
-    expect(translucent("sel-neutral", "dark")).toEqual([255, 255, 255, 0.08]);
+    expect(translucent("sidebar-sel", "light")).toEqual([0, 0, 0, 0.07]);
+    expect(translucent("sidebar-sel", "dark")).toEqual([255, 255, 255, 0.08]);
+  });
+
+  it("light: the window's greys are the lightest that keep AA two levels darker; the sidebar's are its own (I1)", () => {
+    const light = (name: string) => token(name, "light");
+    expect(light("ink-2")).toEqual(parseHex("#67676b"));
+    expect(light("ink-3")).toEqual(parseHex("#6e6e72"));
+    expect(light("sidebar-ink-2")).toEqual(parseHex("#5d5d61"));
+    expect(light("sidebar-ink-3")).toEqual(parseHex("#626266"));
+    // The margin: AA holds with the binding background two levels darker; one level lighter loses it.
+    // ink-2's binding background is the line, ink-3's the selected row's tint (darker than the canvas).
+    const shift = (c: Rgb, by: number) => c.map((v) => v + by) as Rgb;
+    for (const [ink, binding] of [
+      ["ink-2", "line"],
+      ["ink-3", "sel"],
+    ] as const) {
+      const background = shift(light(binding), -2);
+      expect(contrast(light(ink), background), `${ink} on ${binding}, 2 darker`).toBeGreaterThanOrEqual(AA);
+      expect(contrast(shift(light(ink), 1), background), `${ink} one level lighter`).toBeLessThan(AA);
+    }
+    // The tertiary stays a level below the secondary.
+    expect(contrast(light("ink-3"), light("canvas"))).toBeLessThan(contrast(light("ink-2"), light("canvas")));
+    expect(contrast(light("ink-2"), light("ink-3"))).toBeGreaterThanOrEqual(1.1);
+  });
+
+  it("the sidebar's nav swaps ink-2 and ink-3 for its own greys (the sidebar-inks utility)", () => {
+    const utility = stylesheet.match(/@utility\s+sidebar-inks\s*\{([^}]*)\}/)?.[1] ?? "";
+    expect(utility).toMatch(/--ink-2:\s*var\(--sidebar-ink-2\)/);
+    expect(utility).toMatch(/--ink-3:\s*var\(--sidebar-ink-3\)/);
+    // And only there: no other rule sets the two.
+    const sets = [...stylesheet.matchAll(/(?<![\w-])--ink-[23]:\s*([^;]+);/g)].map((m) => m[1]?.trim());
+    expect(sets).toEqual([
+      "#67676b",
+      "#6e6e72",
+      "#a1a1a6",
+      "#98989d",
+      "var(--sidebar-ink-2)",
+      "var(--sidebar-ink-3)",
+    ]);
   });
 
   it("dark takes macOS's dark neutrals and keeps today's status inks", () => {
@@ -181,6 +227,9 @@ describe("the B v3 tokens (#34, spec item 1)", () => {
     expect(dark("ink")).toEqual(parseHex("#f5f5f7"));
     expect(dark("ink-2")).toEqual(parseHex("#a1a1a6"));
     expect(dark("ink-3")).toEqual(parseHex("#98989d"));
+    // They pass in the sidebar as they are, so the sidebar's pair is the same.
+    expect(dark("sidebar-ink-2")).toEqual(parseHex("#a1a1a6"));
+    expect(dark("sidebar-ink-3")).toEqual(parseHex("#98989d"));
     const inks = { green: "#7fe8b8", orange: "#ffd089", red: "#ff9aa8", blue: "#a9ccff", purple: "#d6b6ff" };
     for (const [c, value] of Object.entries(inks)) expect(dark(`${c}-ink`), c).toEqual(parseHex(value));
   });
@@ -201,29 +250,55 @@ describe("the B v3 tokens (#34, spec item 1)", () => {
     expect(contrast(WHITE, token("brand", "light")), "white on #ff4528").toBeLessThan(AA);
   });
 
+  it("the window's light greys fail on the sidebar's item fills, which is why the sidebar has its own; a brand ring would too", () => {
+    const sidebar = over(translucent("sidebar", "light"), token("canvas", "light"));
+    const hovered = over(translucent("sidebar-hover", "light"), sidebar);
+    const selected = over(translucent("sidebar-sel", "light"), sidebar);
+    expect(contrast(token("ink-3", "light"), hovered), "ink-3 on a hovered item").toBeLessThan(AA);
+    expect(contrast(token("ink-2", "light"), selected), "ink-2 on the selected item").toBeLessThan(AA);
+    // The focus ring is brand-ink, not brand: #ff4528 is 2.8:1 on the sidebar, 2.4:1 on the selected item.
+    expect(contrast(token("brand", "light"), sidebar), "a brand ring on the sidebar").toBeLessThan(3);
+  });
+
   describe.each<Scheme>(["light", "dark"])("%s", (scheme) => {
     const t = (name: string) => token(name, scheme);
     // The sidebar is translucent over the window's canvas; an item's fill is translucent over the sidebar.
     const sidebar = () => over(translucent("sidebar", scheme), t("canvas"));
     const hovered = () => over(translucent("sidebar-hover", scheme), sidebar());
-    const selected = () => over(translucent("sel-neutral", scheme), sidebar());
+    const selected = () => over(translucent("sidebar-sel", scheme), sidebar());
 
-    it("the sidebar: labels, counts, headings and ⌘ hints clear AA on it and on a hovered item", () => {
+    it("the sidebar: labels, counts, headings and ⌘ hints clear AA on it and on a hovered item (the sidebar's greys)", () => {
       for (const [name, on] of [
         ["sidebar", sidebar()],
         ["a hovered item", hovered()],
       ] as const) {
         expect(contrast(t("ink"), on), `ink on ${name}`).toBeGreaterThanOrEqual(AA);
-        expect(contrast(t("ink-2"), on), `ink-2 (labels) on ${name}`).toBeGreaterThanOrEqual(AA);
-        expect(contrast(t("ink-3"), on), `ink-3 (counts, headings, hints) on ${name}`).toBeGreaterThanOrEqual(
+        expect(contrast(t("sidebar-ink-2"), on), `sidebar-ink-2 (labels) on ${name}`).toBeGreaterThanOrEqual(
           AA,
         );
+        expect(
+          contrast(t("sidebar-ink-3"), on),
+          `sidebar-ink-3 (counts, headings, hints) on ${name}`,
+        ).toBeGreaterThanOrEqual(AA);
       }
     });
 
-    it("the selected item: ink text, and ink-2 on its count and hint, clear AA on the neutral fill", () => {
+    it("the selected item: ink text, and the sidebar's ink-2 on its count and hint, clear AA on the neutral fill", () => {
       expect(contrast(t("ink"), selected()), "ink on the selected item").toBeGreaterThanOrEqual(AA);
-      expect(contrast(t("ink-2"), selected()), "ink-2 on the selected item").toBeGreaterThanOrEqual(AA);
+      expect(
+        contrast(t("sidebar-ink-2"), selected()),
+        "sidebar-ink-2 on the selected item",
+      ).toBeGreaterThanOrEqual(AA);
+    });
+
+    it("the items' focus ring, brand-ink, clears 3:1 on the sidebar and on every item fill", () => {
+      for (const [name, on] of [
+        ["sidebar", sidebar()],
+        ["a hovered item", hovered()],
+        ["the selected item", selected()],
+      ] as const) {
+        expect(contrast(t("brand-ink"), on), `brand-ink ring on ${name}`).toBeGreaterThanOrEqual(3);
+      }
     });
 
     it("the update banner keeps brand ink on the brand tint, and the edge sits apart from the sidebar", () => {

@@ -92,6 +92,44 @@ describe("useKeyboard", () => {
     expect(h.digit).not.toHaveBeenCalled();
   });
 
+  it("⌘1–⌘4 also match the digit row's place (event.code), so AZERTY works without Shift", () => {
+    // AZERTY: the digit row types & é " ' unshifted; the place on the row is Digit1–Digit4.
+    const azerty = [
+      press("&", { metaKey: true, code: "Digit1" }),
+      press("é", { metaKey: true, code: "Digit2" }),
+      press('"', { metaKey: true, code: "Digit3" }),
+      press("'", { metaKey: true, code: "Digit4" }),
+    ];
+    expect(h.category.mock.calls).toEqual([[0], [1], [2], [3]]);
+    expect(azerty.map((e) => e.defaultPrevented)).toEqual([true, true, true, true]);
+    expect(h.digit).not.toHaveBeenCalled();
+  });
+
+  it("⌘1 by its key alone (no code) still picks the first category, and a key that matches both fires once", () => {
+    press("1", { metaKey: true });
+    expect(h.category.mock.calls).toEqual([[0]]);
+    press("1", { metaKey: true, code: "Digit1" });
+    press("3", { metaKey: true, code: "Numpad3" });
+    expect(h.category.mock.calls).toEqual([[0], [0], [2]]);
+  });
+
+  it("by code too: Shift or Alt still do nothing, ⌘5 and above are left alone, a bare key still searches", () => {
+    const ignored = [
+      // AZERTY Shift+& types 1: Shift stays excluded.
+      press("1", { metaKey: true, shiftKey: true, code: "Digit1" }),
+      press("&", { metaKey: true, altKey: true, code: "Digit1" }),
+      press("(", { metaKey: true, code: "Digit5" }),
+      press("à", { metaKey: true, code: "Digit0" }),
+    ];
+    expect(h.category).not.toHaveBeenCalled();
+    expect(ignored.map((e) => e.defaultPrevented)).toEqual(ignored.map(() => false));
+    // Without ⌘: a digit starts a search; AZERTY's unshifted & is not a digit and does nothing.
+    press("1", { code: "Digit1" });
+    press("&", { code: "Digit1" });
+    expect(h.digit.mock.calls).toEqual([["1"]]);
+    expect(h.category).not.toHaveBeenCalled();
+  });
+
   it("⌘ with Shift or Alt and a digit does nothing, and ⌘5–⌘9, ⌘0 are left alone", () => {
     const ignored = [
       press("1", { metaKey: true, shiftKey: true }),

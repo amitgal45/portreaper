@@ -6,7 +6,9 @@
    bg-green-tint...). Components use the utilities, never a hex.
    Light takes the mock-up's neutrals, dark macOS's. Every grey clears 4.5:1 on each background it
    sits on (src/lib/contrast.test.ts), so ink-2 and ink-3 are darker than the mock-up's #6e6e73 and
-   #8e8e93: their darkest backgrounds are a hovered and a selected sidebar item. */
+   #8e8e93: each is the lightest grey that keeps 4.5:1 on its backgrounds with the background two
+   levels darker. The sidebar has its own, darker pair (--sidebar-ink-2/3, the `sidebar-inks`
+   utility on its nav): a hovered and a selected item are darker than anything in the window. */
 :root {
   color-scheme: light dark;
   -webkit-font-smoothing: antialiased;
@@ -16,19 +18,23 @@
   --line: #e8e8ed;
   --line-strong: #d2d2d7;
   --ink: #1d1d1f;
-  /* Mock-up #6e6e73 (4.2:1 on the sidebar); this clears 4.5:1 on a selected sidebar item. */
-  --ink-2: #5d5d61;
-  /* Mock-up #8e8e93 (3.3:1 on white); this clears 4.5:1 on a hovered sidebar item. */
-  --ink-3: #626266;
+  /* Mock-up #6e6e73 (4.15:1 on the line); this clears 4.5:1 on the line, its darkest background
+     (the Taskline's REFUSED and FAILED tags). */
+  --ink-2: #67676b;
+  /* Mock-up #8e8e93 (3.3:1 on white); this clears 4.5:1 on a selected row's tint and the canvas. */
+  --ink-3: #6e6e72;
 
   /* The table's header and group rows, and the line between rows. */
   --band: #fafafa;
   --row-line: #f0f0f3;
-  /* The sidebar, translucent over the canvas, its edge, and its items' fills. */
+  /* The sidebar, translucent over the canvas, its edge, and its items' fills (hovered, selected). */
   --sidebar: rgba(232, 232, 236, 0.92);
   --sidebar-edge: #dcdce0;
   --sidebar-hover: rgba(0, 0, 0, 0.04);
-  --sel-neutral: rgba(0, 0, 0, 0.07);
+  --sidebar-sel: rgba(0, 0, 0, 0.07);
+  /* The sidebar's greys: ink-2 clears 4.5:1 on a selected item, ink-3 on a hovered one. */
+  --sidebar-ink-2: #5d5d61;
+  --sidebar-ink-3: #626266;
 
   --brand: #ff4528;
   --brand-tint: #fff1ee;
@@ -75,7 +81,11 @@
     --sidebar: rgba(36, 36, 38, 0.92);
     --sidebar-edge: #161617;
     --sidebar-hover: rgba(255, 255, 255, 0.05);
-    --sel-neutral: rgba(255, 255, 255, 0.08);
+    --sidebar-sel: rgba(255, 255, 255, 0.08);
+    /* The window's greys already clear 4.5:1 there (ink-3 is 4.2:1 on a selected item, which takes
+       ink-2 for its count and hint). */
+    --sidebar-ink-2: #a1a1a6;
+    --sidebar-ink-3: #98989d;
 
     --brand: #ff5a3f;
     --brand-tint: #3a251f;
@@ -138,7 +148,7 @@
   --color-sel: var(--sel);
   --color-sel-fill: var(--sel-fill);
   --color-on-sel-fill: var(--on-sel-fill);
-  --color-sel-neutral: var(--sel-neutral);
+  --color-sidebar-sel: var(--sidebar-sel);
   --color-hover: var(--hover);
   --color-band: var(--band);
   --color-row-line: var(--row-line);
@@ -162,6 +172,14 @@ body {
   font-size: 13px;
   user-select: none;
   cursor: default;
+}
+
+/* The sidebar's nav: every text-ink-2 and text-ink-3 inside it takes the sidebar's greys. `@theme
+   inline` writes the utilities as `color: var(--ink-2)`, resolved at each element, so overriding the
+   two variables here is enough. */
+@utility sidebar-inks {
+  --ink-2: var(--sidebar-ink-2);
+  --ink-3: var(--sidebar-ink-3);
 }
 
 /* One stroke weight in the window (spec item 8): lucide draws `stroke-width="2"` (or what a call site

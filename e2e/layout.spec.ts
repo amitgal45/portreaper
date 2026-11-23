@@ -1,4 +1,4 @@
-import { expect, type Locator, test } from "@playwright/test";
+import { expect, type Locator, type Page, test } from "@playwright/test";
 import {
   confirmDialog,
   contrast,
@@ -10,6 +10,7 @@ import {
   open,
   over,
   paintedColor,
+  type Rgba,
   row,
   rows,
   statusLine,
@@ -18,6 +19,17 @@ import {
 } from "./helpers";
 
 test.describe.configure({ mode: "parallel" });
+
+/** A grey token as the root sets it for the scheme (`--sidebar-ink-2` → [r, g, b]). */
+async function rootToken(page: Page, name: string): Promise<number[]> {
+  const hex = await page.evaluate(
+    (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim(),
+    name,
+  );
+  expect(hex, name).toMatch(/^#[0-9a-f]{6}$/i);
+  return [1, 3, 5].map((i) => Number.parseInt(hex.slice(i, i + 2), 16));
+}
+const rgb = (c: Rgba) => [c.r, c.g, c.b];
 
 test.describe("at the minimum window size", () => {
   test.use({ viewport: { width: 760, height: 520 } });
@@ -208,9 +220,11 @@ test.describe("the tokens", () => {
         const surface = await paintedColor(page.locator("[role='grid']"), "backgroundColor");
         const first = row(page, 3000);
 
-        // The pid, memory and uptime sit on the row surface in ink-2.
+        // The pid, memory and uptime sit on the row surface in ink-2, the window's grey.
+        const ink2 = await rootToken(page, "--ink-2");
         for (const cell of ["48213", "412 MB", "2 h"]) {
           const colour = await paintedColor(first.getByText(cell, { exact: true }), "color");
+          expect(rgb(colour), `${cell} paints --ink-2`).toEqual(ink2);
           expect(
             contrast(colour, surface),
             `${cell} is ${colour.css} on ${surface.css}`,
@@ -238,7 +252,7 @@ test.describe("the tokens", () => {
         }
 
         // The selected sidebar item (B v3): ink on the neutral fill, over the translucent sidebar,
-        // over the window's canvas. A label that is off: ink-2 on the sidebar.
+        // over the window's canvas. A label that is off: the sidebar's own ink-2 on the sidebar.
         const windowCanvas = await paintedColor(page.locator("main"), "backgroundColor");
         const sidebar = over(
           await paintedColor(page.getByRole("navigation", { name: "Views" }), "backgroundColor"),
@@ -253,6 +267,10 @@ test.describe("the tokens", () => {
             `${key} label is ${label.css} on ${itemSurface.css}`,
           ).toBeGreaterThanOrEqual(4.5);
         }
+        expect(
+          rgb(await paintedColor(navItem(page, "dev"), "color")),
+          "dev label paints --sidebar-ink-2",
+        ).toEqual(await rootToken(page, "--sidebar-ink-2"));
       });
 
       test("the pills, the filled Kill, the sidebar's badges and the tertiary labels clear AA (4.5:1)", async ({
@@ -298,6 +316,11 @@ test.describe("the tokens", () => {
         for (const key of ["all", "dev", "zombie", "public", "watching"] as const) {
           await inItem(key, navItem(page, key).locator("[data-count]"), `${key} count`);
         }
+        // The quiet counts, hints and headings take the sidebar's ink-3; the status line below, the window's.
+        expect(
+          rgb(await paintedColor(navItem(page, "dev").locator("[data-count]"), "color")),
+          "dev count paints --sidebar-ink-3",
+        ).toEqual(await rootToken(page, "--sidebar-ink-3"));
         for (const key of ["all", "dev", "ai", "db"] as const) {
           await inItem(key, navItem(page, key).locator("[data-shortcut]"), `${key} ⌘ hint`);
         }
@@ -315,6 +338,7 @@ test.describe("the tokens", () => {
         // The status line's tertiary text on the surface.
         const footer = await paintedColor(statusLine(page), "backgroundColor");
         const status = await paintedColor(statusLine(page).locator("span").nth(1), "color");
+        expect(rgb(status), "the status line paints --ink-3").toEqual(await rootToken(page, "--ink-3"));
         expect(contrast(status, footer), `status is ${status.css} on ${footer.css}`).toBeGreaterThanOrEqual(
           4.5,
         );

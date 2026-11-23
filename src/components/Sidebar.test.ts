@@ -2,7 +2,7 @@ import { mount, type VueWrapper } from "@vue/test-utils";
 import { describe, expect, it, vi } from "vitest";
 import type { Component } from "vue";
 import { createMockApi, MOCK_UPDATE } from "../api/mock";
-import type { CategoryFilter } from "../composables/usePorts";
+import type { CategoryCounts, CategoryFilter } from "../composables/usePorts";
 import { usePorts } from "../composables/usePorts";
 import { type UpdateState, useUpdate } from "../composables/useUpdate";
 import {
@@ -22,7 +22,13 @@ import Sidebar, { type View } from "./Sidebar.vue";
 /** The sidebar over the mock, the way App.vue feeds it, with the banner in the given state. */
 async function mountSidebar(
   update: UpdateState,
-  state: { view?: View; category?: CategoryFilter; tasklineCount?: number } = {},
+  state: {
+    view?: View;
+    category?: CategoryFilter;
+    tasklineCount?: number;
+    /** Counts over the mock's, for the items that need a given number. */
+    counts?: Partial<CategoryCounts>;
+  } = {},
 ) {
   const store = usePorts(createMockApi(), { storage: null });
   await store.refresh();
@@ -30,7 +36,7 @@ async function mountSidebar(
     props: {
       view: state.view ?? "studio",
       category: state.category ?? "all",
-      counts: store.counts.value,
+      counts: { ...store.counts.value, ...state.counts },
       tasklineCount: state.tasklineCount ?? 0,
       update,
     },
@@ -146,10 +152,11 @@ describe("Sidebar items (B v3, spec item 2)", () => {
     const wrapper = await mountSidebar(IDLE, { category: "dev" });
     const on = wrapper.get("[data-nav='dev']");
     expect(on.attributes("aria-current")).toBe("true");
-    expect(on.classes()).toEqual(expect.arrayContaining(["bg-sel-neutral", "text-ink"]));
+    expect(on.classes()).toEqual(expect.arrayContaining(["bg-sidebar-sel", "text-ink"]));
     // One colour and one hover per state: two utilities for a property leave the winner to the CSS order.
     expect(on.classes()).not.toContain("text-ink-2");
     expect(on.classes()).not.toContain("hover:bg-sidebar-hover");
+    expect(on.classes()).not.toContain("active:bg-sidebar-sel");
     expect(on.classes().filter((c) => /brand/.test(c) && !c.startsWith("focus-visible:"))).toEqual([]);
     expect(iconOf(wrapper, "dev").classes()).toContain("text-brand");
     expect(countOf(wrapper, "dev").classes()).toContain("text-ink-2");
@@ -159,7 +166,7 @@ describe("Sidebar items (B v3, spec item 2)", () => {
     for (const key of ["all", "ai", "db", "zombie", "public", "watching", "taskline", "settings"]) {
       const off = wrapper.get(`[data-nav='${key}']`);
       expect(off.attributes("aria-current"), key).toBeUndefined();
-      expect(off.classes(), key).not.toContain("bg-sel-neutral");
+      expect(off.classes(), key).not.toContain("bg-sidebar-sel");
       expect(off.classes(), key).toContain("text-ink-2");
       expect(off.classes(), key).not.toContain("text-ink");
       expect(off.classes(), key).toContain("hover:bg-sidebar-hover");
@@ -182,7 +189,7 @@ describe("Sidebar items (B v3, spec item 2)", () => {
       const wrapper = await mountSidebar(IDLE, { view, tasklineCount: 2 });
       const on = wrapper.get(`[data-nav='${view}']`);
       expect(on.attributes("aria-current")).toBe("true");
-      expect(on.classes()).toEqual(expect.arrayContaining(["bg-sel-neutral", "text-ink"]));
+      expect(on.classes()).toEqual(expect.arrayContaining(["bg-sidebar-sel", "text-ink"]));
       expect(on.classes()).not.toContain("text-ink-2");
       expect(iconOf(wrapper, view).classes()).toContain("text-brand");
       // No category is on outside the Studio.
@@ -190,6 +197,57 @@ describe("Sidebar items (B v3, spec item 2)", () => {
     }
     const taskline = await mountSidebar(IDLE, { view: "taskline", tasklineCount: 2 });
     expect(taskline.get("[data-badge='taskline-count']").classes()).toContain("text-ink-2");
+  });
+
+  it("an alarm with nothing to show has a quiet icon; above 0 it keeps its orange or red (M1)", async () => {
+    const quiet = await mountSidebar(IDLE, { counts: { zombie: 0, public: 0 } });
+    for (const key of ["zombie", "public"]) {
+      expect(countOf(quiet, key).text(), key).toBe("0");
+      expect(iconOf(quiet, key).classes(), key).toContain("text-ink-3");
+      expect(iconOf(quiet, key).classes(), key).not.toEqual(expect.arrayContaining(["text-orange"]));
+      expect(iconOf(quiet, key).classes(), key).not.toEqual(expect.arrayContaining(["text-red"]));
+    }
+
+    const loud = await mountSidebar(IDLE, { counts: { zombie: 1, public: 12 } });
+    expect(iconOf(loud, "zombie").classes()).toContain("text-orange");
+    expect(iconOf(loud, "zombie").classes()).not.toContain("text-ink-3");
+    expect(iconOf(loud, "public").classes()).toContain("text-red");
+    expect(iconOf(loud, "public").classes()).not.toContain("text-ink-3");
+
+    // On, at 0: the coral of the selected item, like any other.
+    const on = await mountSidebar(IDLE, { category: "public", counts: { public: 0 } });
+    expect(iconOf(on, "public").classes()).toContain("text-brand");
+  });
+
+  it("the nav takes the sidebar's own greys, so text-ink-2 and text-ink-3 in it read --sidebar-ink-2/3 (I1)", async () => {
+    const wrapper = await mountSidebar(IDLE);
+    expect(wrapper.get("nav").classes()).toContain("sidebar-inks");
+  });
+
+  it("items: a brand-ink focus ring, a press fill on the off ones with no motion, and counts two digits wide", async () => {
+    const wrapper = await mountSidebar(IDLE, { category: "dev", tasklineCount: 3 });
+    for (const button of wrapper.findAll("[data-nav]")) {
+      const key = button.attributes("data-nav");
+      const classes = button.classes();
+      expect(classes, key).toEqual(
+        expect.arrayContaining(["focus-visible:ring-2", "focus-visible:ring-brand-ink"]),
+      );
+      expect(
+        classes.filter((c) => c.startsWith("focus-visible:ring-brand/")),
+        key,
+      ).toEqual([]);
+      expect(
+        classes.filter((c) => /transition|duration|scale|animate/.test(c)),
+        key,
+      ).toEqual([]);
+      if (button.attributes("aria-current")) expect(classes, key).not.toContain("active:bg-sidebar-sel");
+      else expect(classes, key).toContain("active:bg-sidebar-sel");
+    }
+    for (const key of ["all", "dev", "ai", "db", "zombie", "public", "watching", "taskline"]) {
+      expect(countOf(wrapper, key).classes(), key).toEqual(
+        expect.arrayContaining(["min-w-[2ch]", "text-right"]),
+      );
+    }
   });
 
   it("section headings are in sentence case", async () => {

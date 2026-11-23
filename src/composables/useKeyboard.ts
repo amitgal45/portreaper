@@ -46,9 +46,22 @@ function inOverlay(target: EventTarget | null): boolean {
 }
 
 /**
+ * The 0-based category of a ⌘-digit, or null. The key's character ("1"–"4") or its place on the
+ * digit row (`Digit1`–`Digit4`): on AZERTY the digit row types "&", "é", '"', "'" without Shift.
+ */
+function categoryIndex(event: KeyboardEvent): number | null {
+  const count = CATEGORY_SHORTCUTS.length;
+  const byKey = /^[1-9]$/.exec(event.key);
+  if (byKey && Number(byKey[0]) <= count) return Number(byKey[0]) - 1;
+  const byCode = /^Digit([1-9])$/.exec(event.code);
+  if (byCode && Number(byCode[1]) <= count) return Number(byCode[1]) - 1;
+  return null;
+}
+
+/**
  * The window-level keys. Arrows, Enter and Esc work from inside the search box too, so the whole
  * flow is "type, ↓, Enter". Digits outside any input jump to the search; with ⌘ the first four
- * pick a category, from the search box too. Nothing fires while a dialog or menu owns the focus.
+ * pick a category (by key or by place on the digit row), from the search box too. Nothing fires while a dialog or menu owns the focus.
  * Call `start()` on mount and `stop()` on unmount.
  */
 export function useKeyboard(handlers: KeyboardHandlers, options: UseKeyboardOptions = {}) {
@@ -62,6 +75,7 @@ export function useKeyboard(handlers: KeyboardHandlers, options: UseKeyboardOpti
 
     if (meta && !event.shiftKey && !event.altKey) {
       const key = event.key.toLowerCase();
+      const index = categoryIndex(event);
       if (key === "f") {
         event.preventDefault();
         handlers.focusSearch();
@@ -73,9 +87,9 @@ export function useKeyboard(handlers: KeyboardHandlers, options: UseKeyboardOpti
         handlers.preferences();
       } else if (event.key === "Backspace") {
         if (handlers.forceKill()) event.preventDefault();
-      } else if (/^[1-9]$/.test(event.key) && Number(event.key) <= CATEGORY_SHORTCUTS.length) {
+      } else if (index !== null) {
         event.preventDefault();
-        handlers.category(Number(event.key) - 1);
+        handlers.category(index);
       }
       return;
     }
