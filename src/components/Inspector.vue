@@ -2,7 +2,7 @@
 // One process, in full: the header, network, resources, project, ancestry, the full command
 // with its copy button, and the two verbs. The same panel sits as the third column of the Board
 // in a wide window and inside a slide-over in a narrow one (App.vue decides).
-import { Copy, ExternalLink, Eye, FolderOpen, GitBranch, LoaderCircle, RotateCw, X } from "lucide-vue-next";
+import { Copy, ExternalLink, FolderOpen, GitBranch, LoaderCircle, RotateCw, X } from "lucide-vue-next";
 import { computed, ref, watch } from "vue";
 import { useApi } from "../api";
 import { killLabels, useActions } from "../composables/useActions";
@@ -12,6 +12,7 @@ import { formatBytes, formatUptime } from "../lib/format";
 import { jobText, offeredStopCommand } from "../lib/protection";
 import type { PortEntry, ProcessNode } from "../types";
 import FrameworkIcon from "./FrameworkIcon.vue";
+import { EyeIcon } from "./icons";
 
 const props = defineProps<{
   entry: PortEntry;
@@ -28,7 +29,7 @@ const actions = useActions();
 const labels = computed(() => killLabels(actions.defaultForce?.() ?? false));
 const isWatched = useWatched();
 
-/** The port is watched (WP-18): the eye in the header is on, and the Network card says so. */
+/** The port is watched (WP-18): the eye in the header is on, and the Network section says so. */
 const watched = computed(() => isWatched(props.entry));
 
 /** The ancestry, launchd first. `null` while loading, `[]` when the core does not know. */
@@ -65,7 +66,7 @@ const image = computed(() => (props.entry.project?.tool === "docker" ? props.ent
 const job = computed(() => props.entry.launchd ?? null);
 /** Never for a system job, whatever the core sent (`offeredStopCommand`). */
 const stopCommand = computed(() => offeredStopCommand(job.value));
-/** The Container card's mark is Docker's whatever the header's framework icon says. */
+/** The Container section's mark is Docker's whatever the header's framework icon says. */
 const DOCKER_MARK = { framework: "Docker", processName: "docker" } as const;
 const isPublic = computed(() => props.entry.bind === "any");
 const bindNote = computed(() => {
@@ -107,10 +108,16 @@ const restartLine = computed(() => {
   }
 });
 
-const section = "space-y-1 rounded-lg border border-line bg-canvas p-3";
-const heading = "text-[11px] font-semibold uppercase tracking-wide text-ink-3";
+/**
+ * B v3 (#34): flat sections on the surface, each divided from the next by a line (`.ibody .sc` in
+ * the mock-up); the last, the full command, has none. Headings in sentence case, ink-3 on the
+ * surface (5.08:1 light, 5.26:1 dark): never on --line or a tint (src/lib/contrast.test.ts).
+ */
+const section = "space-y-1 border-b border-line py-3";
+const lastSection = "space-y-1 py-3";
+const heading = "text-[11.5px] font-medium text-ink-3";
 const ghost =
-  "inline-flex h-6 items-center gap-1 rounded-md border border-line-strong bg-surface px-2 text-[12px] text-ink-2 outline-none enabled:hover:text-ink focus-visible:ring-2 focus-visible:ring-brand/40 disabled:opacity-40";
+  "inline-flex h-6 items-center gap-1 rounded-md border border-line-strong bg-surface px-2 text-[12px] text-ink-2 outline-none enabled:hover:text-ink focus-visible:ring-2 focus-visible:ring-brand-ink disabled:opacity-40";
 </script>
 
 <template>
@@ -131,18 +138,18 @@ const ghost =
         type="button"
         data-action="watch"
         :disabled="entry.port === 0"
-        class="flex h-7 w-7 shrink-0 items-center justify-center rounded-md outline-none enabled:hover:bg-hover focus-visible:ring-2 focus-visible:ring-brand/40 disabled:opacity-40"
+        class="flex h-7 w-7 shrink-0 items-center justify-center rounded-md outline-none enabled:hover:bg-hover focus-visible:ring-2 focus-visible:ring-brand-ink disabled:opacity-40"
         :class="watched ? 'text-blue-ink' : 'text-ink-3 enabled:hover:text-ink'"
         :aria-pressed="watched"
         aria-label="Watch"
         :title="entry.port === 0 ? 'No port to watch (stdio process)' : watched ? `Stop watching :${entry.port}` : `Watch :${entry.port} · notify when it is free`"
         @click="actions.watch(entry)"
       >
-        <Eye :size="14" :stroke-width="2" />
+        <EyeIcon :size="14" />
       </button>
       <button
         type="button"
-        class="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-ink-3 outline-none hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-brand/40"
+        class="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-ink-3 outline-none hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-brand-ink"
         aria-label="Close"
         title="Close (Esc)"
         @click="emit('close')"
@@ -151,8 +158,8 @@ const ghost =
       </button>
     </header>
 
-    <div class="min-h-0 flex-1 space-y-2.5 overflow-y-auto p-4">
-      <div class="grid grid-cols-2 gap-2.5">
+    <div class="min-h-0 flex-1 overflow-y-auto bg-surface px-4 py-1">
+      <div class="grid grid-cols-2 gap-4">
         <div data-section="bind" :class="section">
           <div :class="heading">Network</div>
           <div class="flex items-center gap-1.5 truncate font-mono text-[13px] font-semibold" :class="isPublic ? 'text-red-ink' : 'text-ink'">
@@ -228,7 +235,7 @@ const ghost =
         </ol>
       </div>
 
-      <div data-section="command" :class="section">
+      <div data-section="command" :class="lastSection">
         <div class="flex items-center justify-between">
           <div :class="heading">Full command</div>
           <button type="button" :class="ghost" :disabled="!entry.command" title="Copy the command line" @click="actions.copyCommand(entry)">
@@ -262,7 +269,7 @@ const ghost =
       <div class="flex items-center gap-2">
         <button
           type="button"
-          class="flex h-8 flex-1 items-center justify-center gap-1.5 rounded-lg border border-line-strong bg-surface text-[13px] font-medium text-ink outline-none transition-colors enabled:hover:bg-hover focus-visible:ring-2 focus-visible:ring-brand/40 disabled:opacity-40"
+          class="flex h-8 flex-1 items-center justify-center gap-1.5 rounded-md border border-line-strong bg-surface text-[13px] font-medium text-ink outline-none transition-colors enabled:hover:bg-hover focus-visible:ring-2 focus-visible:ring-brand-ink disabled:opacity-40"
           :disabled="restartBlocked !== '' || restartBusy"
           :title="restartBlocked || 'Kill gracefully, then start it again from the same command and folder'"
           @click="actions.restart(entry)"
@@ -271,9 +278,11 @@ const ghost =
           <RotateCw v-else :size="13" :stroke-width="2" class="text-blue-ink" aria-hidden="true" />
           Restart
         </button>
+        <!-- The ring stands 2 px off the red fill, on a band of the surface (the footer shows the
+             aside's): brand-ink right on red-ink would be 1.14:1. -->
         <button
           type="button"
-          class="flex h-8 flex-1 items-center justify-center gap-1.5 rounded-lg border border-red-ink bg-red-ink text-[13px] font-semibold text-surface outline-none transition-colors hover:brightness-95 focus-visible:ring-2 focus-visible:ring-brand/40"
+          class="flex h-8 flex-1 items-center justify-center gap-1.5 rounded-md border border-red-ink bg-red-ink text-[13px] font-semibold text-surface outline-none transition-colors hover:brightness-95 focus-visible:ring-2 focus-visible:ring-brand-ink ring-offset-2 ring-offset-surface"
           :title="entry.protected ? 'Kill (asks first)' : labels.title"
           @click="actions.kill(entry, $event.altKey)"
         >

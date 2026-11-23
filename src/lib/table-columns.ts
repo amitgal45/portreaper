@@ -4,7 +4,7 @@
  * 640 px wide; four below that (memory and uptime move to the inspector, which is what makes
  * the main column narrow in the first place). Every track is fixed or `1fr`, never `auto`: the
  * header and the rows are separate grids, and only equal tracks keep them aligned. The 104 px
- * status track fits the widest pill ("AI · 4.9 GB") and a brand mark; the secondary pills are
+ * status track fits the widest status ("AI · 4.9 GB") and a brand mark; the secondary statuses are
  * hidden at that width. `@container/main` is on the main column in App.vue.
  */
 export const TABLE_COLUMNS =
