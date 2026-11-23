@@ -19,6 +19,7 @@ function handlers() {
     focusSearch: vi.fn<() => void>(),
     refresh: vi.fn<() => void>(),
     preferences: vi.fn<() => void>(),
+    category: vi.fn<(index: number) => void>(),
     digit: vi.fn<(digit: string) => void>(),
   } satisfies KeyboardHandlers;
 }
@@ -67,6 +68,60 @@ describe("useKeyboard", () => {
     press(",");
     press(",", { metaKey: true, shiftKey: true });
     expect(h.preferences).toHaveBeenCalledTimes(2);
+  });
+
+  it("⌘1–⌘4 pick the category by its index (All ports, Dev servers, Local AI, Databases)", () => {
+    const events = ["1", "2", "3", "4"].map((digit) => press(digit, { metaKey: true }));
+    expect(h.category.mock.calls).toEqual([[0], [1], [2], [3]]);
+    expect(events.map((e) => e.defaultPrevented)).toEqual([true, true, true, true]);
+    expect(h.digit).not.toHaveBeenCalled();
+    // The keys ⌘F, ⌘R, ⌘, and ⌘⌫ are untouched.
+    expect(h.focusSearch).not.toHaveBeenCalled();
+    expect(h.refresh).not.toHaveBeenCalled();
+    expect(h.preferences).not.toHaveBeenCalled();
+    expect(h.forceKill).not.toHaveBeenCalled();
+  });
+
+  it("⌘1–⌘4 work from inside the search input, like ⌘F", () => {
+    const input = document.createElement("input");
+    document.body.appendChild(input);
+    const event = press("2", { metaKey: true }, input);
+    press("4", { metaKey: true }, input);
+    expect(h.category.mock.calls).toEqual([[1], [3]]);
+    expect(event.defaultPrevented).toBe(true);
+    expect(h.digit).not.toHaveBeenCalled();
+  });
+
+  it("⌘ with Shift or Alt and a digit does nothing, and ⌘5–⌘9, ⌘0 are left alone", () => {
+    const ignored = [
+      press("1", { metaKey: true, shiftKey: true }),
+      press("!", { metaKey: true, shiftKey: true }),
+      press("2", { metaKey: true, altKey: true }),
+      press("™", { metaKey: true, altKey: true }),
+      press("3", { metaKey: true, shiftKey: true, altKey: true }),
+      press("5", { metaKey: true }),
+      press("9", { metaKey: true }),
+      press("0", { metaKey: true }),
+    ];
+    expect(h.category).not.toHaveBeenCalled();
+    expect(h.digit).not.toHaveBeenCalled();
+    expect(ignored.map((e) => e.defaultPrevented)).toEqual(ignored.map(() => false));
+  });
+
+  it("a bare digit still starts a search, the four included; ⌘1 does nothing while a dialog or menu has the focus", () => {
+    for (const digit of ["1", "2", "3", "4"]) press(digit);
+    expect(h.digit.mock.calls).toEqual([["1"], ["2"], ["3"], ["4"]]);
+    expect(h.category).not.toHaveBeenCalled();
+
+    const dialog = document.createElement("div");
+    dialog.setAttribute("role", "dialog");
+    const inside = document.createElement("button");
+    dialog.appendChild(inside);
+    document.body.appendChild(dialog);
+    press("1", { metaKey: true }, inside);
+    enabled = false;
+    press("1", { metaKey: true });
+    expect(h.category).not.toHaveBeenCalled();
   });
 
   it("sends a digit typed outside an input to the search, not one typed inside", () => {
@@ -143,6 +198,7 @@ describe("useKeyboard with usePorts", () => {
       focusSearch: () => {},
       refresh: () => {},
       preferences: () => {},
+      category: () => {},
       digit: () => {},
     });
     keyboard.start();

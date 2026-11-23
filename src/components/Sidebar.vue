@@ -3,11 +3,26 @@
 // category filters with their counts ("Ports"), the two alarms ("Needs attention"), and at the
 // bottom the update banner when a newer release is known (WP-16), the Taskline and Settings. One
 // item is on: a category while the Studio shows, the Taskline while the feed shows, Settings
-// while Preferences shows (WP-17b). Clicking a category from either goes back to the Studio.
-import { Clock, Database, Eye, Globe, LayoutGrid, Settings, Sparkles, Terminal, Zap } from "lucide-vue-next";
+// while Preferences shows (WP-17b). Clicking a category from either goes back to the Studio, and
+// so do ⌘1–⌘4 (App.vue), whose hints sit on the first four items.
+// B v3 (#34): a translucent macOS sidebar, our own icons, plain grey counts, and a neutral fill with
+// a coral icon on the item that is on.
+import type { Component } from "vue";
+import { CATEGORY_SHORTCUTS } from "../composables/useKeyboard";
 import type { CategoryCounts, CategoryFilter } from "../composables/usePorts";
 import { bannerText, percentOf, type UpdateState } from "../composables/useUpdate";
 import AppMark from "./AppMark.vue";
+import {
+  ClockIcon,
+  DbIcon,
+  EyeIcon,
+  GearIcon,
+  GlobeIcon,
+  GridIcon,
+  SparkIcon,
+  TermIcon,
+  ZapIcon,
+} from "./icons";
 
 export type View = "studio" | "taskline" | "settings";
 
@@ -31,29 +46,32 @@ const emit = defineEmits<{
 interface Item {
   key: CategoryFilter;
   label: string;
-  icon: typeof LayoutGrid;
-  /** Alarms keep their colour on the icon and the badge while the item is off. */
+  icon: Component;
+  /** Alarms keep their colour on the icon while the item is off; the count stays grey. */
   tone?: "warn" | "danger";
 }
 
 const PORTS: Item[] = [
-  { key: "all", label: "All ports", icon: LayoutGrid },
-  { key: "dev", label: "Dev servers", icon: Terminal },
-  { key: "ai", label: "Local AI", icon: Sparkles },
-  { key: "db", label: "Databases", icon: Database },
+  { key: "all", label: "All ports", icon: GridIcon },
+  { key: "dev", label: "Dev servers", icon: TermIcon },
+  { key: "ai", label: "Local AI", icon: SparkIcon },
+  { key: "db", label: "Databases", icon: DbIcon },
 ];
 
 const ATTENTION: Item[] = [
-  { key: "zombie", label: "Zombies", icon: Zap, tone: "warn" },
-  { key: "public", label: "Public on LAN", icon: Globe, tone: "danger" },
-  { key: "watching", label: "Watching", icon: Eye },
+  { key: "zombie", label: "Zombies", icon: ZapIcon, tone: "warn" },
+  { key: "public", label: "Public on LAN", icon: GlobeIcon, tone: "danger" },
+  { key: "watching", label: "Watching", icon: EyeIcon },
 ];
 
 const item =
-  "flex h-7 w-full items-center gap-2 rounded-md px-2 text-left text-[13px] text-ink-2 outline-none hover:bg-hover focus-visible:ring-2 focus-visible:ring-brand/40";
-const on = "bg-brand-tint font-semibold text-brand-ink hover:bg-brand-tint";
-const badge = "ml-auto rounded-full px-1.5 py-px font-mono text-[11px] font-medium leading-4 tabular-nums";
-const section = "px-2 pt-3.5 pb-1.5 text-[11px] font-semibold uppercase tracking-wide text-ink-3";
+  "flex h-7 w-full items-center gap-2 rounded-md px-2 text-left text-[13px] outline-none focus-visible:ring-2 focus-visible:ring-brand/40";
+/** On or off, never both: two utilities for one property would leave the winner to the stylesheet's order. */
+const on = "bg-sel-neutral text-ink";
+const off = "text-ink-2 hover:bg-sidebar-hover";
+/** The hint and the count: 11 px sans, grey. ink-3 off; ink-2 on the selected fill, where ink-3 is short of AA. */
+const quiet = "text-[11px] leading-4 tabular-nums";
+const section = "px-2 pt-3.5 pb-1.5 text-[11px] font-semibold text-ink-3";
 const updateButton =
   "h-6 rounded-md bg-brand-ink px-2 text-[12px] font-semibold text-surface outline-none hover:opacity-90 focus-visible:ring-2 focus-visible:ring-brand/40";
 
@@ -68,20 +86,21 @@ function isOn(key: CategoryFilter): boolean {
   return props.view === "studio" && props.category === key;
 }
 
+/** ⌘1–⌘4 on the four "Ports" items; nothing on the others. */
+function shortcutOf(key: CategoryFilter): number | null {
+  const index = CATEGORY_SHORTCUTS.indexOf(key);
+  return index < 0 ? null : index + 1;
+}
+
 function iconClass(it: Item, active: boolean): string {
-  if (active) return "text-brand-ink";
+  if (active) return "text-brand";
   if (it.tone === "warn") return "text-orange";
   if (it.tone === "danger") return "text-red";
   return "text-ink-3";
 }
 
-/** An alarm's badge keeps its colour while it counts something; at zero it goes quiet. */
-function badgeClass(it: Item, active: boolean): string {
-  if (active) return "bg-brand-ink text-surface";
-  if (props.counts[it.key] === 0) return "bg-line text-ink-2";
-  if (it.tone === "warn") return "bg-orange-tint text-orange-ink";
-  if (it.tone === "danger") return "bg-red-tint text-red-ink";
-  return "bg-line text-ink-2";
+function quietClass(active: boolean): string {
+  return active ? "text-ink-2" : "text-ink-3";
 }
 
 function pick(key: CategoryFilter) {
@@ -91,7 +110,7 @@ function pick(key: CategoryFilter) {
 </script>
 
 <template>
-  <nav aria-label="Views" class="flex h-full min-h-0 flex-col border-r border-line bg-canvas px-2.5 pb-2.5">
+  <nav aria-label="Views" class="flex h-full min-h-0 flex-col border-r border-sidebar-edge bg-sidebar px-2.5 pb-2.5">
     <!-- 52 px for the traffic lights alone: macOS draws them at the top left, and nothing sits
          beside them. The brand gets its own row below, the way Slack places the workspace name. -->
     <div data-tauri-drag-region class="h-[52px] shrink-0"></div>
@@ -107,12 +126,22 @@ function pick(key: CategoryFilter) {
       type="button"
       :data-nav="it.key"
       :aria-current="isOn(it.key) ? 'true' : undefined"
-      :class="[item, isOn(it.key) && on]"
+      :aria-keyshortcuts="shortcutOf(it.key) ? `Meta+${shortcutOf(it.key)}` : undefined"
+      :class="[item, isOn(it.key) ? on : off]"
       @click="pick(it.key)"
     >
-      <component :is="it.icon" :size="14" :stroke-width="2" :class="iconClass(it, isOn(it.key))" aria-hidden="true" />
+      <component :is="it.icon" class="shrink-0" :class="iconClass(it, isOn(it.key))" />
       <span class="truncate">{{ it.label }}</span>
-      <span :class="[badge, badgeClass(it, isOn(it.key))]">{{ counts[it.key] }}</span>
+      <span
+        v-if="shortcutOf(it.key)"
+        data-shortcut
+        aria-hidden="true"
+        :class="['ml-auto shrink-0 pr-0.5', quiet, quietClass(isOn(it.key))]"
+      >⌘{{ shortcutOf(it.key) }}</span>
+      <span
+        data-count
+        :class="[shortcutOf(it.key) ? 'ml-2' : 'ml-auto', quiet, quietClass(isOn(it.key))]"
+      >{{ counts[it.key] }}</span>
     </button>
 
     <div :class="section">Needs attention</div>
@@ -122,12 +151,12 @@ function pick(key: CategoryFilter) {
       type="button"
       :data-nav="it.key"
       :aria-current="isOn(it.key) ? 'true' : undefined"
-      :class="[item, isOn(it.key) && on]"
+      :class="[item, isOn(it.key) ? on : off]"
       @click="pick(it.key)"
     >
-      <component :is="it.icon" :size="14" :stroke-width="2" :class="iconClass(it, isOn(it.key))" aria-hidden="true" />
+      <component :is="it.icon" class="shrink-0" :class="iconClass(it, isOn(it.key))" />
       <span class="truncate">{{ it.label }}</span>
-      <span :class="[badge, badgeClass(it, isOn(it.key))]">{{ counts[it.key] }}</span>
+      <span data-count :class="['ml-auto', quiet, quietClass(isOn(it.key))]">{{ counts[it.key] }}</span>
     </button>
 
     <div class="mt-auto grid gap-0.5 pt-3">
@@ -155,15 +184,16 @@ function pick(key: CategoryFilter) {
         type="button"
         data-nav="taskline"
         :aria-current="view === 'taskline' ? 'true' : undefined"
-        :class="[item, view === 'taskline' && on]"
+        :class="[item, view === 'taskline' ? on : off]"
         @click="emit('update:view', 'taskline')"
       >
-        <Clock :size="14" :stroke-width="2" :class="view === 'taskline' ? 'text-brand-ink' : 'text-ink-3'" aria-hidden="true" />
+        <ClockIcon class="shrink-0" :class="view === 'taskline' ? 'text-brand' : 'text-ink-3'" />
         <span class="truncate">Taskline</span>
         <span
           v-if="tasklineCount > 0"
+          data-count
           data-badge="taskline-count"
-          :class="[badge, view === 'taskline' ? 'bg-brand-ink text-surface' : 'bg-line text-ink-2']"
+          :class="['ml-auto', quiet, quietClass(view === 'taskline')]"
         >
           {{ tasklineCount }}
         </span>
@@ -172,11 +202,11 @@ function pick(key: CategoryFilter) {
         type="button"
         data-nav="settings"
         :aria-current="view === 'settings' ? 'true' : undefined"
-        :class="[item, view === 'settings' && on]"
+        :class="[item, view === 'settings' ? on : off]"
         title="Preferences (⌘,)"
         @click="emit('update:view', 'settings')"
       >
-        <Settings :size="14" :stroke-width="2" :class="view === 'settings' ? 'text-brand-ink' : 'text-ink-3'" aria-hidden="true" />
+        <GearIcon class="shrink-0" :class="view === 'settings' ? 'text-brand' : 'text-ink-3'" />
         <span class="truncate">Settings</span>
       </button>
     </div>

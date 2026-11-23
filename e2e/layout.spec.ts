@@ -156,20 +156,49 @@ test.describe("the tokens", () => {
       test("are applied: the body paints the canvas and the rows the ink", async ({ page }) => {
         await open(page);
 
+        // B v3 (#34): the mock-up's canvas in light, macOS's in dark.
         const canvas = await page.evaluate(() =>
           getComputedStyle(document.documentElement).getPropertyValue("--canvas").trim(),
         );
-        expect(canvas).toBe(scheme === "light" ? "#f5f6f8" : "#1c1c1f");
+        expect(canvas).toBe(scheme === "light" ? "#f5f5f7" : "#1e1e1e");
         const body = await paintedColor(page.locator("body"), "backgroundColor");
         expect(body.a, `body is ${body.css}`).toBe(1);
         expect([body.r, body.g, body.b], `body is ${body.css}`).toEqual(
-          scheme === "light" ? [245, 246, 248] : [28, 28, 31],
+          scheme === "light" ? [245, 245, 247] : [30, 30, 30],
         );
 
         const text = await paintedColor(rows(page).first(), "color");
         expect(text.a, `row text is ${text.css}`).toBe(1);
         if (scheme === "light") expect(luminance(text), `row text is ${text.css}`).toBeLessThan(0.05);
         else expect(luminance(text), `row text is ${text.css}`).toBeGreaterThan(0.8);
+      });
+
+      test("every lucide icon draws at stroke 1.75 over its stroke-width attribute; our own icons draw 1.75", async ({
+        page,
+      }) => {
+        await open(page);
+        // `.lucide` is what style.css targets, so the test names it too.
+        const lucide = await page.locator("svg.lucide").evaluateAll((els) =>
+          els.map((el) => ({
+            attribute: el.getAttribute("stroke-width"),
+            computed: Number.parseFloat(getComputedStyle(el).strokeWidth),
+          })),
+        );
+        expect(lucide.length, "lucide icons on screen").toBeGreaterThan(0);
+        expect(lucide.map((i) => i.computed)).toEqual(lucide.map(() => 1.75));
+        // The rule beats the attribute: lucide wrote 2 (or a call site's value) on at least one.
+        expect(
+          lucide.some((i) => i.attribute !== "1.75"),
+          JSON.stringify(lucide),
+        ).toBe(true);
+
+        const own = await navItem(page, "all")
+          .locator("svg")
+          .evaluate((el) => ({
+            attribute: el.getAttribute("stroke-width"),
+            computed: Number.parseFloat(getComputedStyle(el).strokeWidth),
+          }));
+        expect(own).toEqual({ attribute: "1.75", computed: 1.75 });
       });
 
       test("the secondary text clears AA (4.5:1) on the row, on the group row, in the cards and in the sidebar", async ({
@@ -208,14 +237,22 @@ test.describe("the tokens", () => {
           ).toBeGreaterThanOrEqual(4.5);
         }
 
-        // The selected sidebar item: brand ink on the brand tint.
-        const all = navItem(page, "all");
-        const itemSurface = over(await paintedColor(all, "backgroundColor"), surface);
-        const label = await paintedColor(all, "color");
-        expect(
-          contrast(label, itemSurface),
-          `All ports is ${label.css} on ${itemSurface.css}`,
-        ).toBeGreaterThanOrEqual(4.5);
+        // The selected sidebar item (B v3): ink on the neutral fill, over the translucent sidebar,
+        // over the window's canvas. A label that is off: ink-2 on the sidebar.
+        const windowCanvas = await paintedColor(page.locator("main"), "backgroundColor");
+        const sidebar = over(
+          await paintedColor(page.getByRole("navigation", { name: "Views" }), "backgroundColor"),
+          windowCanvas,
+        );
+        for (const key of ["all", "dev"] as const) {
+          const item = navItem(page, key);
+          const itemSurface = over(await paintedColor(item, "backgroundColor"), sidebar);
+          const label = await paintedColor(item, "color");
+          expect(
+            contrast(label, itemSurface),
+            `${key} label is ${label.css} on ${itemSurface.css}`,
+          ).toBeGreaterThanOrEqual(4.5);
+        }
       });
 
       test("the pills, the filled Kill, the sidebar's badges and the tertiary labels clear AA (4.5:1)", async ({
@@ -243,19 +280,37 @@ test.describe("the tokens", () => {
           await own(row(page, port).locator(`[data-badge="${badge}"]`), `${badge} pill on :${port}`);
         }
 
-        // The sidebar: the quiet counts on `line`, the alarms on their tints, the section headings on the canvas.
-        for (const key of ["dev", "zombie", "public"] as const) {
-          await own(navItem(page, key).locator("span").last(), `${key} count`);
-        }
-        const sidebar = await paintedColor(
-          page.getByRole("navigation", { name: "Views" }),
-          "backgroundColor",
+        // The sidebar (B v3): plain grey counts and the ⌘1–⌘4 hints on the item (the selected one's
+        // neutral fill, or none) over the translucent sidebar over the canvas; the section headings on it.
+        const windowCanvas = await paintedColor(page.locator("main"), "backgroundColor");
+        const sidebar = over(
+          await paintedColor(page.getByRole("navigation", { name: "Views" }), "backgroundColor"),
+          windowCanvas,
         );
-        const heading = await paintedColor(page.getByText("Needs attention", { exact: true }), "color");
-        expect(
-          contrast(heading, sidebar),
-          `heading is ${heading.css} on ${sidebar.css}`,
-        ).toBeGreaterThanOrEqual(4.5);
+        /** Text inside a sidebar item, on the item's own fill over the sidebar. */
+        const inItem = async (key: Parameters<typeof navItem>[1], text: Locator, what: string) => {
+          const fill = over(await paintedColor(navItem(page, key), "backgroundColor"), sidebar);
+          const colour = await paintedColor(text, "color");
+          expect(contrast(colour, fill), `${what} is ${colour.css} on ${fill.css}`).toBeGreaterThanOrEqual(
+            4.5,
+          );
+        };
+        for (const key of ["all", "dev", "zombie", "public", "watching"] as const) {
+          await inItem(key, navItem(page, key).locator("[data-count]"), `${key} count`);
+        }
+        for (const key of ["all", "dev", "ai", "db"] as const) {
+          await inItem(key, navItem(page, key).locator("[data-shortcut]"), `${key} ⌘ hint`);
+        }
+        for (const text of ["Ports", "Needs attention"]) {
+          const heading = await paintedColor(
+            page.getByRole("navigation", { name: "Views" }).getByText(text, { exact: true }),
+            "color",
+          );
+          expect(
+            contrast(heading, sidebar),
+            `heading ${text} is ${heading.css} on ${sidebar.css}`,
+          ).toBeGreaterThanOrEqual(4.5);
+        }
 
         // The status line's tertiary text on the surface.
         const footer = await paintedColor(statusLine(page), "backgroundColor");
@@ -268,7 +323,7 @@ test.describe("the tokens", () => {
         await row(page, 3000).click();
         await expect(row(page, 3000)).toHaveAttribute("aria-selected", "true");
         await own(killButton(row(page, 3000)), "the selected row's Kill");
-        await own(navItem(page, "all").locator("span").last(), "the active count");
+        await inItem("all", navItem(page, "all").locator("[data-count]"), "the active count");
         await own(killButton(inspector(page)), "the inspector's Kill");
       });
     });

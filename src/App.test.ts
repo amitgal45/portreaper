@@ -184,6 +184,42 @@ describe("App", () => {
     expect(rowsOf(wrapper)).toHaveLength(N);
   });
 
+  it("⌘1–⌘4 pick a category and show the Studio like a click: ⌘2 from the Taskline, ⌘3 from Preferences, ⌘4 from the search box", async () => {
+    const { wrapper } = await mountApp();
+    await nav(wrapper, "taskline").trigger("click");
+    await flushPromises();
+    expect(wrapper.find("[role='feed']").exists()).toBe(true);
+
+    press("2", { metaKey: true });
+    await flushPromises();
+    expect(wrapper.find("[role='feed']").exists()).toBe(false);
+    expect(nav(wrapper, "dev").attributes("aria-current")).toBe("true");
+    expect(nav(wrapper, "taskline").attributes("aria-current")).toBeUndefined();
+    // The five dev servers the sidebar counts (the first test).
+    expect(rowsOf(wrapper)).toHaveLength(5);
+
+    press(",", { metaKey: true });
+    await flushPromises();
+    expect(nav(wrapper, "settings").attributes("aria-current")).toBe("true");
+    press("3", { metaKey: true });
+    await flushPromises();
+    expect(nav(wrapper, "settings").attributes("aria-current")).toBeUndefined();
+    expect(nav(wrapper, "ai").attributes("aria-current")).toBe("true");
+    expect(portsOf(wrapper)).toEqual([11434]);
+
+    // From inside the search box: the filter changes and the typed text stays, like a click.
+    const input = wrapper.get("input[aria-label='Search ports']");
+    await input.setValue("54");
+    press("4", { metaKey: true }, input.element);
+    await flushPromises();
+    expect(nav(wrapper, "db").attributes("aria-current")).toBe("true");
+    expect((input.element as HTMLInputElement).value).toBe("54");
+    press("1", { metaKey: true }, input.element);
+    await flushPromises();
+    expect(nav(wrapper, "all").attributes("aria-current")).toBe("true");
+    expect((input.element as HTMLInputElement).value).toBe("54");
+  });
+
   it("Reap takes the zombies, toasts the sum, and the Taskline shows ZOMBIE REAPED with Relaunch", async () => {
     const { wrapper, api } = await mountApp();
     const reapZombies = vi.spyOn(api, "reapZombies");

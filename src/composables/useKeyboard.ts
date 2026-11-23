@@ -1,3 +1,8 @@
+import type { CategoryFilter } from "./usePorts";
+
+/** ⌘1–⌘4, in order (spec item 7): the sidebar's "Ports" categories. The sidebar shows the hints. */
+export const CATEGORY_SHORTCUTS: readonly CategoryFilter[] = ["all", "dev", "ai", "db"];
+
 export interface KeyboardHandlers {
   /** ↑ */
   up(): void;
@@ -15,6 +20,8 @@ export interface KeyboardHandlers {
   refresh(): void;
   /** ⌘, : the Preferences view. */
   preferences(): void;
+  /** ⌘1–⌘4: show the Studio on `CATEGORY_SHORTCUTS[index]`, like a click on its sidebar item. */
+  category(index: number): void;
   /** A digit typed outside any input: start a search with it. */
   digit(digit: string): void;
 }
@@ -40,8 +47,9 @@ function inOverlay(target: EventTarget | null): boolean {
 
 /**
  * The window-level keys. Arrows, Enter and Esc work from inside the search box too, so the whole
- * flow is "type, ↓, Enter". Digits outside any input jump to the search. Nothing fires while a
- * dialog or menu owns the focus. Call `start()` on mount and `stop()` on unmount.
+ * flow is "type, ↓, Enter". Digits outside any input jump to the search; with ⌘ the first four
+ * pick a category, from the search box too. Nothing fires while a dialog or menu owns the focus.
+ * Call `start()` on mount and `stop()` on unmount.
  */
 export function useKeyboard(handlers: KeyboardHandlers, options: UseKeyboardOptions = {}) {
   const enabled = options.enabled ?? (() => true);
@@ -65,6 +73,9 @@ export function useKeyboard(handlers: KeyboardHandlers, options: UseKeyboardOpti
         handlers.preferences();
       } else if (event.key === "Backspace") {
         if (handlers.forceKill()) event.preventDefault();
+      } else if (/^[1-9]$/.test(event.key) && Number(event.key) <= CATEGORY_SHORTCUTS.length) {
+        event.preventDefault();
+        handlers.category(Number(event.key) - 1);
       }
       return;
     }
