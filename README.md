@@ -21,7 +21,7 @@ I kept hitting `EADDRINUSE` and doing the ritual: `lsof`, squint at a PID, `kill
 Once I started running several Claude Code sessions on different worktrees of the same app, that
 stopped working. Three node processes on 3000, 3001 and 5173, and no way to tell which one was
 stale. Worse, the MCP servers and Playwright browsers the agents left behind hold no port at all,
-so `lsof` never showed them.
+so `lsof -i` never showed them.
 
 ## The instant flow
 
