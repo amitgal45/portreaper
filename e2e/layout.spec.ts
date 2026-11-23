@@ -417,6 +417,97 @@ test.describe("the tokens", () => {
         await own(killButton(inspector(page)), "the inspector's Kill");
       });
 
+      test("the inspector's flat sections: no box, a line between them, sentence-case headings and every text at 4.5:1 on the surface", async ({
+        page,
+      }) => {
+        // B v3 (#34, spec item 6): the sections were canvas cards; their text now sits on the
+        // inspector's own surface, so that is the background every ratio here is taken on.
+        await open(page);
+        await row(page, 3000).click();
+        const panel = inspector(page);
+        await expect(panel).toContainText("[LISTENING ON :3000]");
+        const surface = await paintedColor(panel, "backgroundColor");
+        expect(surface.a, "the inspector paints an opaque background").toBe(1);
+        expect(rgb(surface), "the inspector paints --surface").toEqual(await rootToken(page, "--surface"));
+
+        const names = ["bind", "resources", "project", "tree", "command"];
+        await expect(panel.locator("[data-section]")).toHaveCount(names.length);
+        for (const name of names) {
+          const s = panel.locator(`[data-section='${name}']`);
+          expect((await paintedColor(s, "backgroundColor")).a, `${name} has no fill of its own`).toBe(0);
+          const edge = await s.evaluate((el) => {
+            const cs = getComputedStyle(el);
+            return { radius: cs.borderTopLeftRadius, top: cs.borderTopWidth, bottom: cs.borderBottomWidth };
+          });
+          expect(edge.radius, `${name} radius`).toBe("0px");
+          expect(edge.top, `${name} top edge`).toBe("0px");
+          expect(edge.bottom, `${name} bottom line`).toBe(name === "command" ? "0px" : "1px");
+          if (name !== "command") {
+            // The line's colour, through a 1×1 canvas as paintedColor does.
+            const line = await s.evaluate((el) => {
+              const cv = document.createElement("canvas");
+              cv.width = 1;
+              cv.height = 1;
+              const ctx = cv.getContext("2d") as CanvasRenderingContext2D;
+              ctx.fillStyle = getComputedStyle(el).borderBottomColor;
+              ctx.fillRect(0, 0, 1, 1);
+              return [...ctx.getImageData(0, 0, 1, 1).data.slice(0, 3)];
+            });
+            expect(line, `${name} line paints --line`).toEqual(await rootToken(page, "--line"));
+          }
+        }
+
+        // The headings: sentence case, ink-3 on the surface (never on --line or a tint).
+        const ink3 = await rootToken(page, "--ink-3");
+        for (const text of ["Network", "Resources", "Project", "Process tree", "Full command"]) {
+          const h = panel.getByText(text, { exact: true });
+          expect(await h.evaluate((el) => getComputedStyle(el).textTransform), text).toBe("none");
+          const colour = await paintedColor(h, "color");
+          expect(rgb(colour), `${text} paints --ink-3`).toEqual(ink3);
+          expect(
+            contrast(colour, surface),
+            `heading ${text} is ${colour.css} on ${surface.css}`,
+          ).toBeGreaterThanOrEqual(4.5);
+        }
+
+        // The sections' secondary text in ink-2, and the tree's leaf in brand-ink, on the surface.
+        for (const text of ["isolated to this machine", "running 2 h"]) {
+          const colour = await paintedColor(panel.getByText(text, { exact: true }), "color");
+          expect(
+            contrast(colour, surface),
+            `${text} is ${colour.css} on ${surface.css}`,
+          ).toBeGreaterThanOrEqual(4.5);
+        }
+        const leaf = await paintedColor(panel.locator("[data-section='tree'] li").last(), "color");
+        expect(
+          contrast(leaf, surface),
+          `the tree's leaf is ${leaf.css} on ${surface.css}`,
+        ).toBeGreaterThanOrEqual(4.5);
+
+        // The full command is a field: its own box, its text on that box.
+        const field = panel.locator("[data-section='command'] p");
+        const fieldFill = over(await paintedColor(field, "backgroundColor"), surface);
+        const command = await paintedColor(field, "color");
+        expect(
+          contrast(command, fieldFill),
+          `the command is ${command.css} on ${fieldFill.css}`,
+        ).toBeGreaterThanOrEqual(4.5);
+
+        // The footer: Restart's label and its blue-ink icon on the button over the surface.
+        const restart = panel.getByRole("button", { name: /Restart/ });
+        const restartFill = over(await paintedColor(restart, "backgroundColor"), surface);
+        for (const [what, part] of [
+          ["Restart label", restart],
+          ["Restart icon", restart.locator("svg")],
+        ] as const) {
+          const colour = await paintedColor(part, "color");
+          expect(
+            contrast(colour, restartFill),
+            `${what} is ${colour.css} on ${restartFill.css}`,
+          ).toBeGreaterThanOrEqual(4.5);
+        }
+      });
+
       test.describe("with main wide enough for every column", () => {
         // 1280 px: main is 740 px with the inspector open, so memory and uptime show.
         test.use({ viewport: { width: 1280, height: 720 } });

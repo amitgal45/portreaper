@@ -371,6 +371,49 @@ describe("the main column (#34 part 2: summary line, table, rows, Kill)", () => 
   });
 });
 
+describe("the Inspector (#34 part 3: flat sections on the surface)", () => {
+  describe.each<Scheme>(["light", "dark"])("%s", (scheme) => {
+    const t = (name: string) => token(name, scheme);
+
+    it("the sections' text is on the surface now, not the canvas: ink, ink-2 and the ink-3 headings clear AA there", () => {
+      for (const ink of ["ink", "ink-2", "ink-3"]) {
+        expect(contrast(t(ink), t("surface")), `${ink} on surface`).toBeGreaterThanOrEqual(AA);
+      }
+      // The port chip in the header keeps its canvas fill.
+      expect(contrast(t("ink"), t("canvas")), "ink on canvas (the port chip)").toBeGreaterThanOrEqual(AA);
+    });
+
+    it("the coloured lines in the sections clear AA on the surface: public address, watching, tree leaf, the Restart story", () => {
+      for (const ink of ["red-ink", "blue-ink", "brand-ink", "green-ink"]) {
+        expect(contrast(t(ink), t("surface")), `${ink} on surface`).toBeGreaterThanOrEqual(AA);
+      }
+    });
+
+    it("the full command's field: ink and ink-2 on its surface box; its edge is --line, a field edge, not text", () => {
+      expect(contrast(t("ink"), t("surface")), "command text").toBeGreaterThanOrEqual(AA);
+      expect(contrast(t("ink-2"), t("surface")), "'unknown'").toBeGreaterThanOrEqual(AA);
+    });
+
+    it("the footer: Kill is surface text on red-ink; Restart's blue-ink icon on the surface and on its hover", () => {
+      expect(contrast(t("surface"), t("red-ink")), "Kill: surface on red-ink").toBeGreaterThanOrEqual(AA);
+      for (const on of ["surface", "hover"]) {
+        expect(contrast(t("blue-ink"), t(on)), `Restart icon blue-ink on ${on}`).toBeGreaterThanOrEqual(AA);
+        expect(contrast(t("ink"), t(on)), `Restart label ink on ${on}`).toBeGreaterThanOrEqual(AA);
+      }
+    });
+
+    it("the focus rings (header, sections, footer) are brand-ink: 3:1 or more on the surface and a hovered button", () => {
+      for (const on of ["surface", "hover"]) {
+        expect(contrast(t("brand-ink"), t(on)), `brand-ink ring on ${on}`).toBeGreaterThanOrEqual(3);
+      }
+    });
+
+    it("why the headings never sit on --line: ink-3 falls short there", () => {
+      expect(contrast(t("ink-3"), t("line")), "ink-3 on line").toBeLessThan(AA);
+    });
+  });
+});
+
 describe("ink-3 is not allowed on --line or on a status tint (task 1b review, m1)", () => {
   // The lighter ink-3 of part 1 clears AA on white, the canvas, the band, the hover and the selected
   // row's tint, and nowhere else: text on a tint takes that tint's ink. These pairs fail, so a

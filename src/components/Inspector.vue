@@ -107,10 +107,16 @@ const restartLine = computed(() => {
   }
 });
 
-const section = "space-y-1 rounded-lg border border-line bg-canvas p-3";
-const heading = "text-[11px] font-semibold uppercase tracking-wide text-ink-3";
+/**
+ * B v3 (#34): flat sections on the surface, each divided from the next by a line (`.ibody .sc` in
+ * the mock-up); the last, the full command, has none. Headings in sentence case, ink-3 on the
+ * surface (5.08:1 light, 5.26:1 dark): never on --line or a tint (src/lib/contrast.test.ts).
+ */
+const section = "space-y-1 border-b border-line py-3";
+const lastSection = "space-y-1 py-3";
+const heading = "text-[11.5px] font-medium text-ink-3";
 const ghost =
-  "inline-flex h-6 items-center gap-1 rounded-md border border-line-strong bg-surface px-2 text-[12px] text-ink-2 outline-none enabled:hover:text-ink focus-visible:ring-2 focus-visible:ring-brand/40 disabled:opacity-40";
+  "inline-flex h-6 items-center gap-1 rounded-md border border-line-strong bg-surface px-2 text-[12px] text-ink-2 outline-none enabled:hover:text-ink focus-visible:ring-2 focus-visible:ring-brand-ink disabled:opacity-40";
 </script>
 
 <template>
@@ -131,7 +137,7 @@ const ghost =
         type="button"
         data-action="watch"
         :disabled="entry.port === 0"
-        class="flex h-7 w-7 shrink-0 items-center justify-center rounded-md outline-none enabled:hover:bg-hover focus-visible:ring-2 focus-visible:ring-brand/40 disabled:opacity-40"
+        class="flex h-7 w-7 shrink-0 items-center justify-center rounded-md outline-none enabled:hover:bg-hover focus-visible:ring-2 focus-visible:ring-brand-ink disabled:opacity-40"
         :class="watched ? 'text-blue-ink' : 'text-ink-3 enabled:hover:text-ink'"
         :aria-pressed="watched"
         aria-label="Watch"
@@ -142,7 +148,7 @@ const ghost =
       </button>
       <button
         type="button"
-        class="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-ink-3 outline-none hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-brand/40"
+        class="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-ink-3 outline-none hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-brand-ink"
         aria-label="Close"
         title="Close (Esc)"
         @click="emit('close')"
@@ -151,8 +157,8 @@ const ghost =
       </button>
     </header>
 
-    <div class="min-h-0 flex-1 space-y-2.5 overflow-y-auto p-4">
-      <div class="grid grid-cols-2 gap-2.5">
+    <div class="min-h-0 flex-1 overflow-y-auto bg-surface px-4 py-1">
+      <div class="grid grid-cols-2 gap-4">
         <div data-section="bind" :class="section">
           <div :class="heading">Network</div>
           <div class="flex items-center gap-1.5 truncate font-mono text-[13px] font-semibold" :class="isPublic ? 'text-red-ink' : 'text-ink'">
@@ -228,7 +234,7 @@ const ghost =
         </ol>
       </div>
 
-      <div data-section="command" :class="section">
+      <div data-section="command" :class="lastSection">
         <div class="flex items-center justify-between">
           <div :class="heading">Full command</div>
           <button type="button" :class="ghost" :disabled="!entry.command" title="Copy the command line" @click="actions.copyCommand(entry)">
@@ -262,7 +268,7 @@ const ghost =
       <div class="flex items-center gap-2">
         <button
           type="button"
-          class="flex h-8 flex-1 items-center justify-center gap-1.5 rounded-lg border border-line-strong bg-surface text-[13px] font-medium text-ink outline-none transition-colors enabled:hover:bg-hover focus-visible:ring-2 focus-visible:ring-brand/40 disabled:opacity-40"
+          class="flex h-8 flex-1 items-center justify-center gap-1.5 rounded-md border border-line-strong bg-surface text-[13px] font-medium text-ink outline-none transition-colors enabled:hover:bg-hover focus-visible:ring-2 focus-visible:ring-brand-ink disabled:opacity-40"
           :disabled="restartBlocked !== '' || restartBusy"
           :title="restartBlocked || 'Kill gracefully, then start it again from the same command and folder'"
           @click="actions.restart(entry)"
@@ -273,7 +279,7 @@ const ghost =
         </button>
         <button
           type="button"
-          class="flex h-8 flex-1 items-center justify-center gap-1.5 rounded-lg border border-red-ink bg-red-ink text-[13px] font-semibold text-surface outline-none transition-colors hover:brightness-95 focus-visible:ring-2 focus-visible:ring-brand/40"
+          class="flex h-8 flex-1 items-center justify-center gap-1.5 rounded-md border border-red-ink bg-red-ink text-[13px] font-semibold text-surface outline-none transition-colors hover:brightness-95 focus-visible:ring-2 focus-visible:ring-brand-ink"
           :title="entry.protected ? 'Kill (asks first)' : labels.title"
           @click="actions.kill(entry, $event.altKey)"
         >

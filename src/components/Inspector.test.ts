@@ -280,6 +280,173 @@ describe("Inspector", () => {
     expect(text()).toContain("[LISTENING ON :5173]");
   });
 
+  describe("B v3: flat sections divided by lines (#34, spec item 6)", () => {
+    const sections = () => mounted?.findAll("[data-section]") ?? [];
+    const names = () => sections().map((s) => s.attributes("data-section"));
+    const HEADINGS = [
+      "Network",
+      "Resources",
+      "Container",
+      "launchd",
+      "Project",
+      "Process tree",
+      "Full command",
+    ];
+    const headings = () => (mounted?.findAll("div") ?? []).filter((d) => HEADINGS.includes(d.text().trim()));
+
+    it("every section is where it was: container only with a container, launchd only with a job", async () => {
+      await mountInspector(byPort(3000));
+      expect(names()).toEqual(["bind", "resources", "project", "tree", "command"]);
+      mounted?.unmount();
+      await mountInspector(byPort(5433));
+      expect(names()).toEqual(["bind", "resources", "container", "project", "tree", "command"]);
+      mounted?.unmount();
+      await mountInspector(byPort(11434));
+      expect(names()).toEqual(["bind", "resources", "launchd", "project", "tree", "command"]);
+    });
+
+    it.each([3000, 5433, 11434])(
+      "no section is a box (no radius, border box or canvas fill); each but the last has a bottom line (:%i)",
+      async (port) => {
+        await mountInspector(byPort(port));
+        const all = sections();
+        expect(all.length).toBeGreaterThanOrEqual(5);
+        all.forEach((s, i) => {
+          const c = s.classes();
+          const name = s.attributes("data-section");
+          expect(
+            c.filter((k) => k.startsWith("rounded")),
+            `${name} radius`,
+          ).toEqual([]);
+          expect(c, `${name} border box`).not.toContain("border");
+          expect(c, `${name} fill`).not.toContain("bg-canvas");
+          expect(c, `${name} padding`).toContain("py-3");
+          if (i < all.length - 1) {
+            expect(c, `${name} line`).toEqual(expect.arrayContaining(["border-b", "border-line"]));
+          } else {
+            expect(
+              c.filter((k) => k.startsWith("border")),
+              `${name} (last) has no line`,
+            ).toEqual([]);
+          }
+        });
+        expect(all[all.length - 1]?.attributes("data-section")).toBe("command");
+      },
+    );
+
+    it("the body is on the surface, 16 px either side, no gap between sections; Network and Resources stay two columns 16 px apart", async () => {
+      const { wrapper } = await mountInspector(byPort(3000));
+      const pair = wrapper.get("[data-section='bind']").element.parentElement as HTMLElement;
+      expect([...pair.classList]).toEqual(expect.arrayContaining(["grid", "grid-cols-2", "gap-4"]));
+      expect(pair.querySelector("[data-section='resources']")).not.toBeNull();
+      const body = [...(pair.parentElement as HTMLElement).classList];
+      expect(body).toEqual(expect.arrayContaining(["bg-surface", "px-4", "py-1", "overflow-y-auto"]));
+      expect(body.filter((k) => k.startsWith("space-y") || k.startsWith("gap") || k === "p-4")).toEqual([]);
+    });
+
+    it("headings are sentence case: 11.5 px medium ink-3, no upper case or tracking", async () => {
+      await mountInspector(byPort(5433));
+      const seen = headings();
+      expect(seen.map((h) => h.text().trim())).toEqual([
+        "Network",
+        "Resources",
+        "Container",
+        "Project",
+        "Process tree",
+        "Full command",
+      ]);
+      for (const h of seen) {
+        expect(h.classes()).toEqual(expect.arrayContaining(["text-[11.5px]", "font-medium", "text-ink-3"]));
+        expect(h.classes()).not.toContain("uppercase");
+        expect(h.classes().filter((k) => k.startsWith("tracking"))).toEqual([]);
+      }
+      mounted?.unmount();
+      await mountInspector(byPort(11434));
+      const launchd = headings().find((h) => h.text().trim() === "launchd");
+      expect(launchd?.classes()).not.toContain("uppercase");
+    });
+
+    it("the header's chip keeps its canvas box; the close and watch rings are brand-ink", async () => {
+      const { wrapper } = await mountInspector(byPort(3000));
+      const chip = wrapper.get("header > span");
+      expect(chip.text()).toBe(":3000");
+      expect(chip.classes()).toEqual(expect.arrayContaining(["border", "border-line", "bg-canvas"]));
+      for (const label of ["Watch", "Close"]) {
+        const c = wrapper.get(`header button[aria-label='${label}']`).classes();
+        expect(c, label).toEqual(
+          expect.arrayContaining(["focus-visible:ring-2", "focus-visible:ring-brand-ink"]),
+        );
+        expect(
+          c.filter((k) => k.includes("ring-brand/")),
+          label,
+        ).toEqual([]);
+      }
+    });
+
+    it("the footer: Restart on the surface with a strong line, Kill red-ink with surface text, both 6 px, brand-ink rings", async () => {
+      const { wrapper } = await mountInspector(byPort(3000));
+      const restart = button(/Restart/);
+      const kill = button(/^\s*Kill/);
+      expect(restart?.classes()).toEqual(
+        expect.arrayContaining([
+          "rounded-md",
+          "bg-surface",
+          "border-line-strong",
+          "focus-visible:ring-brand-ink",
+        ]),
+      );
+      expect(restart?.find("svg").classes()).toContain("text-blue-ink");
+      expect(kill?.classes()).toEqual(
+        expect.arrayContaining(["rounded-md", "bg-red-ink", "text-surface", "focus-visible:ring-brand-ink"]),
+      );
+      for (const b of [restart, kill]) {
+        expect(b?.classes()).not.toContain("rounded-lg");
+        expect(b?.classes().filter((k) => k.includes("ring-brand/"))).toEqual([]);
+      }
+      const footer = wrapper.get("[data-inspector] > div:last-child").classes();
+      expect(footer).toEqual(expect.arrayContaining(["border-t", "border-line"]));
+    });
+
+    it("every focus ring in the Inspector is brand-ink, the section buttons (Copy, Open, Reveal) too; none is brand at 40%", async () => {
+      const { wrapper } = await mountInspector(byPort(11434));
+      const buttons = wrapper.findAll("button");
+      expect(buttons.length).toBeGreaterThanOrEqual(8);
+      for (const b of buttons) {
+        const name = b.attributes("aria-label") ?? b.text().trim();
+        expect(b.classes(), name).toContain("focus-visible:ring-brand-ink");
+        expect(
+          b.classes().filter((k) => k.includes("ring-brand/")),
+          name,
+        ).toEqual([]);
+      }
+    });
+
+    it("the command line is a field, not a section: it keeps its line and radius on the surface", async () => {
+      const { wrapper } = await mountInspector(byPort(3000));
+      const box = wrapper.get("[data-section='command'] p");
+      expect(box.classes()).toEqual(
+        expect.arrayContaining(["rounded-md", "border", "border-line", "bg-surface", "text-ink"]),
+      );
+    });
+
+    it("adds no motion: transition-colors only on Restart and Kill, as before; the only spin is the loader", async () => {
+      const { wrapper } = await mountInspector(byPort(3000), { restart: { phase: "killing", pid: 48213 } });
+      const moving = wrapper.findAll("[class*='transition'], [class*='animate']");
+      const what = moving.map(
+        (el) =>
+          `${el.element.tagName.toLowerCase()} ${el
+            .classes()
+            .filter((k) => /transition|animate/.test(k))
+            .join(" ")}`,
+      );
+      expect(what.sort()).toEqual([
+        "button transition-colors",
+        "button transition-colors",
+        "svg animate-spin",
+      ]);
+    });
+  });
+
   it("renders a portless (port: 0 / stdio) orphan with stdio badge, disables Watch and Open in browser", async () => {
     const mcp: PortEntry = {
       ...byPort(5174),
