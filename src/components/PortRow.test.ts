@@ -465,10 +465,13 @@ describe("PortRow", () => {
     expect(kill.classes()).toEqual(
       expect.arrayContaining([
         "group-hover/row:opacity-100",
-        "group-focus-within/row:opacity-100",
+        "group-has-[:focus-visible]/row:opacity-100",
+        "group-has-[[aria-expanded=true]]/row:opacity-100",
         "focus-visible:opacity-100",
       ]),
     );
+    // The keyboard focus shows it, a click's focus does not (review of part 2, finding 3).
+    expect(kill.classes()).not.toContain("group-focus-within/row:opacity-100");
     // Never out of the layout, the tab order or the accessibility tree, and no motion.
     for (const c of ["hidden", "invisible", "collapse", "sr-only", "pointer-events-none"]) {
       expect(kill.classes(), c).not.toContain(c);
@@ -507,6 +510,34 @@ describe("PortRow", () => {
       expect(moving, `selected ${s}`).toEqual([]);
       wrapper.unmount();
     }
+  });
+
+  it("Kill stays shown while its row's menu is open: the trigger in the row carries aria-expanded (review of part 2, finding 3)", async () => {
+    const wrapper = mountRow(byPort(3000), spies());
+    const row = wrapper.get("[role='row']");
+    const kill = wrapper.get("button[aria-label='Kill']");
+    expect(kill.classes()).toContain("group-has-[[aria-expanded=true]]/row:opacity-100");
+    expect(row.find("[aria-expanded='true']").exists()).toBe(false);
+    await wrapper.get("button[aria-label='More']").trigger("click");
+    await flushPromises();
+    expect(document.body.querySelector("[role='menu']"), "the menu is open").not.toBeNull();
+    // The variant's selector, inside the row (the menu itself is portaled out of it).
+    expect(row.get("[aria-expanded='true']").attributes("aria-label")).toBe("More");
+    wrapper.unmount();
+  });
+
+  it("the selected row's Kill puts a band of the coral between its white ring and its white button (review of part 2, finding 1)", () => {
+    const selected = mountRow(byPort(3000), spies(), { selected: true });
+    const kill = selected.get("button[aria-label='Kill']");
+    expect(kill.classes()).toEqual(
+      expect.arrayContaining([
+        "focus-visible:ring-2",
+        "focus-visible:ring-on-sel-fill",
+        "ring-offset-2",
+        "ring-offset-sel-fill",
+      ]),
+    );
+    selected.unmount();
   });
 
   it("the ⋯ menu has no border and is always visible; white on the selected row", () => {

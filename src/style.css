@@ -59,8 +59,8 @@
   --purple-tint: #f3ebfb;
   --purple-ink: #7a3fb0;
 
-  /* The selected row's tint (today's rows and the ⌘⇧K strip), and the full coral fill of B v3 with
-     its white text: #ff4528 takes white at 3.4:1, this at 4.7:1. */
+  /* The selected option's tint (the ⌘⇧K strip), and the full coral fill of the selected row (B v3)
+     with its white text: #ff4528 takes white at 3.4:1, this at 4.7:1. */
   --sel: #fff1ee;
   --sel-fill: #d63a20;
   --on-sel-fill: #ffffff;

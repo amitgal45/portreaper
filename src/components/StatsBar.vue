@@ -38,11 +38,13 @@ const label = "text-[12px] text-ink-2";
 /** The filter items: brand-ink focus ring (3:1 or more on the surface), the hover fill (no tint). */
 const clickable = "outline-none hover:bg-hover focus-visible:ring-2 focus-visible:ring-brand-ink";
 
-/** Pressed: a 1 px ring in the ink of the item while it has something to show, in ink-2 at zero. No tint. */
+/** Pressed: a 1 px inset ring in the ink of the item while it has something to show, in ink-2 at
+ *  zero. No tint. Tailwind's inset-ring writes --tw-inset-ring-*, the focus ring --tw-ring-*, so an
+ *  item that is pressed and has the focus shows both. */
 function pressedRing(count: number, pressed: boolean, tone: "orange" | "red"): string {
   if (!pressed) return "";
-  if (count === 0) return "ring-1 ring-inset ring-ink-2";
-  return tone === "orange" ? "ring-1 ring-inset ring-orange-ink" : "ring-1 ring-inset ring-red-ink";
+  if (count === 0) return "inset-ring-1 inset-ring-ink-2";
+  return tone === "orange" ? "inset-ring-1 inset-ring-orange-ink" : "inset-ring-1 inset-ring-red-ink";
 }
 </script>
 

@@ -394,7 +394,7 @@ describe("ink-3 is not allowed on --line or on a status tint (task 1b review, m1
     expect(contrast(token("ink-3", "light"), shift(token("blue-tint", "light"), -2))).toBeLessThan(AA);
   });
 
-  it("no component paints text-ink-3 on bg-line or a bg-<c>-tint", () => {
+  it("no component puts text-ink-3 with bg-line or a bg-<c>-tint in one class string (the scan never looks across a parent and its child)", () => {
     const dirs = [componentsDir, resolve(componentsDir, "icons")];
     const files = dirs.flatMap((dir) =>
       readdirSync(dir)

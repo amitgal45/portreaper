@@ -80,8 +80,9 @@ describe("StatsBar", () => {
     expect(exposed.attributes("title")).toBe(
       "Bound to every interface: anyone on your network can reach them. Click to list them.",
     );
-    expect(zombies.classes()).toEqual(expect.arrayContaining(["ring-1", "ring-inset", "ring-orange-ink"]));
+    expect(zombies.classes()).toEqual(expect.arrayContaining(["inset-ring-1", "inset-ring-orange-ink"]));
     expect(exposed.classes().filter((c) => /^ring-/.test(c))).toEqual([]);
+    expect(exposed.classes().filter((c) => /^inset-ring-/.test(c))).toEqual([]);
     for (const item of [zombies, exposed]) {
       expect(item.classes().filter((c) => /(^|:)bg-[a-z]+-tint$/.test(c))).toEqual([]);
     }
@@ -97,7 +98,7 @@ describe("StatsBar", () => {
 
     const { wrapper: onPublic } = await mountFromMock("public");
     expect(onPublic.get("[data-tile='public']").classes()).toEqual(
-      expect.arrayContaining(["ring-1", "ring-inset", "ring-red-ink"]),
+      expect.arrayContaining(["inset-ring-1", "inset-ring-red-ink"]),
     );
     expect(onPublic.get("[data-tile='zombies']").attributes("aria-pressed")).toBe("false");
   });
@@ -126,6 +127,54 @@ describe("StatsBar", () => {
     const pressed = mount(StatsBar, { props: { ...props, category: "zombie" } });
     const zombies = pressed.get("[data-tile='zombies']");
     expect(zombies.attributes("aria-pressed")).toBe("true");
-    expect(zombies.classes()).toEqual(expect.arrayContaining(["ring-1", "ring-ink-2"]));
+    expect(zombies.classes()).toEqual(expect.arrayContaining(["inset-ring-1", "inset-ring-ink-2"]));
+  });
+
+  it("a pressed item that has the focus shows both rings: the pressed one is inset-ring, the focus one ring, never the same property", async () => {
+    const cases = [
+      { category: "zombie", tile: "zombies", zombies: 2, publicCount: 3, ink: "inset-ring-orange-ink" },
+      { category: "public", tile: "public", zombies: 2, publicCount: 3, ink: "inset-ring-red-ink" },
+      { category: "zombie", tile: "zombies", zombies: 0, publicCount: 0, ink: "inset-ring-ink-2" },
+    ] as const;
+    for (const c of cases) {
+      const what = `${c.tile} at ${c.tile === "zombies" ? c.zombies : c.publicCount}`;
+      const wrapper = mount(StatsBar, {
+        props: {
+          total: 1,
+          projects: 1,
+          devMemoryBytes: 0,
+          zombieMemoryBytes: 0,
+          zombies: c.zombies,
+          publicCount: c.publicCount,
+          category: c.category,
+        },
+        attachTo: document.body,
+      });
+      const item = wrapper.get(`button[data-tile='${c.tile}']`);
+      (item.element as HTMLButtonElement).focus();
+      expect(document.activeElement, `${what} has the focus`).toBe(item.element);
+      expect(item.attributes("aria-pressed"), what).toBe("true");
+      const classes = item.classes();
+      expect(classes, what).toEqual(
+        expect.arrayContaining([
+          "inset-ring-1",
+          c.ink,
+          "focus-visible:ring-2",
+          "focus-visible:ring-brand-ink",
+        ]),
+      );
+      // Pressed writes --tw-inset-ring-*: only inset-ring utilities, no plain ring (--tw-ring-*).
+      const pressed = classes.filter((k) => !k.includes(":") && /ring/.test(k));
+      expect(pressed.length, what).toBeGreaterThan(0);
+      for (const k of pressed) expect(k, `${what}: pressed class`).toMatch(/^inset-ring-/);
+      // Focus writes --tw-ring-*: only ring utilities, no inset-ring and no ring-inset.
+      const focus = classes.filter((k) => k.startsWith("focus-visible:") && /ring/.test(k));
+      expect(focus.length, what).toBeGreaterThan(0);
+      for (const k of focus) {
+        expect(k, `${what}: focus class`).toMatch(/^focus-visible:ring-/);
+        expect(k, `${what}: focus class`).not.toMatch(/inset/);
+      }
+      wrapper.unmount();
+    }
   });
 });

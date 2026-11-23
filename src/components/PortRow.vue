@@ -152,16 +152,19 @@ const portInk = computed(() => {
 });
 
 /** Kill and the menu: 26 px. The focus ring is brand-ink on a row (5:1 or more), white on the coral
- *  (brand-ink is 1.2:1 there). */
+ *  (brand-ink is 1.2:1 there), 2 px off the button on the coral, so the white ring does not merge
+ *  with the white button. */
 const killBase =
   "h-[26px] rounded-md border px-2.5 text-[12px] font-medium outline-none focus-visible:ring-2";
-/** Transparent until the row is under the pointer or holds the focus, or the button has it. Opacity
- *  only, at once: no `hidden`, no `invisible`, no transition. */
+/** Transparent until the row is under the pointer, holds the keyboard focus or has its menu open
+ *  (the trigger's aria-expanded; the menu itself is portaled out of the row), or the button has the
+ *  keyboard focus. A click's focus does not count. Opacity only, at once: no `hidden`, no
+ *  `invisible`, no transition. */
 const killHidden =
-  "opacity-0 group-hover/row:opacity-100 group-focus-within/row:opacity-100 focus-visible:opacity-100";
+  "opacity-0 group-hover/row:opacity-100 group-has-[:focus-visible]/row:opacity-100 group-has-[[aria-expanded=true]]/row:opacity-100 focus-visible:opacity-100";
 const killClass = computed(() =>
   props.selected
-    ? `${killBase} opacity-100 border-surface bg-surface text-red-ink hover:border-canvas hover:bg-canvas focus-visible:ring-on-sel-fill`
+    ? `${killBase} opacity-100 border-surface bg-surface text-red-ink hover:border-canvas hover:bg-canvas focus-visible:ring-on-sel-fill ring-offset-2 ring-offset-sel-fill`
     : `${killBase} ${killHidden} border-line-strong bg-surface text-red-ink hover:border-red-ink hover:bg-red-ink hover:text-surface focus-visible:ring-brand-ink`,
 );
 /** No border, on every row. */
