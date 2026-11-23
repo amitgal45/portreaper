@@ -1,9 +1,11 @@
 <script setup lang="ts">
 // The 52 px strip over the main column. Studio: the search field (⌘F), Reap, and the ⌘⇧K hint.
 // Taskline: the event count and Clear. The empty space drags the window.
-import { Search, X, Zap } from "lucide-vue-next";
+// B v3 (#34): Reap draws our `reap` icon with the 6 px radius of the mock-up; its colours stay.
+import { Search, X } from "lucide-vue-next";
 import { computed, nextTick, ref } from "vue";
 import { formatBytes } from "../lib/format";
+import { ReapIcon } from "./icons";
 import type { View } from "./Sidebar.vue";
 
 const props = defineProps<{
@@ -43,8 +45,9 @@ const reapTitle = computed(() =>
     : "No lost-terminal servers right now",
 );
 
+/** The two toolbar buttons; each sets its own radius (Reap 6 px, Clear 8 px as before). */
 const button =
-  "inline-flex h-[30px] shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border px-3 text-[13px] font-medium outline-none focus-visible:ring-2 focus-visible:ring-brand/40";
+  "inline-flex h-[30px] shrink-0 items-center gap-1.5 whitespace-nowrap border px-3 text-[13px] font-medium outline-none focus-visible:ring-2 focus-visible:ring-brand/40";
 </script>
 
 <template>
@@ -85,12 +88,12 @@ const button =
       <button
         type="button"
         data-action="reap"
-        :class="[button, 'border-orange bg-orange-tint text-orange-ink enabled:hover:brightness-95 disabled:opacity-50']"
+        :class="[button, 'rounded-md border-orange bg-orange-tint text-orange-ink enabled:hover:brightness-95 disabled:opacity-50']"
         :disabled="zombies === 0"
         :title="reapTitle"
         @click="emit('reap')"
       >
-        <Zap :size="13" :stroke-width="2" aria-hidden="true" />
+        <ReapIcon :size="14" />
         <span>Reap {{ zombies }} {{ zombies === 1 ? "zombie" : "zombies" }}</span>
       </button>
     </template>
@@ -101,7 +104,7 @@ const button =
       </span>
       <button
         type="button"
-        :class="[button, 'border-line-strong bg-surface text-ink enabled:hover:bg-hover disabled:opacity-50']"
+        :class="[button, 'rounded-lg border-line-strong bg-surface text-ink enabled:hover:bg-hover disabled:opacity-50']"
         :disabled="eventCount === 0"
         @click="emit('clear')"
       >

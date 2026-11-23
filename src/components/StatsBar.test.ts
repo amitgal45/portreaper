@@ -4,7 +4,7 @@ import { createMockApi } from "../api/mock";
 import { usePorts } from "../composables/usePorts";
 import StatsBar from "./StatsBar.vue";
 
-/** The cards fed from the store over the mock, the way App.vue feeds them. */
+/** The summary line fed from the store over the mock, the way App.vue feeds it. */
 async function mountFromMock(category: "all" | "zombie" | "public" = "all") {
   const store = usePorts(createMockApi(), { storage: null });
   await store.refresh();
@@ -37,37 +37,95 @@ describe("StatsBar", () => {
     expect(card("public")).toContain("public on your Wi-Fi");
   });
 
-  it("the zombie and public cards are buttons that set the filter and read as pressed", async () => {
+  it("is one line of four items in order, a dot, a number and a label each, with no card (B v3, spec item 3)", async () => {
+    const { wrapper } = await mountFromMock();
+    const line = wrapper.get("[data-summary]");
+    // One line that wraps: flex, not the four-column grid, and nothing that clips.
+    expect(line.classes()).toEqual(expect.arrayContaining(["flex", "flex-wrap", "bg-surface"]));
+    expect(line.classes().filter((c) => /(^|:)grid(-cols|$)/.test(c))).toEqual([]);
+    const items = line.findAll("[data-tile]");
+    expect(items.map((i) => i.attributes("data-tile"))).toEqual(["ports", "memory", "zombies", "public"]);
+    for (const item of items) {
+      const name = item.attributes("data-tile");
+      expect(item.element.parentElement, `${name} sits on the line`).toBe(line.element);
+      // No card: no background, no border, no radius beyond the pressed ring's, no fixed 36 px box.
+      expect(
+        item.classes().filter((c) => /^(bg-|border|rounded-lg|h-9$|overflow-hidden$|truncate$)/.test(c)),
+        `${name} has card classes`,
+      ).toEqual([]);
+      const [dot, number, label, ...rest] = item.findAll("span");
+      expect(rest, `${name} has three parts`).toEqual([]);
+      expect(dot?.classes(), `${name} dot`).toEqual(expect.arrayContaining(["h-2", "w-2", "rounded-full"]));
+      expect(dot?.attributes("aria-hidden")).toBe("true");
+      expect(number?.classes(), `${name} number`).toEqual(
+        expect.arrayContaining(["text-[13px]", "font-semibold", "tabular-nums"]),
+      );
+      expect(label?.classes(), `${name} label`).toEqual(
+        expect.arrayContaining(["text-[12px]", "text-ink-2"]),
+      );
+      // The line wraps; an item never clips.
+      for (const part of [item, dot, number, label]) {
+        expect(part?.classes(), `${name} clips`).not.toEqual(expect.arrayContaining(["truncate"]));
+      }
+    }
+  });
+
+  it("the zombie and public items are buttons that set the filter; pressed reads as a ring in its ink, not a tint", async () => {
     const { wrapper } = await mountFromMock("zombie");
     const zombies = wrapper.get("button[data-tile='zombies']");
     const exposed = wrapper.get("button[data-tile='public']");
     expect(zombies.attributes("aria-pressed")).toBe("true");
     expect(exposed.attributes("aria-pressed")).toBe("false");
-    expect(zombies.classes()).toContain("bg-orange-tint");
-    expect(exposed.classes()).toContain("bg-red-tint");
+    expect(zombies.attributes("title")).toBe("Dev servers whose terminal is gone. Click to list them.");
+    expect(exposed.attributes("title")).toBe(
+      "Bound to every interface: anyone on your network can reach them. Click to list them.",
+    );
+    expect(zombies.classes()).toEqual(expect.arrayContaining(["ring-1", "ring-inset", "ring-orange-ink"]));
+    expect(exposed.classes().filter((c) => /^ring-/.test(c))).toEqual([]);
+    for (const item of [zombies, exposed]) {
+      expect(item.classes().filter((c) => /(^|:)bg-[a-z]+-tint$/.test(c))).toEqual([]);
+    }
+    // The alarm numbers keep their ink while there is something to show.
+    expect(zombies.findAll("span")[1]?.classes()).toContain("text-orange-ink");
+    expect(exposed.findAll("span")[1]?.classes()).toContain("text-red-ink");
     await zombies.trigger("click");
     await exposed.trigger("click");
     expect(wrapper.emitted("filter")).toEqual([["zombie"], ["public"]]);
-    // The counting cards are not interactive.
+    // The counting items are not interactive.
     expect(wrapper.get("[data-tile='ports']").element.tagName).toBe("DIV");
     expect(wrapper.get("[data-tile='memory']").element.tagName).toBe("DIV");
+
+    const { wrapper: onPublic } = await mountFromMock("public");
+    expect(onPublic.get("[data-tile='public']").classes()).toEqual(
+      expect.arrayContaining(["ring-1", "ring-inset", "ring-red-ink"]),
+    );
+    expect(onPublic.get("[data-tile='zombies']").attributes("aria-pressed")).toBe("false");
   });
 
-  it("goes quiet at zero", () => {
-    const wrapper = mount(StatsBar, {
-      props: {
-        total: 1,
-        projects: 1,
-        devMemoryBytes: 0,
-        zombieMemoryBytes: 0,
-        zombies: 0,
-        publicCount: 0,
-        category: "all",
-      },
-    });
+  it("goes quiet at zero: the numbers in ink; a pressed filter at zero keeps a grey ring", () => {
+    const props = {
+      total: 1,
+      projects: 1,
+      devMemoryBytes: 0,
+      zombieMemoryBytes: 0,
+      zombies: 0,
+      publicCount: 0,
+      category: "all" as const,
+    };
+    const wrapper = mount(StatsBar, { props });
     expect(wrapper.get("[data-tile='ports']").text()).toContain("port · 1 project");
     expect(wrapper.get("[data-tile='zombies']").text()).toMatch(/^0\s*zombies$/);
-    expect(wrapper.get("[data-tile='zombies']").classes()).not.toContain("bg-orange-tint");
-    expect(wrapper.get("[data-tile='public']").classes()).not.toContain("bg-red-tint");
+    for (const name of ["zombies", "public"]) {
+      const item = wrapper.get(`[data-tile='${name}']`);
+      expect(item.classes().filter((c) => /(^|:)bg-[a-z]+-tint$/.test(c))).toEqual([]);
+      const number = item.findAll("span")[1];
+      expect(number?.classes(), name).toContain("text-ink");
+      expect(number?.classes(), name).not.toEqual(expect.arrayContaining(["text-orange-ink"]));
+      expect(number?.classes(), name).not.toEqual(expect.arrayContaining(["text-red-ink"]));
+    }
+    const pressed = mount(StatsBar, { props: { ...props, category: "zombie" } });
+    const zombies = pressed.get("[data-tile='zombies']");
+    expect(zombies.attributes("aria-pressed")).toBe("true");
+    expect(zombies.classes()).toEqual(expect.arrayContaining(["ring-1", "ring-ink-2"]));
   });
 });

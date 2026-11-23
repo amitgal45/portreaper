@@ -18,6 +18,21 @@ import {
   toasts,
 } from "./helpers";
 
+/** The summary line's four items, in order (B v3, spec item 3). */
+const TILES = ["ports", "memory", "zombies", "public"] as const;
+/** The summary line under the toolbar. */
+const summary = (page: Page): Locator => page.locator("[data-summary]");
+/** The table's header row: the first child of the grid, aria-hidden. */
+const tableHeader = (page: Page): Locator => page.locator("[role='grid'] > div").first();
+/** A row's status, coloured text with its icon (spec item 8): mock row, data-badge, the ink it paints. */
+const STATUSES = [
+  [3000, "running", "--green-ink"],
+  [4000, "zombie", "--orange-ink"],
+  [8080, "public", "--red-ink"],
+  [5432, "protected", "--blue-ink"],
+  [11434, "ai", "--purple-ink"],
+] as const;
+
 test.describe.configure({ mode: "parallel" });
 
 /** A grey token as the root sets it for the scheme (`--sidebar-ink-2` → [r, g, b]). */
@@ -82,6 +97,33 @@ test.describe("at the minimum window size", () => {
     expect(
       (box as { x: number; width: number }).x + (box as { x: number; width: number }).width,
     ).toBeLessThanOrEqual(760);
+  });
+
+  test("the summary line wraps and clips no item; a row shows only its first status below 640 px of main", async ({
+    page,
+  }) => {
+    await open(page);
+    // Main is 560 px here: the four items do not fit on one line, so it wraps (B v3, spec item 3).
+    const line = await summary(page).boundingBox();
+    expect(line, "summary line has a box").not.toBeNull();
+    const { x, width } = line as { x: number; width: number };
+    for (const name of TILES) {
+      const t = tile(page, name);
+      const box = await t.boundingBox();
+      expect(box, `${name} has a box`).not.toBeNull();
+      const b = box as { x: number; width: number };
+      expect(b.x, `${name} starts inside the line`).toBeGreaterThanOrEqual(x - 0.5);
+      expect(b.x + b.width, `${name} ends inside the line`).toBeLessThanOrEqual(x + width + 0.5);
+      expect(await t.evaluate((el) => el.scrollWidth <= el.clientWidth), `${name} clips`).toBe(true);
+      for (const part of await t.locator("span").all()) {
+        expect(await part.evaluate((el) => el.scrollWidth <= el.clientWidth), `${name} part clips`).toBe(
+          true,
+        );
+      }
+    }
+    // Docker on every interface: Public first, Protected only from 640 px (WIDE_ONLY).
+    await expect(row(page, 5432).locator("[data-badge='public']")).toBeVisible();
+    await expect(row(page, 5432).locator("[data-badge='protected']")).toBeHidden();
   });
 });
 
@@ -240,14 +282,16 @@ test.describe("the tokens", () => {
         const branch = await paintedColor(shopApi.getByText("feature/cart", { exact: true }), "color");
         expect(contrast(branch, band), `branch is ${branch.css} on ${band.css}`).toBeGreaterThanOrEqual(4.5);
 
-        // The cards' captions on the card surface, tinted or not.
-        for (const name of ["ports", "memory", "zombies", "public"] as const) {
+        // The summary line's labels (B v3: no cards) in ink-2, on the item (no fill of its own) over the line.
+        const line = over(await paintedColor(summary(page), "backgroundColor"), surface);
+        for (const name of TILES) {
           const t = tile(page, name);
-          const cardSurface = over(await paintedColor(t, "backgroundColor"), surface);
+          const itemSurface = over(await paintedColor(t, "backgroundColor"), line);
           const caption = await paintedColor(t.locator("span").last(), "color");
+          expect(rgb(caption), `${name} label paints --ink-2`).toEqual(ink2);
           expect(
-            contrast(caption, cardSurface),
-            `${name} caption is ${caption.css} on ${cardSurface.css}`,
+            contrast(caption, itemSurface),
+            `${name} label is ${caption.css} on ${itemSurface.css}`,
           ).toBeGreaterThanOrEqual(4.5);
         }
 
@@ -273,7 +317,7 @@ test.describe("the tokens", () => {
         ).toEqual(await rootToken(page, "--sidebar-ink-2"));
       });
 
-      test("the pills, the filled Kill, the sidebar's badges and the tertiary labels clear AA (4.5:1)", async ({
+      test("the statuses, the selected row's Kill, the sidebar's counts and the tertiary labels clear AA (4.5:1)", async ({
         page,
       }) => {
         await open(page);
@@ -287,16 +331,30 @@ test.describe("the tokens", () => {
           expect(contrast(text, fill), `${what} is ${text.css} on ${fill.css}`).toBeGreaterThanOrEqual(4.5);
         };
 
-        // The five status pills: a tint with its ink, 12 px semibold (WP-19).
-        for (const [port, badge] of [
-          [3000, "running"],
-          [4000, "zombie"],
-          [8080, "public"],
-          [5432, "protected"],
-          [11434, "ai"],
-        ] as const) {
-          await own(row(page, port).locator(`[data-badge="${badge}"]`), `${badge} pill on :${port}`);
+        // The five statuses (B v3): their ink as text, no fill of their own, on the row and on the
+        // hovered row; the icon paints the same ink.
+        const surface = await paintedColor(page.locator("[role='grid']"), "backgroundColor");
+        await page.mouse.move(1, 1);
+        for (const [port, badge, ink] of STATUSES) {
+          const r = row(page, port);
+          const text = r.locator(`[data-badge="${badge}"]`);
+          const colour = await paintedColor(text, "color");
+          expect(rgb(colour), `${badge} on :${port} paints ${ink}`).toEqual(await rootToken(page, ink));
+          expect((await paintedColor(text, "backgroundColor")).a, `${badge} has no fill`).toBe(0);
+          expect(rgb(await paintedColor(text.locator("svg"), "color")), `${badge} icon`).toEqual(rgb(colour));
+          const still = over(await paintedColor(r, "backgroundColor"), surface);
+          expect(contrast(colour, still), `${badge} is ${colour.css} on ${still.css}`).toBeGreaterThanOrEqual(
+            4.5,
+          );
+          await r.hover();
+          const hovered = over(await paintedColor(r, "backgroundColor"), surface);
+          expect(rgb(hovered), `:${port} hovered paints --hover`).toEqual(await rootToken(page, "--hover"));
+          expect(
+            contrast(colour, hovered),
+            `${badge} is ${colour.css} on the hovered ${hovered.css}`,
+          ).toBeGreaterThanOrEqual(4.5);
         }
+        await page.mouse.move(1, 1);
 
         // The sidebar (B v3): plain grey counts and the ⌘1–⌘4 hints on the item (the selected one's
         // neutral fill, or none) over the translucent sidebar over the canvas; the section headings on it.
@@ -343,13 +401,233 @@ test.describe("the tokens", () => {
           4.5,
         );
 
-        // The selected row: the filled Kill and the active badge are the surface on an ink.
+        // The selected row (B v3): its Kill is the surface with red ink (white in light), on the coral.
         await row(page, 3000).click();
         await expect(row(page, 3000)).toHaveAttribute("aria-selected", "true");
         await own(killButton(row(page, 3000)), "the selected row's Kill");
+        expect(
+          rgb(await paintedColor(killButton(row(page, 3000)), "color")),
+          "Kill paints --red-ink",
+        ).toEqual(await rootToken(page, "--red-ink"));
+        expect(
+          rgb(await paintedColor(killButton(row(page, 3000)), "backgroundColor")),
+          "Kill paints --surface",
+        ).toEqual(await rootToken(page, "--surface"));
         await inItem("all", navItem(page, "all").locator("[data-count]"), "the active count");
         await own(killButton(inspector(page)), "the inspector's Kill");
       });
+
+      test.describe("with main wide enough for every column", () => {
+        // 1280 px: main is 740 px with the inspector open, so memory and uptime show.
+        test.use({ viewport: { width: 1280, height: 720 } });
+
+        test("the selected row is the coral fill, and every text and icon in it is white at 4.5:1 or more", async ({
+          page,
+        }) => {
+          await open(page);
+          const white = await rootToken(page, "--on-sel-fill");
+          const coral = await rootToken(page, "--sel-fill");
+          /** Selects a row by a click, moves the pointer away, and checks each text and icon on its fill. */
+          const check = async (port: number, parts: [what: string, locator: Locator][]) => {
+            const r = row(page, port);
+            await r.click();
+            await expect(r).toHaveAttribute("aria-selected", "true");
+            await page.mouse.move(1, 1);
+            const fill = await paintedColor(r, "backgroundColor");
+            expect(fill.a, `:${port} fill is ${fill.css}`).toBe(1);
+            expect(rgb(fill), `:${port} paints --sel-fill`).toEqual(coral);
+            for (const [what, locator] of parts) {
+              await expect(locator, `${what} on :${port}`).toBeVisible();
+              const colour = await paintedColor(locator, "color");
+              expect(colour.a, `${what} on :${port} is opaque`).toBe(1);
+              expect(rgb(colour), `${what} on :${port} paints --on-sel-fill`).toEqual(white);
+              expect(
+                await locator.evaluate((el) => {
+                  // No opacity on the way up to the row.
+                  let o = 1;
+                  for (let n: Element | null = el; n && n.getAttribute("role") !== "row"; n = n.parentElement)
+                    o *= Number(getComputedStyle(n).opacity);
+                  return o;
+                }),
+                `${what} on :${port} at full opacity`,
+              ).toBe(1);
+              // The text sits on the coral itself: nothing between paints a fill.
+              const own = await paintedColor(locator, "backgroundColor");
+              expect(own.a, `${what} on :${port} has no fill (${own.css})`).toBe(0);
+              expect(
+                contrast(colour, fill),
+                `${what} is ${colour.css} on ${fill.css}`,
+              ).toBeGreaterThanOrEqual(4.5);
+            }
+          };
+
+          const dev = row(page, 3000);
+          await check(3000, [
+            ["port", dev.getByText("3000", { exact: true })],
+            ["process", dev.getByText("node", { exact: true })],
+            ["pid", dev.getByText("48213", { exact: true })],
+            ["status", dev.locator("[data-badge='running']")],
+            ["status icon", dev.locator("[data-badge='running'] svg")],
+            ["memory", dev.getByText("412 MB", { exact: true })],
+            ["uptime", dev.getByText("2 h", { exact: true })],
+            ["menu", dev.getByRole("button", { name: "More" })],
+          ]);
+          const daemon = row(page, 53);
+          await check(53, [
+            ["udp tag", daemon.getByText("udp", { exact: true })],
+            ["status", daemon.locator("[data-badge='protected']")],
+          ]);
+          const ollama = row(page, 11434);
+          await check(11434, [
+            ["status", ollama.locator("[data-badge='protected']")],
+            ["second status", ollama.locator("[data-badge='ai']")],
+            ["launchd chip", ollama.locator("[data-badge='launchd']")],
+          ]);
+          // A coloured brand mark (Vite's violet) paints white on the coral too, over its fill attribute.
+          const vite = row(page, 5173);
+          const mark = vite.locator("[data-testid='framework-icon'] path");
+          const fillOf = () => mark.evaluate((el) => getComputedStyle(el).fill);
+          const brand = await fillOf();
+          await check(5173, [
+            ["status", vite.locator("[data-badge='running']")],
+            ["mark", vite.locator("[data-testid='framework-icon']")],
+          ]);
+          expect(await fillOf(), "the mark no longer paints its brand colour").not.toBe(brand);
+          expect(await fillOf(), "the mark paints its text colour").toBe(
+            await mark.evaluate((el) => getComputedStyle(el).color),
+          );
+        });
+
+        test("the table header, the group rows and the summary line clear AA on their own backgrounds", async ({
+          page,
+        }) => {
+          await open(page);
+          const surface = await paintedColor(page.locator("[role='grid']"), "backgroundColor");
+          const band = await rootToken(page, "--band");
+
+          // The header (B v3): on the band, sentence case, ink-3.
+          const header = tableHeader(page);
+          const headerFill = over(await paintedColor(header, "backgroundColor"), surface);
+          expect(rgb(headerFill), "the header paints --band").toEqual(band);
+          for (const text of ["Port", "Process", "Status", "Memory", "Uptime"]) {
+            const heading = header.getByText(text, { exact: true });
+            expect(await heading.evaluate((el) => getComputedStyle(el).textTransform), text).toBe("none");
+            const colour = await paintedColor(heading, "color");
+            expect(rgb(colour), `${text} paints --ink-3`).toEqual(await rootToken(page, "--ink-3"));
+            expect(
+              contrast(colour, headerFill),
+              `${text} is ${colour.css} on ${headerFill.css}`,
+            ).toBeGreaterThanOrEqual(4.5);
+          }
+
+          // A group row: on the band, an 8 px dot, the name, the branch and the count.
+          const shopApi = group(page, "p:shop-api");
+          const bar = shopApi.locator(":scope > div").first();
+          const groupFill = over(await paintedColor(bar, "backgroundColor"), surface);
+          expect(rgb(groupFill), "the group row paints --band").toEqual(band);
+          const dot = await bar.locator(":scope > span").first().boundingBox();
+          expect(dot, "the dot has a box").not.toBeNull();
+          expect([(dot as { width: number }).width, (dot as { height: number }).height]).toEqual([8, 8]);
+          for (const [text, ink] of [
+            ["shop-api", "--ink"],
+            ["feature/cart", "--ink-2"],
+            ["1 port", "--ink-3"],
+          ] as const) {
+            const colour = await paintedColor(shopApi.getByText(text, { exact: true }), "color");
+            expect(rgb(colour), `${text} paints ${ink}`).toEqual(await rootToken(page, ink));
+            expect(
+              contrast(colour, groupFill),
+              `${text} is ${colour.css} on ${groupFill.css}`,
+            ).toBeGreaterThanOrEqual(4.5);
+          }
+
+          // The summary line: no card behind an item; numbers in ink, the alarms in theirs.
+          const line = over(await paintedColor(summary(page), "backgroundColor"), surface);
+          for (const [name, ink] of [
+            ["ports", "--ink"],
+            ["memory", "--ink"],
+            ["zombies", "--orange-ink"],
+            ["public", "--red-ink"],
+          ] as const) {
+            const t = tile(page, name);
+            expect((await paintedColor(t, "backgroundColor")).a, `${name} has no card`).toBe(0);
+            expect(await t.evaluate((el) => getComputedStyle(el).borderTopWidth), `${name} border`).toBe(
+              "0px",
+            );
+            const number = await paintedColor(t.locator("span").nth(1), "color");
+            expect(rgb(number), `${name} number paints ${ink}`).toEqual(await rootToken(page, ink));
+            expect(
+              contrast(number, line),
+              `${name} number is ${number.css} on ${line.css}`,
+            ).toBeGreaterThanOrEqual(4.5);
+          }
+          // A filter item under the pointer: its label on the hover fill.
+          await tile(page, "zombies").hover();
+          const hovered = over(await paintedColor(tile(page, "zombies"), "backgroundColor"), line);
+          for (const part of [1, 2]) {
+            const colour = await paintedColor(tile(page, "zombies").locator("span").nth(part), "color");
+            expect(
+              contrast(colour, hovered),
+              `zombies part ${part} is ${colour.css} on ${hovered.css}`,
+            ).toBeGreaterThanOrEqual(4.5);
+          }
+        });
+      });
     });
   }
+});
+
+test.describe("Kill on a row (B v3, spec item 5)", () => {
+  test.use({ viewport: { width: 1280, height: 720 } });
+
+  test("is transparent on a row neither selected nor hovered, opaque on hover and on the selected row, and reachable by Tab", async ({
+    page,
+  }) => {
+    await open(page);
+    await page.mouse.move(1, 1);
+    const vite = row(page, 5173);
+    const kill = killButton(vite);
+
+    // Neither selected nor hovered: transparent, by opacity alone. It keeps its box, its name and
+    // its place in the accessibility tree.
+    await expect(vite).toHaveAttribute("aria-selected", "false");
+    await expect(kill).toHaveCSS("opacity", "0");
+    await expect(kill).toHaveCSS("visibility", "visible");
+    await expect(kill).not.toHaveCSS("display", "none");
+    await expect(kill).toHaveAccessibleName("Kill");
+    const box = await kill.boundingBox();
+    expect(box, "Kill has a box").not.toBeNull();
+    expect((box as { width: number }).width).toBeGreaterThan(0);
+    // No motion: it shows at once.
+    expect(await kill.evaluate((el) => getComputedStyle(el).transitionDuration)).toMatch(/^0s(, 0s)*$/);
+
+    // Under the pointer: opaque; the pointer leaves: transparent again.
+    await vite.hover();
+    await expect(kill).toHaveCSS("opacity", "1");
+    await page.mouse.move(1, 1);
+    await expect(kill).toHaveCSS("opacity", "0");
+
+    // By Tab, with the pointer away: from the group's Kill all to the row's Kill, which shows while
+    // it has the focus and while its row has it (on to the row's menu).
+    await group(page, "p:portreaper").getByRole("button", { name: "Kill all" }).focus();
+    await page.keyboard.press("Tab");
+    await expect(kill).toBeFocused();
+    await expect(kill).toBeVisible();
+    await expect(kill).toHaveAccessibleName("Kill");
+    await expect(kill).toHaveCSS("opacity", "1");
+    await page.keyboard.press("Tab");
+    await expect(vite.getByRole("button", { name: "More" })).toBeFocused();
+    await expect(kill).toHaveCSS("opacity", "1");
+    await page.keyboard.press("Tab");
+    await expect(vite.getByRole("button", { name: "More" })).not.toBeFocused();
+    await expect(kill).toHaveCSS("opacity", "0");
+
+    // The selected row: opaque with the pointer away and the focus elsewhere; the others stay transparent.
+    await row(page, 3000).click();
+    await expect(row(page, 3000)).toHaveAttribute("aria-selected", "true");
+    await page.mouse.move(1, 1);
+    await page.locator("body").evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    await expect(killButton(row(page, 3000))).toHaveCSS("opacity", "1");
+    await expect(kill).toHaveCSS("opacity", "0");
+  });
 });

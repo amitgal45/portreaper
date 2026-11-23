@@ -321,6 +321,108 @@ describe("the B v3 tokens (#34, spec item 1)", () => {
   });
 });
 
+describe("the main column (#34 part 2: summary line, table, rows, Kill)", () => {
+  const STATUS_INKS = ["green", "orange", "red", "blue", "purple"] as const;
+
+  describe.each<Scheme>(["light", "dark"])("%s", (scheme) => {
+    const t = (name: string) => token(name, scheme);
+
+    it("each status's ink, now plain text, clears AA on a row, a hovered row and the band", () => {
+      // Running green, Zombie orange, Public red, Protected blue, AI purple; no tint behind them.
+      for (const c of STATUS_INKS) {
+        for (const on of ["surface", "hover", "band"]) {
+          expect(contrast(t(`${c}-ink`), t(on)), `${c}-ink on ${on}`).toBeGreaterThanOrEqual(AA);
+        }
+      }
+    });
+
+    // The table header and the group rows (ink, ink-2, ink-3 on the band): "the B v3 tokens" above.
+
+    it("the selected row: white on the coral; a white 18% chip fill would fall short, so its chips have none", () => {
+      expect(contrast(t("on-sel-fill"), t("sel-fill")), "on-sel-fill on sel-fill").toBeGreaterThanOrEqual(AA);
+      const tinted = over([255, 255, 255, 0.18], t("sel-fill"));
+      expect(contrast(t("on-sel-fill"), tinted), "white on white 18% over the coral").toBeLessThan(AA);
+    });
+
+    it("the selected row's Kill is the surface with red ink (white with red ink in light); white itself fails in dark", () => {
+      expect(contrast(t("red-ink"), t("surface")), "red-ink on surface").toBeGreaterThanOrEqual(AA);
+      expect(contrast(t("red-ink"), t("canvas")), "red-ink on canvas (its hover)").toBeGreaterThanOrEqual(AA);
+      // The button's edge against the coral (non-text, 3:1).
+      expect(contrast(t("surface"), t("sel-fill")), "surface against sel-fill").toBeGreaterThanOrEqual(3);
+      if (scheme === "light") expect(t("surface")).toEqual(WHITE);
+      else expect(contrast(t("red-ink"), WHITE), "dark red-ink on white").toBeLessThan(AA);
+    });
+
+    it("the focus rings clear 3:1: brand-ink on a row and a hovered row, white on the coral (brand-ink would vanish there)", () => {
+      for (const on of ["surface", "hover"]) {
+        expect(contrast(t("brand-ink"), t(on)), `brand-ink ring on ${on}`).toBeGreaterThanOrEqual(3);
+      }
+      expect(contrast(t("on-sel-fill"), t("sel-fill")), "white ring on sel-fill").toBeGreaterThanOrEqual(3);
+      expect(contrast(t("brand-ink"), t("sel-fill")), "brand-ink ring on sel-fill").toBeLessThan(3);
+    });
+
+    it("the summary line: numbers, labels and the alarm inks on the surface and a hovered item; the pressed ring 3:1", () => {
+      for (const on of ["surface", "hover"]) {
+        for (const ink of ["ink", "ink-2", "orange-ink", "red-ink"]) {
+          expect(contrast(t(ink), t(on)), `${ink} on ${on}`).toBeGreaterThanOrEqual(AA);
+        }
+      }
+    });
+  });
+});
+
+describe("ink-3 is not allowed on --line or on a status tint (task 1b review, m1)", () => {
+  // The lighter ink-3 of part 1 clears AA on white, the canvas, the band, the hover and the selected
+  // row's tint, and nowhere else: text on a tint takes that tint's ink. These pairs fail, so a
+  // component that puts ink-3 there fails AA. Pinned so the next palette change sees them.
+  const shift = (c: Rgb, by: number) => c.map((v) => v + by) as Rgb;
+  const FAILS: Record<Scheme, string[]> = {
+    light: ["line", "red-tint", "purple-tint"],
+    dark: ["line", "green-tint", "orange-tint"],
+  };
+
+  it.each<Scheme>(["light", "dark"])("%s: the pairs that fail AA", (scheme) => {
+    for (const on of FAILS[scheme]) {
+      expect(contrast(token("ink-3", scheme), token(on, scheme)), `ink-3 on ${on}`).toBeLessThan(AA);
+    }
+  });
+
+  it("light: the blue tint passes with no margin (4.51:1), so it is not allowed either", () => {
+    const ratio = contrast(token("ink-3", "light"), token("blue-tint", "light"));
+    expect(ratio).toBeGreaterThanOrEqual(AA);
+    expect(ratio).toBeLessThan(4.55);
+    expect(contrast(token("ink-3", "light"), shift(token("blue-tint", "light"), -2))).toBeLessThan(AA);
+  });
+
+  it("no component paints text-ink-3 on bg-line or a bg-<c>-tint", () => {
+    const dirs = [componentsDir, resolve(componentsDir, "icons")];
+    const files = dirs.flatMap((dir) =>
+      readdirSync(dir)
+        .filter((f) => f.endsWith(".vue"))
+        .map((f) => resolve(dir, f)),
+    );
+    files.push(resolve(root, "src/App.vue"), resolve(root, "src/quick/QuickApp.vue"));
+    for (const file of files) {
+      // One line at a time, so an apostrophe in a comment does not open a string across the file.
+      for (const m of readFileSync(file, "utf8").matchAll(/"([^"\n]*)"|'([^'\n]*)'/g)) {
+        const classes = m[1] ?? m[2] ?? "";
+        if (!/(?:^|[\s:])text-ink-3\b/.test(classes)) continue;
+        expect(classes, `${file}: "${classes}"`).not.toMatch(
+          /(?:^|[\s:])bg-(?:line|(?:green|orange|red|blue|purple|brand)-tint)\b/,
+        );
+      }
+    }
+  });
+
+  it("the comment above --ink-3 in style.css says so", () => {
+    const light = block("light");
+    const before = light.slice(0, light.indexOf("--ink-3:"));
+    const comment = before.slice(before.lastIndexOf("/*"));
+    expect(comment).toMatch(/never on (?:--)?line/i);
+    expect(comment).toMatch(/tint/i);
+  });
+});
+
 describe("the components", () => {
   const iconsDir = resolve(componentsDir, "icons");
   const files = [componentsDir, iconsDir].flatMap((dir) =>
@@ -365,6 +467,20 @@ describe("the components", () => {
             /\btext-(?:white|black|surface|canvas|ink(?:-\d)?|(?:green|orange|red|blue|purple|brand)(?:-ink|-tint)?)\b/,
           );
         }
+      }
+    }
+  });
+
+  it("the coral fill's white goes only on the coral: text-on-sel-fill lives in PortRow, whose row carries bg-sel-fill", () => {
+    for (const file of files) {
+      const source = readFileSync(file, "utf8");
+      const uses = /\btext-on-sel-fill\b/.test(source);
+      if (file.endsWith("/PortRow.vue")) {
+        expect(source).toMatch(
+          /"[^"]*\bbg-sel-fill text-on-sel-fill\b[^"]*"|'[^']*\bbg-sel-fill text-on-sel-fill\b[^']*'/,
+        );
+      } else {
+        expect(uses, `${file} paints text-on-sel-fill`).toBe(false);
       }
     }
   });

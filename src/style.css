@@ -21,7 +21,10 @@
   /* Mock-up #6e6e73 (4.15:1 on the line); this clears 4.5:1 on the line, its darkest background
      (the Taskline's REFUSED and FAILED tags). */
   --ink-2: #67676b;
-  /* Mock-up #8e8e93 (3.3:1 on white); this clears 4.5:1 on a selected row's tint and the canvas. */
+  /* Mock-up #8e8e93 (3.3:1 on white); this clears 4.5:1 on a selected row's tint and the canvas.
+     It goes on white, the canvas, the band, the hover and that tint only: never on line (4.16:1;
+     dark 4.07) or on a status tint (red 4.42, purple 4.37, blue 4.51 with no margin; dark green
+     4.31, orange 4.41). Text on a tint takes that tint's ink. Pinned in src/lib/contrast.test.ts. */
   --ink-3: #6e6e72;
 
   /* The table's header and group rows, and the line between rows. */
