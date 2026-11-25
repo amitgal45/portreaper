@@ -209,6 +209,9 @@ describe("the B v3 tokens (#34, spec item 1)", () => {
     const utility = stylesheet.match(/@utility\s+sidebar-inks\s*\{([^}]*)\}/)?.[1] ?? "";
     expect(utility).toMatch(/--ink-2:\s*var\(--sidebar-ink-2\)/);
     expect(utility).toMatch(/--ink-3:\s*var\(--sidebar-ink-3\)/);
+    // The alarm counts' inks too (#42): Sidebar.vue writes text-orange-ink and text-red-ink.
+    expect(utility).toMatch(/--orange-ink:\s*var\(--sidebar-orange-ink\)/);
+    expect(utility).toMatch(/--red-ink:\s*var\(--sidebar-red-ink\)/);
     // And only there: no other rule sets the two.
     const sets = [...stylesheet.matchAll(/(?<![\w-])--ink-[23]:\s*([^;]+);/g)].map((m) => m[1]?.trim());
     expect(sets).toEqual([
@@ -293,6 +296,38 @@ describe("the B v3 tokens (#34, spec item 1)", () => {
       ).toBeGreaterThanOrEqual(AA);
     });
 
+    it("the alarm counts (#42, decision 2): the sidebar's orange and red inks clear AA at rest, hovered and pressed", () => {
+      for (const [name, on] of [
+        ["sidebar", sidebar()],
+        ["a hovered item", hovered()],
+        ["a pressed item", selected()],
+      ] as const) {
+        for (const ink of ["sidebar-orange-ink", "sidebar-red-ink"]) {
+          expect(contrast(t(ink), on), `${ink} on ${name}`).toBeGreaterThanOrEqual(AA);
+        }
+      }
+      // Light: the window's inks fall short when pressed (orange 3.68:1, red 4.47:1), so the sidebar's
+      // are the same hue darker. Orange is the lightest that keeps AA there. Red passes with a real
+      // margin, not by rounding: 4.51:1 on the pressed fill composited exactly, 4.52:1 rounded to bytes
+      // (as `over` does here). One level lighter loses it: red 4.48:1 exact, 4.49:1 rounded.
+      // Dark: the window's pass as they are (6.0:1 or more), so the sidebar's are the same.
+      const SIDEBAR_INKS: Record<Scheme, Record<"orange" | "red", string>> = {
+        light: { orange: "#895302", red: "#b4273c" },
+        dark: { orange: "#ffd089", red: "#ff9aa8" },
+      };
+      for (const c of ["orange", "red"] as const) {
+        expect(t(`sidebar-${c}-ink`), c).toEqual(parseHex(SIDEBAR_INKS[scheme][c]));
+        const pressed = contrast(t(`${c}-ink`), selected());
+        if (scheme === "light") {
+          expect(pressed, `${c}-ink on a pressed item`).toBeLessThan(AA);
+          const lighter = t(`sidebar-${c}-ink`).map((v, i) => (i === 0 ? v + 1 : v)) as Rgb;
+          expect(contrast(lighter, selected()), `sidebar-${c}-ink one level lighter`).toBeLessThan(AA);
+        } else {
+          expect(pressed, `${c}-ink on a pressed item`).toBeGreaterThanOrEqual(AA);
+        }
+      }
+    });
+
     it("the items' focus ring, brand-ink, clears 3:1 on the sidebar and on every item fill", () => {
       for (const [name, on] of [
         ["sidebar", sidebar()],
@@ -335,8 +370,8 @@ describe("the B v3 tokens (#34, spec item 1)", () => {
     it("the selected row's fill takes its text at 4.5:1 or more (white in both schemes)", () => {
       expect(t("on-sel-fill")).toEqual(WHITE);
       expect(contrast(t("on-sel-fill"), t("sel-fill"))).toBeGreaterThanOrEqual(AA);
-      // About #d63a20 in light (4.7:1); in dark the coral nearest #ff5a3f that clears AA.
-      if (scheme === "light") expect(t("sel-fill")).toEqual(parseHex("#d63a20"));
+      // #d63a20 in both schemes since #42 (decision 4; white 4.68:1). Dark was #dd381e.
+      expect(t("sel-fill")).toEqual(parseHex("#d63a20"));
     });
   });
 });
@@ -364,13 +399,20 @@ describe("the main column (#34 part 2: summary line, table, rows, Kill)", () => 
       expect(contrast(t("on-sel-fill"), tinted), "white on white 18% over the coral").toBeLessThan(AA);
     });
 
-    it("the selected row's Kill is the surface with red ink (white with red ink in light); white itself fails in dark", () => {
-      expect(contrast(t("red-ink"), t("surface")), "red-ink on surface").toBeGreaterThanOrEqual(AA);
-      expect(contrast(t("red-ink"), t("canvas")), "red-ink on canvas (its hover)").toBeGreaterThanOrEqual(AA);
-      // The button's edge against the coral (non-text, 3:1).
-      expect(contrast(t("surface"), t("sel-fill")), "surface against sel-fill").toBeGreaterThanOrEqual(3);
-      if (scheme === "light") expect(t("surface")).toEqual(WHITE);
-      else expect(contrast(t("red-ink"), WHITE), "dark red-ink on white").toBeLessThan(AA);
+    it("the selected row's Kill is white on the kill fill, at rest and hovered, the same in both schemes (#42, decision 1)", () => {
+      expect(t("on-kill-fill")).toEqual(WHITE);
+      expect(t("kill-fill")).toEqual(parseHex("#b5283c"));
+      // The old hover's step (surface to canvas, 1.09:1), darker in OKLCH lightness at the same hue.
+      expect(t("kill-fill-hover")).toEqual(parseHex("#ae2037"));
+      expect(contrast(t("on-kill-fill"), t("kill-fill")), "on-kill-fill on kill-fill").toBeGreaterThanOrEqual(
+        AA,
+      );
+      expect(
+        contrast(t("on-kill-fill"), t("kill-fill-hover")),
+        "on-kill-fill on kill-fill-hover",
+      ).toBeGreaterThanOrEqual(AA);
+      expect(luminance(t("kill-fill-hover")), "the hover is darker").toBeLessThan(luminance(t("kill-fill")));
+      // Against the row (sel-fill) the button measures about 1.35:1: Keren accepted it (the e2e logs it).
     });
 
     it("the focus rings clear 3:1: brand-ink on a row and a hovered row, white on the coral (brand-ink would vanish there)", () => {
@@ -553,6 +595,20 @@ describe("the components", () => {
         );
       } else {
         expect(uses, `${file} paints text-on-sel-fill`).toBe(false);
+      }
+    }
+  });
+
+  it("the Kill fill's white goes only on the Kill fill: text-on-kill-fill lives in PortRow, with bg-kill-fill (#42)", () => {
+    for (const file of files) {
+      const source = readFileSync(file, "utf8");
+      const uses = /\btext-on-kill-fill\b/.test(source);
+      if (file.endsWith("/PortRow.vue")) {
+        expect(source).toMatch(
+          /"[^"]*\bbg-kill-fill text-on-kill-fill\b[^"]*"|'[^']*\bbg-kill-fill text-on-kill-fill\b[^']*'|`[^`]*\bbg-kill-fill text-on-kill-fill\b[^`]*`/,
+        );
+      } else {
+        expect(uses, `${file} paints text-on-kill-fill`).toBe(false);
       }
     }
   });

@@ -127,7 +127,7 @@ describe("Sidebar items (B v3, spec item 2)", () => {
     }
   });
 
-  it("counts are plain grey numbers in the sans font: no badge fill, no pill, no mono, tabular", async () => {
+  it("counts are plain numbers in the sans font: no badge fill, no pill, no mono, tabular", async () => {
     const wrapper = await mountSidebar(IDLE, { tasklineCount: 3 });
     const counted = ["all", "dev", "ai", "db", "zombie", "public", "watching", "taskline"];
     for (const key of counted) {
@@ -142,9 +142,17 @@ describe("Sidebar items (B v3, spec item 2)", () => {
     }
     // The Taskline's count keeps the hook the e2e uses (`tasklineBadge`).
     expect(wrapper.get("[data-badge='taskline-count']").text()).toBe("3");
-    // Off: the tertiary grey, the alarms included (their colour stays on the icon).
-    for (const key of ["dev", "zombie", "public", "watching", "taskline"]) {
+    // Off: the tertiary grey; an alarm above 0 takes its ink instead (#42, decision 2).
+    for (const key of ["dev", "watching", "taskline"]) {
       expect(countOf(wrapper, key).classes(), `${key} count`).toContain("text-ink-3");
+    }
+    for (const [key, ink] of [
+      ["zombie", "text-orange-ink"],
+      ["public", "text-red-ink"],
+    ] as const) {
+      expect(Number(countOf(wrapper, key).text()), `${key} count in the mock`).toBeGreaterThan(0);
+      expect(countOf(wrapper, key).classes(), `${key} count`).toContain(ink);
+      expect(countOf(wrapper, key).classes(), `${key} count`).not.toContain("text-ink-3");
     }
   });
 
@@ -175,15 +183,19 @@ describe("Sidebar items (B v3, spec item 2)", () => {
     expect(iconOf(wrapper, "all").classes()).toContain("text-ink-3");
     expect(iconOf(wrapper, "zombie").classes()).toContain("text-orange");
     expect(iconOf(wrapper, "public").classes()).toContain("text-red");
-    expect(countOf(wrapper, "zombie").classes()).not.toEqual(expect.arrayContaining(["text-orange-ink"]));
-    expect(countOf(wrapper, "public").classes()).not.toEqual(expect.arrayContaining(["text-red-ink"]));
+    // And on the count too, above 0 and off (#42, decision 2).
+    expect(countOf(wrapper, "zombie").classes()).toContain("text-orange-ink");
+    expect(countOf(wrapper, "public").classes()).toContain("text-red-ink");
   });
 
   it("an alarm that is on takes the coral icon like any item; the Taskline and Settings select the same way", async () => {
     const zombie = await mountSidebar(IDLE, { category: "zombie" });
     expect(iconOf(zombie, "zombie").classes()).toContain("text-brand");
     expect(iconOf(zombie, "zombie").classes()).not.toContain("text-orange");
+    // Its count is the selected item's grey, not the alarm's ink, though it is above 0.
+    expect(Number(countOf(zombie, "zombie").text())).toBeGreaterThan(0);
     expect(countOf(zombie, "zombie").classes()).toContain("text-ink-2");
+    expect(countOf(zombie, "zombie").classes()).not.toContain("text-orange-ink");
 
     for (const view of ["taskline", "settings"] as const) {
       const wrapper = await mountSidebar(IDLE, { view, tasklineCount: 2 });
@@ -206,6 +218,10 @@ describe("Sidebar items (B v3, spec item 2)", () => {
       expect(iconOf(quiet, key).classes(), key).toContain("text-ink-3");
       expect(iconOf(quiet, key).classes(), key).not.toEqual(expect.arrayContaining(["text-orange"]));
       expect(iconOf(quiet, key).classes(), key).not.toEqual(expect.arrayContaining(["text-red"]));
+      // At 0 the count is grey like the others (#42).
+      expect(countOf(quiet, key).classes(), key).toContain("text-ink-3");
+      expect(countOf(quiet, key).classes(), key).not.toContain("text-orange-ink");
+      expect(countOf(quiet, key).classes(), key).not.toContain("text-red-ink");
     }
 
     const loud = await mountSidebar(IDLE, { counts: { zombie: 1, public: 12 } });
@@ -213,10 +229,19 @@ describe("Sidebar items (B v3, spec item 2)", () => {
     expect(iconOf(loud, "zombie").classes()).not.toContain("text-ink-3");
     expect(iconOf(loud, "public").classes()).toContain("text-red");
     expect(iconOf(loud, "public").classes()).not.toContain("text-ink-3");
+    // Above 0 and off, the count takes the same alarm, in its ink (#42, decision 2).
+    expect(countOf(loud, "zombie").classes()).toContain("text-orange-ink");
+    expect(countOf(loud, "zombie").classes()).not.toContain("text-ink-3");
+    expect(countOf(loud, "public").classes()).toContain("text-red-ink");
+    expect(countOf(loud, "public").classes()).not.toContain("text-ink-3");
 
     // On, at 0: the coral of the selected item, like any other.
     const on = await mountSidebar(IDLE, { category: "public", counts: { public: 0 } });
     expect(iconOf(on, "public").classes()).toContain("text-brand");
+    // On and above 0: the selected item's grey count.
+    const onLoud = await mountSidebar(IDLE, { category: "public", counts: { public: 12 } });
+    expect(countOf(onLoud, "public").classes()).toContain("text-ink-2");
+    expect(countOf(onLoud, "public").classes()).not.toContain("text-red-ink");
   });
 
   it("the nav takes the sidebar's own greys, so text-ink-2 and text-ink-3 in it read --sidebar-ink-2/3 (I1)", async () => {

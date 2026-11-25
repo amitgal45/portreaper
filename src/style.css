@@ -39,6 +39,10 @@
   /* The sidebar's greys: ink-2 clears 4.5:1 on a selected item, ink-3 on a hovered one. */
   --sidebar-ink-2: #5d5d61;
   --sidebar-ink-3: #626266;
+  /* The alarm counts' inks (#42): orange-ink and red-ink fall short on the sidebar (pressed: 3.7:1,
+     4.47:1), so these are the same hue darker, the lightest that keeps 4.5:1 there. */
+  --sidebar-orange-ink: #895302;
+  --sidebar-red-ink: #b4273c;
 
   --brand: #ff4528;
   --brand-tint: #fff1ee;
@@ -65,6 +69,11 @@
   --sel: #fff1ee;
   --sel-fill: #d63a20;
   --on-sel-fill: #ffffff;
+  /* The selected row's Kill (#42): white on red-ink's red, 6.3:1; its hover the same hue a step darker
+     in OKLCH lightness (the old hover's step, 1.09:1), 6.9:1. The same in dark. */
+  --kill-fill: #b5283c;
+  --kill-fill-hover: #ae2037;
+  --on-kill-fill: #ffffff;
   --hover: #f7f7f8;
 }
 
@@ -90,6 +99,9 @@
        ink-2 for its count and hint). */
     --sidebar-ink-2: #a1a1a6;
     --sidebar-ink-3: #98989d;
+    /* The window's alarm inks clear 4.5:1 on a pressed item already (orange 8.4:1, red 6.0:1). */
+    --sidebar-orange-ink: #ffd089;
+    --sidebar-red-ink: #ff9aa8;
 
     --brand: #ff5a3f;
     --brand-tint: #3a251f;
@@ -112,9 +124,12 @@
     --purple-ink: #d6b6ff;
 
     --sel: #3a251f;
-    /* The coral nearest #ff5a3f (same hue and chroma, lower lightness) with white at 4.5:1. */
-    --sel-fill: #dd381e;
+    /* The light coral, white at 4.7:1: one selected row in both schemes (#42). */
+    --sel-fill: #d63a20;
     --on-sel-fill: #ffffff;
+    --kill-fill: #b5283c;
+    --kill-fill-hover: #ae2037;
+    --on-kill-fill: #ffffff;
     --hover: #2c2c2e;
   }
 }
@@ -152,6 +167,9 @@
   --color-sel: var(--sel);
   --color-sel-fill: var(--sel-fill);
   --color-on-sel-fill: var(--on-sel-fill);
+  --color-kill-fill: var(--kill-fill);
+  --color-on-kill-fill: var(--on-kill-fill);
+  --color-kill-fill-hover: var(--kill-fill-hover);
   --color-sidebar-sel: var(--sidebar-sel);
   --color-hover: var(--hover);
   --color-band: var(--band);
@@ -159,6 +177,8 @@
   --color-sidebar: var(--sidebar);
   --color-sidebar-edge: var(--sidebar-edge);
   --color-sidebar-hover: var(--sidebar-hover);
+  --color-sidebar-orange-ink: var(--sidebar-orange-ink);
+  --color-sidebar-red-ink: var(--sidebar-red-ink);
 }
 
 html,
@@ -178,12 +198,15 @@ body {
   cursor: default;
 }
 
-/* The sidebar's nav: every text-ink-2 and text-ink-3 inside it takes the sidebar's greys. `@theme
-   inline` writes the utilities as `color: var(--ink-2)`, resolved at each element, so overriding the
-   two variables here is enough. */
+/* The sidebar's nav: every text-ink-2 and text-ink-3 inside it takes the sidebar's greys, and every
+   text-orange-ink and text-red-ink (the alarm counts, #42) the sidebar's inks. `@theme inline` writes
+   the utilities as `color: var(--ink-2)`, resolved at each element, so overriding the variables here
+   is enough. */
 @utility sidebar-inks {
   --ink-2: var(--sidebar-ink-2);
   --ink-3: var(--sidebar-ink-3);
+  --orange-ink: var(--sidebar-orange-ink);
+  --red-ink: var(--sidebar-red-ink);
 }
 
 /* One stroke weight in the window (spec item 8): lucide draws `stroke-width="2"` (or what a call site

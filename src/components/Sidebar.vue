@@ -6,9 +6,9 @@
 // while Preferences shows (WP-17b). Clicking a category from either goes back to the Studio, and
 // so do ⌘1–⌘4 (App.vue), whose hints sit on the first four items.
 // B v3 (#34): a macOS-grey sidebar (rgba over the canvas, so it reads as solid; no vibrancy), our
-// own icons, plain grey counts, and a neutral fill with a coral icon on the item that is on. The
-// nav takes the sidebar's own greys (`sidebar-inks`), so text-ink-2 and text-ink-3 in here are
-// darker than in the window.
+// own icons, plain grey counts (an alarm's in its ink above 0, #42), and a neutral fill with a
+// coral icon on the item that is on. The nav takes the sidebar's own greys (`sidebar-inks`), so
+// text-ink-2 and text-ink-3 in here are darker than in the window.
 import type { Component } from "vue";
 import { CATEGORY_SHORTCUTS } from "../composables/useKeyboard";
 import type { CategoryCounts, CategoryFilter } from "../composables/usePorts";
@@ -49,7 +49,9 @@ interface Item {
   key: CategoryFilter;
   label: string;
   icon: Component;
-  /** Alarms colour their icon while the item is off and its count is above 0; the count stays grey. */
+  /** Alarms colour their icon and their count while the item is off and its count is above 0: the
+   *  icon in the solid colour, the count in its ink (the sidebar's own, from `sidebar-inks`, 4.5:1 or
+   *  more at rest, hovered and pressed; #42). At 0, or on, the count is grey like the others. */
   tone?: "warn" | "danger";
 }
 
@@ -73,7 +75,8 @@ const item =
  *  A press fills an off item like the selected one, at once: no transition, no scale. */
 const on = "bg-sidebar-sel text-ink";
 const off = "text-ink-2 hover:bg-sidebar-hover active:bg-sidebar-sel";
-/** The hint and the count: 11 px sans, grey. ink-3 off; ink-2 on the selected fill, where ink-3 is short of AA. */
+/** The hint and the count: 11 px sans, grey, except an alarm item's count above 0 while the item is off,
+ *  which takes the item's ink. ink-3 off; ink-2 on the selected fill, where ink-3 is short of AA. */
 const quiet = "text-[11px] leading-4 tabular-nums";
 /** Two digits wide, right-aligned: the ⌘ hints stay in one column for 1- and 2-digit counts. */
 const countBox = "min-w-[2ch] text-right";
@@ -112,6 +115,15 @@ function iconClass(it: Item, active: boolean): string {
 
 function quietClass(active: boolean): string {
   return active ? "text-ink-2" : "text-ink-3";
+}
+
+/** An alarm's ink on its count while it is off and above 0; the quiet grey otherwise. */
+function countClass(it: Item, active: boolean): string {
+  if (!active && props.counts[it.key] > 0) {
+    if (it.tone === "warn") return "text-orange-ink";
+    if (it.tone === "danger") return "text-red-ink";
+  }
+  return quietClass(active);
 }
 
 function pick(key: CategoryFilter) {
@@ -167,7 +179,7 @@ function pick(key: CategoryFilter) {
     >
       <component :is="it.icon" class="shrink-0" :class="iconClass(it, isOn(it.key))" />
       <span class="truncate">{{ it.label }}</span>
-      <span data-count :class="['ml-auto', quiet, countBox, quietClass(isOn(it.key))]">{{ counts[it.key] }}</span>
+      <span data-count :class="['ml-auto', quiet, countBox, countClass(it, isOn(it.key))]">{{ counts[it.key] }}</span>
     </button>
 
     <div class="mt-auto grid gap-0.5 pt-3">
