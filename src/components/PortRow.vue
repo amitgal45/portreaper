@@ -3,7 +3,7 @@
 // brand mark · memory · uptime · Kill and the row menu. The row opens the inspector; Kill kills (⌥
 // forces). The command line is not here: it lives in the inspector.
 // A status is coloured text with its icon, not a pill. The selected row is the coral fill, and
-// everything in it turns white (on-sel-fill, 4.7:1 light, 4.5:1 dark): nothing lighter would pass.
+// everything in it turns white (on-sel-fill, 4.7:1, 4.68, in both schemes): nothing lighter would pass.
 // Kill shows on the selected row, under the pointer and with the focus in the row; elsewhere it is
 // transparent (opacity alone, so it keeps its place, its name and its Tab stop). Nothing moves.
 import { Ellipsis, LoaderCircle } from "lucide-vue-next";
@@ -152,8 +152,8 @@ const portInk = computed(() => {
 });
 
 /** Kill and the menu: 26 px. The focus ring is brand-ink on a row (5:1 or more), white on the coral
- *  (brand-ink is 1.2:1 there), 2 px off the button on the coral, so the white ring does not merge
- *  with the white button. */
+ *  (brand-ink is 1.2:1 there), 2 px off the button on a band of the coral. On the selected row Kill
+ *  is white on the kill fill (6.3:1, hovered 6.9:1; #42), the same in both schemes. */
 const killBase =
   "h-[26px] rounded-md border px-2.5 text-[12px] font-medium outline-none focus-visible:ring-2";
 /** Transparent until the row is under the pointer, holds the keyboard focus or has its menu open
@@ -164,7 +164,7 @@ const killHidden =
   "opacity-0 group-hover/row:opacity-100 group-has-[:focus-visible]/row:opacity-100 group-has-[[aria-expanded=true]]/row:opacity-100 focus-visible:opacity-100";
 const killClass = computed(() =>
   props.selected
-    ? `${killBase} opacity-100 border-surface bg-surface text-red-ink hover:border-canvas hover:bg-canvas focus-visible:ring-on-sel-fill ring-offset-2 ring-offset-sel-fill`
+    ? `${killBase} opacity-100 border-kill-fill bg-kill-fill text-on-kill-fill hover:border-kill-fill-hover hover:bg-kill-fill-hover focus-visible:ring-on-sel-fill ring-offset-2 ring-offset-sel-fill`
     : `${killBase} ${killHidden} border-line-strong bg-surface text-red-ink hover:border-red-ink hover:bg-red-ink hover:text-surface focus-visible:ring-brand-ink`,
 );
 /** No border, on every row. */
