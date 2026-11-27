@@ -386,17 +386,15 @@ describe("PortRow", () => {
       const kill = wrapper.get("button[aria-label='Kill']").element;
       for (const el of everything(wrapper)) {
         const classes = classesOf(el);
-        // No grey and no ink of a status anywhere; Kill alone is the surface with red ink.
+        // No grey and no ink of a status anywhere, Kill included: it is white on the kill fill (#42).
         expect(
           classes.filter((c) => /^text-ink(-\d)?$/.test(c)),
           `${what}: ${el.tagName} ${classes.join(" ")}`,
         ).toEqual([]);
-        if (el !== kill) {
-          expect(
-            classes.filter((c) => /^text-(green|orange|red|blue|purple|brand)(-ink)?$/.test(c)),
-            `${what}: ${el.tagName} ${classes.join(" ")}`,
-          ).toEqual([]);
-        }
+        expect(
+          classes.filter((c) => /^text-(green|orange|red|blue|purple|brand)(-ink)?$/.test(c)),
+          `${what}: ${el.tagName} ${classes.join(" ")}`,
+        ).toEqual([]);
         // Full opacity: no opacity utility (Kill's opacity-100 aside) and no alpha on a text colour.
         expect(
           classes.filter(
@@ -492,13 +490,28 @@ describe("PortRow", () => {
     );
     plain.unmount();
 
-    // The selected row: shown, the white (surface) button with red ink of the mock-up.
+    // The selected row: shown, white on the kill fill, a darker fill on its hover (#42, decision 1);
+    // the white ring stands off on a band of the coral, and the label stays Kill.
     const selected = mountRow(byPort(3000), spies(), { selected: true });
     const shown = selected.get("button[aria-label='Kill']");
     expect(shown.classes()).toContain("opacity-100");
     expect(shown.classes()).not.toContain("opacity-0");
-    expect(shown.classes()).toEqual(expect.arrayContaining(["border-surface", "bg-surface", "text-red-ink"]));
-    expect(shown.classes()).not.toContain("bg-red-ink");
+    expect(shown.classes()).toEqual(
+      expect.arrayContaining([
+        "border-kill-fill",
+        "bg-kill-fill",
+        "text-on-kill-fill",
+        "hover:border-kill-fill-hover",
+        "hover:bg-kill-fill-hover",
+        "focus-visible:ring-on-sel-fill",
+        "ring-offset-2",
+        "ring-offset-sel-fill",
+      ]),
+    );
+    for (const old of ["border-surface", "bg-surface", "text-red-ink", "bg-red-ink", "hover:bg-canvas"]) {
+      expect(shown.classes(), old).not.toContain(old);
+    }
+    expect(shown.text()).toBe("Kill");
     selected.unmount();
 
     // Nothing in a row moves: no transition and no animation (R6; the pending spinner aside).

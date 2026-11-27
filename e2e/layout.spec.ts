@@ -45,6 +45,17 @@ async function rootToken(page: Page, name: string): Promise<number[]> {
   return [1, 3, 5].map((i) => Number.parseInt(hex.slice(i, i + 2), 16));
 }
 const rgb = (c: Rgba) => [c.r, c.g, c.b];
+/** A root colour token as the browser paints it (`--sidebar-hover` → Rgba), the way `paintedColor` does. */
+function rootPaint(page: Page, name: string): Promise<Rgba> {
+  return page.evaluate((n) => {
+    const ctx = document.createElement("canvas").getContext("2d");
+    if (!ctx) throw new Error("no 2d canvas context");
+    ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+    ctx.fillRect(0, 0, 1, 1);
+    const [r, g, b, a] = ctx.getImageData(0, 0, 1, 1).data;
+    return { r: r ?? 0, g: g ?? 0, b: b ?? 0, a: (a ?? 0) / 255, css: n };
+  }, name);
+}
 
 test.describe("at the minimum window size", () => {
   test.use({ viewport: { width: 760, height: 520 } });
@@ -356,8 +367,8 @@ test.describe("the tokens", () => {
         }
         await page.mouse.move(1, 1);
 
-        // The sidebar (B v3): plain grey counts and the ⌘1–⌘4 hints on the item (the selected one's
-        // neutral fill, or none) over the translucent sidebar over the canvas; the section headings on it.
+        // The sidebar (B v3): grey counts (an alarm's in its ink, #42) and the ⌘1–⌘4 hints on the item (the
+        // selected one's neutral fill, or none) over the translucent sidebar over the canvas; the headings on it.
         const windowCanvas = await paintedColor(page.locator("main"), "backgroundColor");
         const sidebar = over(
           await paintedColor(page.getByRole("navigation", { name: "Views" }), "backgroundColor"),
@@ -379,6 +390,32 @@ test.describe("the tokens", () => {
           rgb(await paintedColor(navItem(page, "dev").locator("[data-count]"), "color")),
           "dev count paints --sidebar-ink-3",
         ).toEqual(await rootToken(page, "--sidebar-ink-3"));
+        // The alarm counts (#42, decision 2): above 0 and off, the item's ink, the sidebar's own
+        // (`sidebar-inks`), on the item's fill over the sidebar, at rest and hovered. The fixture has both above 0.
+        for (const [key, ink] of [
+          ["zombie", "--sidebar-orange-ink"],
+          ["public", "--sidebar-red-ink"],
+        ] as const) {
+          const count = navItem(page, key).locator("[data-count]");
+          expect(Number(await count.textContent()), `${key} count in the fixture`).toBeGreaterThan(0);
+          for (const state of ["at rest", "hovered"] as const) {
+            if (state === "hovered") await navItem(page, key).hover();
+            else await page.mouse.move(1, 1);
+            const fill = over(await paintedColor(navItem(page, key), "backgroundColor"), sidebar);
+            if (state === "hovered") {
+              const hover = over(await rootPaint(page, "--sidebar-hover"), sidebar);
+              expect(rgb(fill), `${key} hovered paints --sidebar-hover over the sidebar`).toEqual(rgb(hover));
+            }
+            const colour = await paintedColor(count, "color");
+            expect(rgb(colour), `${key} count paints ${ink}`).toEqual(await rootToken(page, ink));
+            const ratio = contrast(colour, fill);
+            console.log(`measured: ${scheme} ${key} count ${state} ${ratio.toFixed(2)}`);
+            expect(ratio, `${key} count ${state} is ${colour.css} on ${fill.css}`).toBeGreaterThanOrEqual(
+              4.5,
+            );
+          }
+        }
+        await page.mouse.move(1, 1);
         for (const key of ["all", "dev", "ai", "db"] as const) {
           await inItem(key, navItem(page, key).locator("[data-shortcut]"), `${key} ⌘ hint`);
         }
@@ -401,18 +438,43 @@ test.describe("the tokens", () => {
           4.5,
         );
 
-        // The selected row (B v3): its Kill is the surface with red ink (white in light), on the coral.
+        // The selected row (#42, decision 1): its Kill is white on the kill fill, on the coral, in both
+        // schemes; hovered, the darker kill fill. The label is measured as painted; the button against
+        // the row has no threshold (Keren accepts about 1.35:1: the label and the shape carry it).
         await row(page, 3000).click();
         await expect(row(page, 3000)).toHaveAttribute("aria-selected", "true");
-        await own(killButton(row(page, 3000)), "the selected row's Kill");
-        expect(
-          rgb(await paintedColor(killButton(row(page, 3000)), "color")),
-          "Kill paints --red-ink",
-        ).toEqual(await rootToken(page, "--red-ink"));
-        expect(
-          rgb(await paintedColor(killButton(row(page, 3000)), "backgroundColor")),
-          "Kill paints --surface",
-        ).toEqual(await rootToken(page, "--surface"));
+        await page.mouse.move(1, 1);
+        const selectedKill = killButton(row(page, 3000));
+        await own(selectedKill, "the selected row's Kill");
+        const killLabel = await paintedColor(selectedKill, "color");
+        const killFill = await paintedColor(selectedKill, "backgroundColor");
+        expect(rgb(killLabel), "Kill paints --on-kill-fill").toEqual(await rootToken(page, "--on-kill-fill"));
+        expect(rgb(killFill), "Kill paints --kill-fill").toEqual(await rootToken(page, "--kill-fill"));
+        const selFill = await paintedColor(row(page, 3000), "backgroundColor");
+        expect(rgb(selFill), "the selected row paints --sel-fill").toEqual(
+          await rootToken(page, "--sel-fill"),
+        );
+        console.log(
+          `measured: ${scheme} selected-row Kill label on its fill ${contrast(killLabel, killFill).toFixed(2)}`,
+        );
+        console.log(
+          `measured: ${scheme} selected-row Kill fill against the selected row ${contrast(killFill, selFill).toFixed(2)}`,
+        );
+        await selectedKill.hover();
+        await own(selectedKill, "the selected row's Kill, hovered");
+        const hoverLabel = await paintedColor(selectedKill, "color");
+        const hoverFill = await paintedColor(selectedKill, "backgroundColor");
+        expect(rgb(hoverFill), "hovered Kill paints --kill-fill-hover").toEqual(
+          await rootToken(page, "--kill-fill-hover"),
+        );
+        const hoverRatio = contrast(hoverLabel, hoverFill);
+        console.log(
+          `measured: ${scheme} selected-row Kill label on its hovered fill ${hoverRatio.toFixed(2)}`,
+        );
+        expect(hoverRatio, `hovered Kill is ${hoverLabel.css} on ${hoverFill.css}`).toBeGreaterThanOrEqual(
+          4.5,
+        );
+        await page.mouse.move(1, 1);
         await inItem("all", navItem(page, "all").locator("[data-count]"), "the active count");
         await own(killButton(inspector(page)), "the inspector's Kill");
       });
