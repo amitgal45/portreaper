@@ -17,13 +17,12 @@ notarized, and auto-updating.
 
 ## Why I built this
 
-Coding agents leave things running. When a Claude Code or Cursor session ends, its dev servers,
-MCP servers, Playwright browsers and test workers are often still there. Every time a port was
-taken I ran `lsof -i :3000`, then `kill`. The ones that hold no port never showed up in `lsof -i`
-at all. I wanted to see which project and branch each process belongs to, and free it
-in one keystroke. So I built PortReaper.
-
-<!-- Draft by Shimi from Amit's notes: Amit rewrites this in his own words. -->
+I kept hitting `EADDRINUSE` and doing the ritual: `lsof`, squint at a PID, `kill -9` and hope.
+Once I started running several Claude Code sessions on different worktrees of the same app, that
+stopped working. Three node processes on 3000, 3001 and 5173, and no way to tell which one was
+stale. Worse, the MCP servers and Playwright browsers the agents left behind hold no port at all,
+so `lsof -i` never showed them. I wanted to see which project and branch each process belongs to,
+and free it in one keystroke. So I built PortReaper.
 
 ## The instant flow
 
