@@ -1,3 +1,4 @@
+import { version } from "../../package.json";
 import {
   type Category,
   DEFAULT_SETTINGS,
@@ -15,6 +16,12 @@ import {
   type UpdateInfo,
   type WatchedPort,
 } from "../types";
+
+/**
+ * What the mock core answers for the app's version: package.json's, marked as the mock's. The
+ * README screenshots show it in the footer, so it must not read as an old release.
+ */
+export const MOCK_VERSION = `${version}-mock`;
 
 /**
  * A believable machine for building the UI in a plain browser (`pnpm dev`) and in tests, with no
@@ -493,7 +500,7 @@ export function createMockApi(seed: PortEntry[] = MOCK_ENTRIES): PortApi {
         return kill({ pid, force, startedAt: target.startedAt ?? listedAt });
       });
     },
-    appVersion: async () => "0.2.0-mock",
+    appVersion: async () => MOCK_VERSION,
     processTree: async (pid): Promise<ProcessNode[]> => {
       const e = entries.find((x) => x.pid === pid);
       if (!e) return [];

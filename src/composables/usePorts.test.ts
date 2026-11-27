@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { nextTick, ref } from "vue";
-import { createMockApi, MOCK_ENTRIES, MOCK_STDIO_ZOMBIES } from "../api/mock";
+import { createMockApi, MOCK_ENTRIES, MOCK_STDIO_ZOMBIES, MOCK_VERSION } from "../api/mock";
 import type { KillOutcome, PortApi, PortEntry, WatchedPort } from "../types";
 import { entryKey, groupEntries, matchesCategory, memoryOf, usePorts, watchKey } from "./usePorts";
 
@@ -31,7 +31,7 @@ describe("usePorts: loading and polling", () => {
     await vi.advanceTimersByTimeAsync(0);
     expect(store.loaded.value).toBe(true);
     expect(store.entries.value).toHaveLength(MOCK_ENTRIES.length);
-    expect(store.version.value).toBe("0.2.0-mock");
+    expect(store.version.value).toBe(MOCK_VERSION);
     expect(store.lastRefresh.value).not.toBeNull();
     store.stop();
   });

@@ -2,7 +2,7 @@ import { flushPromises, mount, type VueWrapper } from "@vue/test-utils";
 import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import App from "./App.vue";
 import { API_KEY } from "./api";
-import { createMockApi, MOCK_ENTRIES } from "./api/mock";
+import { createMockApi, MOCK_ENTRIES, MOCK_VERSION } from "./api/mock";
 import { INSPECTOR_COLUMN_MIN_WIDTH } from "./composables/useInspector";
 import { UNREAD_SETTINGS } from "./composables/useSettings";
 
@@ -52,7 +52,7 @@ describe("App", () => {
     expect(nav(wrapper, "public").text()).toContain("3");
     expect(wrapper.get("footer").text()).toContain(`${N} ports · 7 projects`);
     expect(wrapper.get("footer").text()).toMatch(/scan \d+ ms/);
-    expect(wrapper.text()).toContain("v0.2.0-mock");
+    expect(wrapper.text()).toContain(`v${MOCK_VERSION}`);
     expect(wrapper.get("[data-tile='zombies']").text()).toContain("zombies · 640 MB");
     expect(wrapper.get("[data-tile='public']").text()).toContain("3");
     // Nothing selected: no inspector column.
