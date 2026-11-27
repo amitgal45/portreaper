@@ -42,7 +42,7 @@ query, hides the strip.
 
 ![PortReaper: twelve listening ports grouped by project, the first one selected](docs/screenshot.png)
 
-*Mock data, from the browser build (`pnpm dev`), 1040×660. Regenerate with `pnpm screenshot`;
+*Mock data, from the browser build (`pnpm dev`), 1200×660. Regenerate with `pnpm screenshot`;
 `docs/screenshot-dark.png` is the same window in dark; `docs/screenshot-quick.png` is the ⌘⇧K strip.*
 
 - **Every listening port, classified.** TCP and UDP, IPv4 and IPv6 merged, each with the process
