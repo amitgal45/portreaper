@@ -40,7 +40,7 @@ query, hides the strip.
 
 ## What it does
 
-![PortReaper: eleven listening ports grouped by project, the first one selected](docs/screenshot.png)
+![PortReaper: twelve listening ports grouped by project, the first one selected](docs/screenshot.png)
 
 *Mock data, from the browser build (`pnpm dev`), 1040×660. Regenerate with `pnpm screenshot`;
 `docs/screenshot-dark.png` is the same window in dark; `docs/screenshot-quick.png` is the ⌘⇧K strip.*
