@@ -2,6 +2,7 @@ import { expect, type Locator, type Page, test } from "@playwright/test";
 import {
   killButton,
   MOCK_PORT_COUNT,
+  MOCK_VERSION,
   moreButton,
   navItem,
   open,
@@ -42,7 +43,7 @@ test("the sidebar's Settings item opens Preferences in the main column and shows
     "Killing",
     "About",
   ]);
-  await expect(view(page).locator("[data-version]")).toHaveText("PortReaper 0.2.0-mock");
+  await expect(view(page).locator("[data-version]")).toHaveText(`PortReaper ${MOCK_VERSION}`);
 
   // A category goes back to the Studio.
   await navItem(page, "all").click();

@@ -3,13 +3,15 @@ import { inspector, open, row } from "./helpers";
 
 /**
  * Not part of `pnpm e2e`: only the `screenshot` project runs this file (`pnpm screenshot`), on
- * WebKit at 2×, which is what the Tauri window is on a retina Mac. Mock data, at the window's
- * default size (tauri.conf.json: 1040×660 since WP-19). The Board follows the system scheme:
+ * WebKit at 2×, which is what the Tauri window is on a retina Mac. Mock data. The Board is shot at
+ * 1200×660, wider than the window's default (tauri.conf.json: 1040×660 since WP-19): with the
+ * inspector open the summary line needs 1160 px to stay on one row, and at 1040 its last item,
+ * "public on your Wi-Fi", drops to a second row alone. The Board follows the system scheme:
  * `screenshot.png` is the Studio in light with the inspector open on :3000, `screenshot-dark.png`
  * the same window in dark.
  */
 test.describe("the Board", () => {
-  test.use({ viewport: { width: 1040, height: 660 } });
+  test.use({ viewport: { width: 1200, height: 660 } });
 
   const boardShots = [
     { scheme: "light", path: "docs/screenshot.png" },

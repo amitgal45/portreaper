@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { expect, type Locator, type Page } from "@playwright/test";
 import type { CategoryFilter } from "../src/composables/usePorts";
 
@@ -7,6 +8,8 @@ import type { CategoryFilter } from "../src/composables/usePorts";
  * numbers in the specs change with it, in the same commit.
  */
 
+/** The version the mock core answers (`MOCK_VERSION` in `src/api/mock.ts`): package.json's, with "-mock". Playwright runs from the project root. */
+export const MOCK_VERSION = `${(JSON.parse(readFileSync("package.json", "utf8")) as { version: string }).version}-mock`;
 /** Entries in the mock core. */
 export const MOCK_PORT_COUNT = 12;
 /** Projects among them (the status line and the first card count these). */
