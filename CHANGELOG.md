@@ -5,6 +5,16 @@ section whose heading matches the tag (`v0.2.0` → `## 0.2.0`) into the GitHub 
 app shows it in its update dialog. Add a section for every release before tagging it
 (the recipe is in `CLAUDE.md`).
 
+## 0.6.0
+
+- **New look:** a native macOS skin in light and dark: new icons, a flat sidebar with plain
+  counts, one summary line where the four cards were, and an Inspector of flat sections.
+- **Port list:** shorter rows, a coral selected row, and Kill only on the selected row and the
+  one under the pointer or the keyboard focus.
+- **Readable:** every text clears WCAG AA (4.5:1), light and dark.
+- **⌘1–⌘4:** All ports, Dev servers, Local AI, Databases.
+- **Look only:** apart from ⌘1–⌘4, the app behaves as in 0.5.2.
+
 ## 0.5.2
 
 - **Safer kills:** before any signal, a kill checks that the pid is still the process you chose.
